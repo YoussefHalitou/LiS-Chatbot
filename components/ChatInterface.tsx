@@ -432,6 +432,9 @@ export default function ChatInterface() {
     }
 
     try {
+      // Set loading state immediately for better UX
+      setIsPlayingAudio(true)
+      
       // Call TTS API
       const response = await fetch('/api/tts', {
         method: 'POST',
@@ -453,6 +456,9 @@ export default function ChatInterface() {
       const audio = new Audio(audioUrl)
       audioRef.current = audio
 
+      // Preload the audio for faster playback
+      audio.preload = 'auto'
+      
       audio.onplay = () => setIsPlayingAudio(true)
       audio.onended = () => {
         setIsPlayingAudio(false)
@@ -474,12 +480,20 @@ export default function ChatInterface() {
         URL.revokeObjectURL(audioUrl)
         audioRef.current = null
       }
-
-      await audio.play()
+      
+      // Start playing immediately - browser will buffer if needed
+      await audio.play().catch((error) => {
+        console.error('Audio play error:', error)
+        setIsPlayingAudio(false)
+        audioRef.current = null
+        URL.revokeObjectURL(audioUrl)
+      })
     } catch (error) {
       console.error('TTS error:', error)
-      alert('Failed to play audio. Please try again.')
       setIsPlayingAudio(false)
+      if (!voiceOnlyMode) {
+        alert('Failed to play audio. Please try again.')
+      }
     }
   }
 
@@ -517,8 +531,13 @@ export default function ChatInterface() {
       silenceStartTimeRef.current = null // Reset silence timer
       
       const dataArray = new Uint8Array(analyser.fftSize)
-      const silenceThreshold = 15 // Lower threshold for time domain (amplitude-based)
       const silenceDuration = 2000 // 2 seconds of silence to auto-stop
+      
+      // Dynamic threshold: measure background noise first
+      let backgroundNoiseLevel = 0
+      let samplesCollected = 0
+      const calibrationSamples = 30 // Collect 30 samples (~0.5 seconds) to determine background
+      let hasDetectedSpeech = false // Track if we've detected any speech
       
       const monitorAudio = () => {
         if (!analyserRef.current || !voiceOnlyMode || !isRecording) {
@@ -541,28 +560,44 @@ export default function ChatInterface() {
         const normalizedLevel = Math.min(amplitude / 50, 1)
         setAudioLevel(normalizedLevel)
         
-        // Detect silence using amplitude threshold
-        if (amplitude < silenceThreshold) {
-          // Start or continue silence timer
-          if (silenceStartTimeRef.current === null) {
-            silenceStartTimeRef.current = Date.now()
-            setSilenceStartTime(silenceStartTimeRef.current)
-          } else {
-            const silenceDurationMs = Date.now() - silenceStartTimeRef.current
-            if (silenceDurationMs >= silenceDuration) {
-              // Auto-stop after silence
-              console.log('Auto-stopping recording due to silence')
-              stopRecording()
+        // Calibrate background noise level during first few samples
+        if (samplesCollected < calibrationSamples) {
+          backgroundNoiseLevel = (backgroundNoiseLevel * samplesCollected + amplitude) / (samplesCollected + 1)
+          samplesCollected++
+        } else {
+          // After calibration, use dynamic threshold (background noise + margin)
+          const dynamicThreshold = Math.max(backgroundNoiseLevel * 2.5, 8) // At least 8, or 2.5x background
+          
+          // Detect if speech is present (amplitude significantly above background)
+          if (amplitude > dynamicThreshold) {
+            hasDetectedSpeech = true
+            // Reset silence timer if audio detected
+            if (silenceStartTimeRef.current !== null) {
               silenceStartTimeRef.current = null
               setSilenceStartTime(null)
-              return // Exit monitoring
             }
-          }
-        } else {
-          // Reset silence timer if audio detected
-          if (silenceStartTimeRef.current !== null) {
-            silenceStartTimeRef.current = null
-            setSilenceStartTime(null)
+          } else if (hasDetectedSpeech) {
+            // Only start silence timer if we've detected speech before
+            // This prevents auto-stop before user even speaks
+            if (silenceStartTimeRef.current === null) {
+              silenceStartTimeRef.current = Date.now()
+              setSilenceStartTime(silenceStartTimeRef.current)
+            } else {
+              const silenceDurationMs = Date.now() - silenceStartTimeRef.current
+              if (silenceDurationMs >= silenceDuration) {
+                // Auto-stop after silence
+                console.log('Auto-stopping recording due to silence', {
+                  amplitude,
+                  threshold: dynamicThreshold,
+                  backgroundNoise: backgroundNoiseLevel,
+                  silenceDuration: silenceDurationMs
+                })
+                stopRecording()
+                silenceStartTimeRef.current = null
+                setSilenceStartTime(null)
+                return // Exit monitoring
+              }
+            }
           }
         }
         
@@ -735,8 +770,10 @@ export default function ChatInterface() {
 
       setMessages((prev) => [...prev, assistantMessage])
       
-      // Automatically play the response as audio
-      await speakText(assistantMessage.content)
+      // Automatically play the response as audio (don't await - start immediately)
+      speakText(assistantMessage.content).catch((error) => {
+        console.error('TTS error in voice-only mode:', error)
+      })
       
       // Wait for audio to finish, then restart recording
       // This is handled in the audio.onended callback
