@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { Mic, MicOff, Volume2, Send, Loader2, Copy, Check, Trash2 } from 'lucide-react'
+import { Mic, MicOff, Volume2, Send, Loader2, Copy, Check, Trash2, X } from 'lucide-react'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -16,11 +16,19 @@ export default function ChatInterface() {
   const [isRecording, setIsRecording] = useState(false)
   const [isPlayingAudio, setIsPlayingAudio] = useState(false)
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
+  const [voiceOnlyMode, setVoiceOnlyMode] = useState(false)
+  const [isProcessingVoice, setIsProcessingVoice] = useState(false)
+  const [audioLevel, setAudioLevel] = useState(0)
+  const [silenceStartTime, setSilenceStartTime] = useState<number | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const audioContextRef = useRef<AudioContext | null>(null)
+  const analyserRef = useRef<AnalyserNode | null>(null)
+  const animationFrameRef = useRef<number | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
 
   // Load chat history from localStorage on mount
   useEffect(() => {
@@ -248,6 +256,11 @@ export default function ChatInterface() {
       const mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
 
       audioChunksRef.current = []
+      
+      // Start audio monitoring for voice-only mode
+      if (voiceOnlyMode) {
+        startAudioMonitoring(stream)
+      }
 
       mediaRecorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) {
@@ -263,11 +276,24 @@ export default function ChatInterface() {
       }
 
       mediaRecorder.onstop = async () => {
+        // Stop audio monitoring
+        stopAudioMonitoring()
         stream.getTracks().forEach((track) => track.stop())
+        streamRef.current = null
 
         if (audioChunksRef.current.length === 0) {
           setIsRecording(false)
-          alert('No audio recorded. Please try again.')
+          if (!voiceOnlyMode) {
+            alert('No audio recorded. Please try again.')
+          }
+          // In voice-only mode, restart recording if no audio was captured
+          if (voiceOnlyMode) {
+            setTimeout(() => {
+              if (voiceOnlyMode && !isRecording) {
+                startRecording()
+              }
+            }, 500)
+          }
           return
         }
 
@@ -288,6 +314,7 @@ export default function ChatInterface() {
         }
 
         try {
+          setIsProcessingVoice(true)
           const formData = new FormData()
           formData.append('audio', audioBlob, `recording.${fileExtension}`)
 
@@ -303,9 +330,25 @@ export default function ChatInterface() {
 
           const data = await response.json()
           if (data.transcript) {
-            setInput(data.transcript)
+            // In voice-only mode, automatically send the message and get response
+            if (voiceOnlyMode) {
+              await handleVoiceOnlyMessage(data.transcript)
+            } else {
+              // Normal mode: just set the input
+              setInput(data.transcript)
+            }
           } else {
-            alert('No speech detected. Please try speaking again.')
+            if (!voiceOnlyMode) {
+              alert('No speech detected. Please try speaking again.')
+            }
+            // In voice-only mode, restart recording
+            if (voiceOnlyMode) {
+              setTimeout(() => {
+                if (voiceOnlyMode && !isRecording) {
+                  startRecording()
+                }
+              }, 500)
+            }
           }
         } catch (error) {
           console.error('STT error:', error)
@@ -323,9 +366,21 @@ export default function ChatInterface() {
             errorMsg += '\n\nOn mobile devices, please ensure:\n- You have a stable internet connection\n- The recording was clear and not too short\n- Try speaking louder or closer to the microphone'
           }
           
-          alert(errorMsg)
+          if (!voiceOnlyMode) {
+            alert(errorMsg)
+          }
+          
+          // In voice-only mode, restart recording after error
+          if (voiceOnlyMode) {
+            setTimeout(() => {
+              if (voiceOnlyMode && !isRecording) {
+                startRecording()
+              }
+            }, 1000)
+          }
         } finally {
           setIsRecording(false)
+          setIsProcessingVoice(false)
         }
       }
 
@@ -401,7 +456,17 @@ export default function ChatInterface() {
       audio.onended = () => {
         setIsPlayingAudio(false)
         URL.revokeObjectURL(audioUrl)
+        const wasVoiceOnly = voiceOnlyMode
         audioRef.current = null
+        
+        // In voice-only mode, restart recording after audio finishes
+        if (wasVoiceOnly && !isRecording && !isLoading) {
+          setTimeout(() => {
+            if (voiceOnlyMode && !isRecording && !isLoading) {
+              startRecording()
+            }
+          }, 500)
+        }
       }
       audio.onerror = () => {
         setIsPlayingAudio(false)
@@ -422,7 +487,87 @@ export default function ChatInterface() {
       audioRef.current.pause()
       audioRef.current = null
       setIsPlayingAudio(false)
+      
+      // In voice-only mode, restart recording after interrupting
+      if (voiceOnlyMode && !isRecording && !isLoading) {
+        setTimeout(() => {
+          if (voiceOnlyMode && !isRecording && !isLoading) {
+            startRecording()
+          }
+        }, 300)
+      }
     }
+  }
+
+  // Voice Activity Detection - monitor audio levels
+  const startAudioMonitoring = (stream: MediaStream) => {
+    try {
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const analyser = audioContext.createAnalyser()
+      const microphone = audioContext.createMediaStreamSource(stream)
+      
+      analyser.fftSize = 256
+      analyser.smoothingTimeConstant = 0.8
+      microphone.connect(analyser)
+      
+      audioContextRef.current = audioContext
+      analyserRef.current = analyser
+      streamRef.current = stream
+      
+      const dataArray = new Uint8Array(analyser.frequencyBinCount)
+      const silenceThreshold = 20 // Adjust based on testing
+      const silenceDuration = 2000 // 2 seconds of silence to auto-stop
+      
+      const monitorAudio = () => {
+        if (!analyserRef.current || !voiceOnlyMode) {
+          return
+        }
+        
+        analyserRef.current.getByteFrequencyData(dataArray)
+        const average = dataArray.reduce((a, b) => a + b) / dataArray.length
+        const normalizedLevel = Math.min(average / 100, 1) // Normalize to 0-1
+        setAudioLevel(normalizedLevel)
+        
+        // Detect silence
+        if (average < silenceThreshold) {
+          if (silenceStartTime === null) {
+            setSilenceStartTime(Date.now())
+          } else {
+            const silenceDurationMs = Date.now() - silenceStartTime
+            if (silenceDurationMs > silenceDuration && isRecording) {
+              // Auto-stop after silence
+              stopRecording()
+              setSilenceStartTime(null)
+            }
+          }
+        } else {
+          // Reset silence timer if audio detected
+          setSilenceStartTime(null)
+        }
+        
+        if (voiceOnlyMode && isRecording) {
+          animationFrameRef.current = requestAnimationFrame(monitorAudio)
+        }
+      }
+      
+      monitorAudio()
+    } catch (error) {
+      console.error('Error starting audio monitoring:', error)
+    }
+  }
+
+  const stopAudioMonitoring = () => {
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current)
+      animationFrameRef.current = null
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close()
+      audioContextRef.current = null
+    }
+    analyserRef.current = null
+    setAudioLevel(0)
+    setSilenceStartTime(null)
   }
 
   const copyToClipboard = async (text: string, index: number) => {
@@ -530,6 +675,84 @@ export default function ChatInterface() {
     }
   }, [input])
 
+  const handleVoiceOnlyMessage = async (transcript: string) => {
+    const userMessage: Message = {
+      role: 'user',
+      content: transcript,
+      timestamp: new Date(),
+    }
+
+    setMessages((prev) => [...prev, userMessage])
+    setIsLoading(true)
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          messages: [...messages, userMessage].map((m) => ({
+            role: m.role,
+            content: m.content,
+          })),
+        }),
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to get response')
+      }
+
+      const data = await response.json()
+      const assistantMessage: Message = {
+        role: 'assistant',
+        content: data.message.content,
+        timestamp: new Date(),
+      }
+
+      setMessages((prev) => [...prev, assistantMessage])
+      
+      // Automatically play the response as audio
+      await speakText(assistantMessage.content)
+      
+      // Wait for audio to finish, then restart recording
+      // This is handled in the audio.onended callback
+    } catch (error) {
+      console.error('Error sending message:', error)
+      const errorMessage: Message = {
+        role: 'assistant',
+        content: 'Sorry, I encountered an error. Please try again.',
+        timestamp: new Date(),
+      }
+      setMessages((prev) => [...prev, errorMessage])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const enterVoiceOnlyMode = async () => {
+    setVoiceOnlyMode(true)
+    // Start recording immediately
+    await startRecording()
+  }
+
+  const exitVoiceOnlyMode = () => {
+    setVoiceOnlyMode(false)
+    stopRecording()
+    stopSpeaking()
+    stopAudioMonitoring()
+  }
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      stopAudioMonitoring()
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop())
+      }
+    }
+  }, [])
+
   const playLastResponse = () => {
     const lastAssistantMessage = [...messages]
       .reverse()
@@ -543,32 +766,44 @@ export default function ChatInterface() {
   return (
     <div className="flex flex-col h-screen bg-white safe-area-inset">
       {/* Header - Mobile optimized */}
-      <div className="bg-white border-b border-gray-100 px-3 py-3 sm:px-4 sm:py-3 sticky top-0 z-10 safe-area-inset-top">
+      <div className={`${voiceOnlyMode ? 'bg-blue-600' : 'bg-white'} border-b ${voiceOnlyMode ? 'border-blue-700' : 'border-gray-100'} px-3 py-3 sm:px-4 sm:py-3 sticky top-0 z-10 safe-area-inset-top transition-colors`}>
         <div className="max-w-3xl mx-auto">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5 min-w-0 flex-1">
-              <div className="w-10 h-10 sm:w-10 sm:h-10 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-sm flex-shrink-0">
-                <span className="text-white font-bold text-sm sm:text-base">LiS</span>
+              <div className={`w-10 h-10 sm:w-10 sm:h-10 rounded-lg ${voiceOnlyMode ? 'bg-white' : 'bg-gradient-to-br from-blue-500 to-blue-600'} flex items-center justify-center shadow-sm flex-shrink-0`}>
+                <span className={`font-bold text-sm sm:text-base ${voiceOnlyMode ? 'text-blue-600' : 'text-white'}`}>LiS</span>
               </div>
               <div className="min-w-0 flex-1">
-                <h1 className="text-base sm:text-lg font-semibold text-gray-900 truncate">
-                  LiS Chatbot
+                <h1 className={`text-base sm:text-lg font-semibold truncate ${voiceOnlyMode ? 'text-white' : 'text-gray-900'}`}>
+                  {voiceOnlyMode ? 'Voice-Only Mode' : 'LiS Chatbot'}
                 </h1>
-                <p className="text-[11px] sm:text-xs text-gray-500 truncate">
-                  Ask questions with text or voice
+                <p className={`text-[11px] sm:text-xs truncate ${voiceOnlyMode ? 'text-blue-100' : 'text-gray-500'}`}>
+                  {voiceOnlyMode ? 'Speak to continue the conversation' : 'Ask questions with text or voice'}
                 </p>
               </div>
             </div>
-            {messages.length > 0 && (
-              <button
-                onClick={clearChat}
-                className="p-2.5 sm:p-2 rounded-lg text-gray-500 active:text-red-600 active:bg-red-50 transition-colors touch-manipulation flex-shrink-0 ml-2"
-                title="Clear chat history"
-                aria-label="Clear chat history"
-              >
-                <Trash2 className="h-5 w-5 sm:h-5 sm:w-5" />
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {voiceOnlyMode && (
+                <button
+                  onClick={exitVoiceOnlyMode}
+                  className="p-2.5 sm:p-2 rounded-lg text-white active:bg-blue-700 transition-colors touch-manipulation flex-shrink-0"
+                  title="Exit voice-only mode"
+                  aria-label="Exit voice-only mode"
+                >
+                  <X className="h-5 w-5 sm:h-5 sm:w-5" />
+                </button>
+              )}
+              {!voiceOnlyMode && messages.length > 0 && (
+                <button
+                  onClick={clearChat}
+                  className="p-2.5 sm:p-2 rounded-lg text-gray-500 active:text-red-600 active:bg-red-50 transition-colors touch-manipulation flex-shrink-0"
+                  title="Clear chat history"
+                  aria-label="Clear chat history"
+                >
+                  <Trash2 className="h-5 w-5 sm:h-5 sm:w-5" />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -656,79 +891,190 @@ export default function ChatInterface() {
       </div>
 
       {/* Input Area - Mobile optimized with larger touch targets */}
-      <div className="bg-white border-t border-gray-100 px-3 py-3 sm:px-4 sm:py-3 safe-area-inset-bottom">
-        <div className="max-w-3xl mx-auto">
-          <div className="flex items-end gap-2.5 sm:gap-2">
-            <div className="flex-1 relative">
-              <textarea
-                ref={textareaRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyPress={handleKeyPress}
-                placeholder="Type your message..."
-                className="w-full p-3 sm:p-3 pr-14 sm:pr-12 pb-10 sm:pb-8 border-2 border-gray-200 rounded-xl sm:rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900 placeholder-gray-400 text-[16px] sm:text-[15px] transition-all"
-                rows={1}
-                style={{ minHeight: '48px', maxHeight: '120px' }}
-              />
-              <div className="absolute bottom-2 right-3 sm:bottom-1.5 sm:right-2 flex items-center gap-2">
-                <span className="text-[11px] sm:text-xs text-gray-400">
-                  {input.length} / 2000
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2 sm:gap-1.5 flex-shrink-0">
-              <button
-                onClick={isRecording ? stopRecording : startRecording}
-                disabled={isLoading}
-                className={`p-3 sm:p-2.5 rounded-xl sm:rounded-lg transition-all duration-150 touch-manipulation active:scale-95 ${
-                  isRecording
-                    ? 'bg-red-500 text-white animate-pulse'
-                    : 'bg-gray-100 text-gray-700 active:bg-gray-200'
-                } disabled:opacity-50 disabled:cursor-not-allowed min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center`}
-                title={isRecording ? 'Stop recording' : 'Start voice input'}
-                aria-label={isRecording ? 'Stop recording' : 'Start voice input'}
-              >
-                {isRecording ? (
-                  <MicOff className="h-5 w-5 sm:h-5 sm:w-5" />
-                ) : (
-                  <Mic className="h-5 w-5 sm:h-5 sm:w-5" />
-                )}
-              </button>
-
-              {messages.length > 0 && (
-                <button
-                  onClick={isPlayingAudio ? stopSpeaking : playLastResponse}
-                  disabled={isLoading}
-                  className={`p-3 sm:p-2.5 rounded-xl sm:rounded-lg transition-all duration-150 touch-manipulation active:scale-95 ${
-                    isPlayingAudio
-                      ? 'bg-green-500 text-white'
-                      : 'bg-gray-100 text-gray-700 active:bg-gray-200'
-                  } disabled:opacity-50 disabled:cursor-not-allowed min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center`}
-                  title={isPlayingAudio ? 'Stop audio' : 'Play last response as audio'}
-                  aria-label={isPlayingAudio ? 'Stop audio' : 'Play last response as audio'}
-                >
-                  <Volume2 className="h-5 w-5 sm:h-5 sm:w-5" />
-                </button>
+      {voiceOnlyMode ? (
+        <div className="bg-blue-600 border-t border-blue-700 px-3 py-6 sm:px-4 sm:py-6 safe-area-inset-bottom">
+          <div className="max-w-3xl mx-auto">
+            <div className="flex flex-col items-center gap-4">
+              {isRecording ? (
+                <>
+                  {/* Audio Level Visualization */}
+                  <div className="relative w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-red-500 flex items-center justify-center shadow-lg overflow-hidden">
+                    <div 
+                      className="absolute inset-0 bg-red-600 transition-all duration-100"
+                      style={{ 
+                        transform: `scale(${0.7 + audioLevel * 0.3})`,
+                        opacity: 0.8 + audioLevel * 0.2
+                      }}
+                    />
+                    <MicOff className="h-10 w-10 sm:h-12 sm:w-12 text-white relative z-10" />
+                    {/* Audio level bars */}
+                    <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 flex gap-0.5">
+                      {[0, 1, 2, 3, 4].map((i) => (
+                        <div
+                          key={i}
+                          className={`w-1 h-2 sm:h-3 rounded-full transition-all duration-100 ${
+                            audioLevel > i * 0.2 ? 'bg-white' : 'bg-white/30'
+                          }`}
+                          style={{
+                            height: `${2 + audioLevel * 8}px`,
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-white text-lg sm:text-xl font-semibold mb-1">
+                      Listening...
+                    </p>
+                    <p className="text-blue-100 text-sm sm:text-base">
+                      {audioLevel > 0.1 ? 'Speak now' : 'Waiting for speech...'}
+                    </p>
+                    {silenceStartTime && (
+                      <p className="text-blue-200 text-xs mt-1">
+                        Auto-stopping in {Math.max(0, Math.ceil((2000 - (Date.now() - silenceStartTime)) / 1000))}s
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    onClick={stopRecording}
+                    className="px-6 py-3 bg-white text-red-600 rounded-xl font-semibold touch-manipulation active:scale-95 shadow-lg"
+                  >
+                    Stop Recording
+                  </button>
+                </>
+              ) : isProcessingVoice || isLoading ? (
+                <>
+                  <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-blue-500 flex items-center justify-center">
+                    <Loader2 className="h-10 w-10 sm:h-12 sm:w-12 text-white animate-spin" />
+                  </div>
+                  <div className="text-center">
+                    <p className="text-white text-lg sm:text-xl font-semibold mb-1">
+                      {isProcessingVoice ? 'Processing...' : 'Thinking...'}
+                    </p>
+                    <p className="text-blue-100 text-sm sm:text-base">
+                      {isProcessingVoice ? 'Transcribing your speech' : 'Getting response'}
+                    </p>
+                  </div>
+                </>
+              ) : isPlayingAudio ? (
+                <>
+                  <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-green-500 flex items-center justify-center animate-pulse shadow-lg">
+                    <Volume2 className="h-10 w-10 sm:h-12 sm:w-12 text-white" />
+                  </div>
+                  <div className="text-center">
+                    <p className="text-white text-lg sm:text-xl font-semibold mb-1">
+                      AI is speaking...
+                    </p>
+                    <p className="text-blue-100 text-sm sm:text-base mb-3">
+                      Listen to the response
+                    </p>
+                    <button
+                      onClick={stopSpeaking}
+                      className="px-6 py-3 bg-white text-green-600 rounded-xl font-semibold touch-manipulation active:scale-95 shadow-lg"
+                    >
+                      Interrupt & Speak
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-white flex items-center justify-center shadow-lg">
+                    <Mic className="h-10 w-10 sm:h-12 sm:w-12 text-blue-600" />
+                  </div>
+                  <div className="text-center">
+                    <p className="text-white text-lg sm:text-xl font-semibold mb-1">
+                      Ready to listen
+                    </p>
+                    <p className="text-blue-100 text-sm sm:text-base">
+                      Tap to start speaking
+                    </p>
+                  </div>
+                  <button
+                    onClick={startRecording}
+                    className="px-6 py-3 bg-white text-blue-600 rounded-xl font-semibold touch-manipulation active:scale-95 shadow-lg"
+                  >
+                    Start Speaking
+                  </button>
+                </>
               )}
-
-              <button
-                onClick={sendMessage}
-                disabled={!input.trim() || isLoading}
-                className="p-3 sm:p-2.5 bg-blue-600 active:bg-blue-700 text-white rounded-xl sm:rounded-lg transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation active:scale-95 shadow-sm active:shadow min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center"
-                title="Send message"
-                aria-label="Send message"
-              >
-                {isLoading ? (
-                  <Loader2 className="h-5 w-5 sm:h-5 sm:w-5 animate-spin" />
-                ) : (
-                  <Send className="h-5 w-5 sm:h-5 sm:w-5" />
-                )}
-              </button>
             </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="bg-white border-t border-gray-100 px-3 py-3 sm:px-4 sm:py-3 safe-area-inset-bottom">
+          <div className="max-w-3xl mx-auto">
+            <div className="flex items-end gap-2.5 sm:gap-2">
+              <div className="flex-1 relative">
+                <textarea
+                  ref={textareaRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  placeholder="Type your message..."
+                  className="w-full p-3 sm:p-3 pr-14 sm:pr-12 pb-10 sm:pb-8 border-2 border-gray-200 rounded-xl sm:rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900 placeholder-gray-400 text-[16px] sm:text-[15px] transition-all"
+                  rows={1}
+                  style={{ minHeight: '48px', maxHeight: '120px' }}
+                />
+                <div className="absolute bottom-2 right-3 sm:bottom-1.5 sm:right-2 flex items-center gap-2">
+                  <span className="text-[11px] sm:text-xs text-gray-400">
+                    {input.length} / 2000
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 sm:gap-1.5 flex-shrink-0">
+                <button
+                  onClick={isRecording ? stopRecording : enterVoiceOnlyMode}
+                  disabled={isLoading}
+                  className={`p-3 sm:p-2.5 rounded-xl sm:rounded-lg transition-all duration-150 touch-manipulation active:scale-95 ${
+                    isRecording
+                      ? 'bg-red-500 text-white animate-pulse'
+                      : 'bg-gray-100 text-gray-700 active:bg-gray-200'
+                  } disabled:opacity-50 disabled:cursor-not-allowed min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center`}
+                  title={isRecording ? 'Stop recording' : 'Enter voice-only mode'}
+                  aria-label={isRecording ? 'Stop recording' : 'Enter voice-only mode'}
+                >
+                  {isRecording ? (
+                    <MicOff className="h-5 w-5 sm:h-5 sm:w-5" />
+                  ) : (
+                    <Mic className="h-5 w-5 sm:h-5 sm:w-5" />
+                  )}
+                </button>
+
+                {messages.length > 0 && (
+                  <button
+                    onClick={isPlayingAudio ? stopSpeaking : playLastResponse}
+                    disabled={isLoading}
+                    className={`p-3 sm:p-2.5 rounded-xl sm:rounded-lg transition-all duration-150 touch-manipulation active:scale-95 ${
+                      isPlayingAudio
+                        ? 'bg-green-500 text-white'
+                        : 'bg-gray-100 text-gray-700 active:bg-gray-200'
+                    } disabled:opacity-50 disabled:cursor-not-allowed min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center`}
+                    title={isPlayingAudio ? 'Stop audio' : 'Play last response as audio'}
+                    aria-label={isPlayingAudio ? 'Stop audio' : 'Play last response as audio'}
+                  >
+                    <Volume2 className="h-5 w-5 sm:h-5 sm:w-5" />
+                  </button>
+                )}
+
+                <button
+                  onClick={sendMessage}
+                  disabled={!input.trim() || isLoading}
+                  className="p-3 sm:p-2.5 bg-blue-600 active:bg-blue-700 text-white rounded-xl sm:rounded-lg transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation active:scale-95 shadow-sm active:shadow min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center"
+                  title="Send message"
+                  aria-label="Send message"
+                >
+                  {isLoading ? (
+                    <Loader2 className="h-5 w-5 sm:h-5 sm:w-5 animate-spin" />
+                  ) : (
+                    <Send className="h-5 w-5 sm:h-5 sm:w-5" />
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
