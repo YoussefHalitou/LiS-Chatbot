@@ -431,6 +431,8 @@ export default function ChatInterface() {
       setIsPlayingAudio(false)
     }
 
+    let audioUrl: string | null = null
+
     try {
       // Set loading state immediately for better UX
       setIsPlayingAudio(true)
@@ -445,19 +447,33 @@ export default function ChatInterface() {
       })
 
       if (!response.ok) {
-        throw new Error('Failed to generate speech')
+        const errorText = await response.text().catch(() => 'Unknown error')
+        throw new Error(`Failed to generate speech: ${errorText}`)
       }
+
+      // Convert response to blob URL
+      const audioBlob = await response.blob()
+      audioUrl = URL.createObjectURL(audioBlob)
 
       // Create audio element immediately and start loading
       const audio = new Audio()
       audioRef.current = audio
       
+      // Store URL for cleanup
+      const urlToCleanup = audioUrl
+      
       // Set up event handlers before setting source
-      audio.onplay = () => setIsPlayingAudio(true)
+      audio.onplay = () => {
+        setIsPlayingAudio(true)
+      }
+      
       audio.onended = () => {
         setIsPlayingAudio(false)
         const wasVoiceOnly = voiceOnlyMode
         audioRef.current = null
+        if (urlToCleanup) {
+          URL.revokeObjectURL(urlToCleanup)
+        }
         
         // In voice-only mode, restart recording after audio finishes
         if (wasVoiceOnly && !isRecording && !isLoading) {
@@ -468,44 +484,89 @@ export default function ChatInterface() {
           }, 500)
         }
       }
-      audio.onerror = () => {
+      
+      audio.onerror = (e) => {
+        console.error('Audio playback error:', e, {
+          error: audio.error,
+          networkState: audio.networkState,
+          readyState: audio.readyState,
+          src: audio.src
+        })
         setIsPlayingAudio(false)
         audioRef.current = null
+        if (urlToCleanup) {
+          URL.revokeObjectURL(urlToCleanup)
+        }
+        // Don't show alert in voice-only mode to avoid interrupting flow
+        if (!voiceOnlyMode) {
+          alert('Failed to play audio. Please try again.')
+        }
       }
       
-      // Use response stream directly for faster playback
-      // Convert response to blob URL
-      const audioBlob = await response.blob()
-      const audioUrl = URL.createObjectURL(audioBlob)
+      // Set source and preload
       audio.src = audioUrl
-      
-      // Preload and play immediately
       audio.preload = 'auto'
+      // Ensure consistent playback speed (1.0 = normal speed)
+      audio.playbackRate = 1.0
       
-      // Start playing as soon as enough data is buffered
-      audio.addEventListener('canplay', () => {
-        audio.play().catch((error) => {
-          console.error('Audio play error:', error)
-          setIsPlayingAudio(false)
-          audioRef.current = null
-          URL.revokeObjectURL(audioUrl)
-        })
-      }, { once: true })
+      // Wait for audio to be ready, then play
+      const playAudio = async () => {
+        try {
+          await audio.play()
+        } catch (playError: any) {
+          // Handle play errors gracefully
+          if (playError.name === 'NotAllowedError') {
+            console.error('Audio play blocked by browser. User interaction may be required.')
+            setIsPlayingAudio(false)
+            audioRef.current = null
+            if (urlToCleanup) {
+              URL.revokeObjectURL(urlToCleanup)
+            }
+            if (!voiceOnlyMode) {
+              alert('Audio playback was blocked. Please interact with the page first.')
+            }
+          } else {
+            console.error('Audio play error:', playError)
+            // Try again when canplay fires
+            audio.addEventListener('canplay', async () => {
+              try {
+                await audio.play()
+              } catch (retryError) {
+                console.error('Audio play retry failed:', retryError)
+                setIsPlayingAudio(false)
+                audioRef.current = null
+                if (urlToCleanup) {
+                  URL.revokeObjectURL(urlToCleanup)
+                }
+              }
+            }, { once: true })
+          }
+        }
+      }
       
-      // Also try to play immediately (browser will buffer if needed)
-      audio.play().catch(() => {
-        // Ignore - will play when canplay fires
-      })
-      
-      // Clean up URL when done
-      audio.addEventListener('ended', () => {
-        URL.revokeObjectURL(audioUrl)
-      }, { once: true })
+      // Try to play immediately
+      if (audio.readyState >= 2) {
+        // HAVE_CURRENT_DATA or higher - can play
+        await playAudio()
+      } else {
+        // Wait for enough data
+        audio.addEventListener('canplay', playAudio, { once: true })
+        audio.addEventListener('canplaythrough', playAudio, { once: true })
+        // Also try after loadeddata
+        audio.addEventListener('loadeddata', playAudio, { once: true })
+      }
     } catch (error) {
       console.error('TTS error:', error)
       setIsPlayingAudio(false)
+      if (audioUrl) {
+        URL.revokeObjectURL(audioUrl)
+      }
+      if (audioRef.current) {
+        audioRef.current = null
+      }
+      // Don't show alert in voice-only mode
       if (!voiceOnlyMode) {
-        alert('Failed to play audio. Please try again.')
+        alert('Failed to generate or play audio. Please try again.')
       }
     }
   }

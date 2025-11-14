@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
           text: text,
           model_id: 'eleven_multilingual_v2', // Supports multiple languages including German
           voice_settings: {
-            stability: 0.5,
+            stability: 0.65, // Higher stability for more consistent speed and delivery
             similarity_boost: 0.75,
           },
         }),
