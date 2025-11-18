@@ -30,6 +30,7 @@ export default function ChatInterface() {
   const animationFrameRef = useRef<number | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const silenceStartTimeRef = useRef<number | null>(null)
+  const voiceOnlyModeRef = useRef<boolean>(false) // Use ref to track voice-only mode reliably
   const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
   // Load chat history from localStorage on mount
@@ -260,7 +261,7 @@ export default function ChatInterface() {
       audioChunksRef.current = []
       
       // Start audio monitoring for voice-only mode
-      if (voiceOnlyMode) {
+      if (voiceOnlyModeRef.current) {
         startAudioMonitoring(stream)
       }
 
@@ -288,13 +289,13 @@ export default function ChatInterface() {
         if (audioChunksRef.current.length === 0) {
           console.warn('[STT] No audio chunks recorded')
           setIsRecording(false)
-          if (!voiceOnlyMode) {
+          if (!voiceOnlyModeRef.current) {
             alert('Es wurde kein Audio aufgezeichnet. Bitte versuch es erneut.')
           }
           // In voice-only mode, restart recording if no audio was captured
-          if (voiceOnlyMode) {
+          if (voiceOnlyModeRef.current) {
             setTimeout(() => {
-              if (voiceOnlyMode && !isRecording) {
+              if (voiceOnlyModeRef.current && !isRecording) {
                 startRecording()
               }
             }, 500)
@@ -318,12 +319,12 @@ export default function ChatInterface() {
         if (audioBlob.size < 100) {
           console.warn('[STT] Audio blob too small, likely no audio captured')
           setIsRecording(false)
-          if (!voiceOnlyMode) {
+          if (!voiceOnlyModeRef.current) {
             alert('Die Aufnahme war zu kurz. Bitte versuch es erneut.')
           }
-          if (voiceOnlyMode) {
+          if (voiceOnlyModeRef.current) {
             setTimeout(() => {
-              if (voiceOnlyMode && !isRecording) {
+              if (voiceOnlyModeRef.current && !isRecording) {
                 startRecording()
               }
             }, 500)
@@ -380,20 +381,20 @@ export default function ChatInterface() {
           const data = await sttResponse.json()
           if (data.transcript) {
             // In voice-only mode, automatically send the message and get response
-            if (voiceOnlyMode) {
+            if (voiceOnlyModeRef.current) {
               await handleVoiceOnlyMessage(data.transcript)
             } else {
               // Normal mode: just set the input
               setInput(data.transcript)
             }
           } else {
-            if (!voiceOnlyMode) {
+            if (!voiceOnlyModeRef.current) {
               alert('Es wurde keine Sprache erkannt. Bitte sprich noch einmal.')
             }
             // In voice-only mode, restart recording
-            if (voiceOnlyMode) {
+            if (voiceOnlyModeRef.current) {
               setTimeout(() => {
-                if (voiceOnlyMode && !isRecording) {
+                if (voiceOnlyModeRef.current && !isRecording) {
                   startRecording()
                 }
               }, 500)
@@ -415,14 +416,14 @@ export default function ChatInterface() {
             errorMsg += '\n\nAuf mobilen Geräten gilt:\n- Stelle eine stabile Internetverbindung sicher\n- Die Aufnahme sollte klar und nicht zu kurz sein\n- Sprich lauter oder näher am Mikrofon'
           }
           
-          if (!voiceOnlyMode) {
+          if (!voiceOnlyModeRef.current) {
             alert(errorMsg)
           }
           
           // In voice-only mode, restart recording after error
-          if (voiceOnlyMode) {
+          if (voiceOnlyModeRef.current) {
             setTimeout(() => {
-              if (voiceOnlyMode && !isRecording) {
+              if (voiceOnlyModeRef.current && !isRecording) {
                 startRecording()
               }
             }, 1000)
@@ -558,16 +559,16 @@ export default function ChatInterface() {
       
       audio.onended = () => {
         setIsPlayingAudio(false)
-        const wasVoiceOnly = voiceOnlyMode
         audioRef.current = null
         if (urlToCleanup) {
           URL.revokeObjectURL(urlToCleanup)
         }
         
         // In voice-only mode, restart recording after audio finishes
-        if (wasVoiceOnly && !isRecording && !isLoading) {
+        // Use ref to get current state reliably
+        if (voiceOnlyModeRef.current && !isRecording && !isLoading) {
           setTimeout(() => {
-            if (voiceOnlyMode && !isRecording && !isLoading) {
+            if (voiceOnlyModeRef.current && !isRecording && !isLoading) {
               startRecording()
             }
           }, 500)
@@ -686,9 +687,9 @@ export default function ChatInterface() {
       setIsPlayingAudio(false)
       
       // In voice-only mode, restart recording after interrupting
-      if (voiceOnlyMode && !isRecording && !isLoading) {
+      if (voiceOnlyModeRef.current && !isRecording && !isLoading) {
         setTimeout(() => {
-          if (voiceOnlyMode && !isRecording && !isLoading) {
+          if (voiceOnlyModeRef.current && !isRecording && !isLoading) {
             startRecording()
           }
         }, 300)
@@ -722,7 +723,7 @@ export default function ChatInterface() {
       let hasDetectedSpeech = false // Track if we've detected any speech
       
       const monitorAudio = () => {
-        if (!analyserRef.current || !voiceOnlyMode || !isRecording) {
+        if (!analyserRef.current || !voiceOnlyModeRef.current || !isRecording) {
           return
         }
         
@@ -790,7 +791,7 @@ export default function ChatInterface() {
         }
         
         // Continue monitoring
-        if (voiceOnlyMode && isRecording) {
+        if (voiceOnlyModeRef.current && isRecording) {
           animationFrameRef.current = requestAnimationFrame(monitorAudio)
         }
       }
@@ -979,13 +980,17 @@ export default function ChatInterface() {
   }
 
   const enterVoiceOnlyMode = async () => {
+    console.log('[Voice Mode] Entering voice-only mode')
     setVoiceOnlyMode(true)
+    voiceOnlyModeRef.current = true // Sync ref immediately
     // Start recording immediately
     await startRecording()
   }
 
   const exitVoiceOnlyMode = () => {
+    console.log('[Voice Mode] Exiting voice-only mode')
     setVoiceOnlyMode(false)
+    voiceOnlyModeRef.current = false // Sync ref immediately - this stops the loop
     stopRecording()
     stopSpeaking()
     stopAudioMonitoring()
