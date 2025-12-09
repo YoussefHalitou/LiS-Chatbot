@@ -2,6 +2,8 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { Mic, MicOff, Volume2, Send, Loader2, Copy, Check, Trash2, X } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -1115,12 +1117,87 @@ export default function ChatInterface() {
                 }`}
               >
                 <div className="flex items-start justify-between gap-2.5">
-                  <p className="whitespace-pre-wrap text-[15px] sm:text-[15px] leading-relaxed flex-1 break-words">
-                    {message.content}
-                  </p>
+                  <div className="text-[15px] sm:text-[15px] leading-relaxed flex-1 break-words">
+                    {message.role === 'user' ? (
+                      <p className="whitespace-pre-wrap">{message.content}</p>
+                    ) : (
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        className="markdown-content"
+                        components={{
+                          // Headings
+                          h1: ({ node, ...props }) => <h1 className="text-xl font-bold mt-4 mb-2" {...props} />,
+                          h2: ({ node, ...props }) => <h2 className="text-lg font-bold mt-3 mb-2" {...props} />,
+                          h3: ({ node, ...props }) => <h3 className="text-base font-bold mt-2 mb-1" {...props} />,
+                          
+                          // Paragraphs
+                          p: ({ node, ...props }) => <p className="mb-2 last:mb-0" {...props} />,
+                          
+                          // Lists
+                          ul: ({ node, ...props }) => <ul className="list-disc list-outside ml-4 mb-2 space-y-1" {...props} />,
+                          ol: ({ node, ...props }) => <ol className="list-decimal list-outside ml-4 mb-2 space-y-1" {...props} />,
+                          li: ({ node, ...props }) => <li className="pl-1" {...props} />,
+                          
+                          // Code
+                          code: ({ node, inline, className, children, ...props }: any) => {
+                            return inline ? (
+                              <code className="bg-gray-100 text-gray-800 px-1.5 py-0.5 rounded text-sm font-mono" {...props}>
+                                {children}
+                              </code>
+                            ) : (
+                              <code className="block bg-gray-100 text-gray-800 p-3 rounded-lg text-sm font-mono overflow-x-auto my-2" {...props}>
+                                {children}
+                              </code>
+                            )
+                          },
+                          pre: ({ node, ...props }) => <pre className="my-2" {...props} />,
+                          
+                          // Links
+                          a: ({ node, ...props }) => (
+                            <a 
+                              className="text-blue-600 hover:text-blue-800 underline" 
+                              target="_blank" 
+                              rel="noopener noreferrer" 
+                              {...props} 
+                            />
+                          ),
+                          
+                          // Tables
+                          table: ({ node, ...props }) => (
+                            <div className="overflow-x-auto my-2">
+                              <table className="min-w-full border-collapse border border-gray-300" {...props} />
+                            </div>
+                          ),
+                          thead: ({ node, ...props }) => <thead className="bg-gray-50" {...props} />,
+                          tbody: ({ node, ...props }) => <tbody {...props} />,
+                          tr: ({ node, ...props }) => <tr className="border-b border-gray-200" {...props} />,
+                          th: ({ node, ...props }) => (
+                            <th className="border border-gray-300 px-3 py-2 text-left font-semibold" {...props} />
+                          ),
+                          td: ({ node, ...props }) => (
+                            <td className="border border-gray-300 px-3 py-2" {...props} />
+                          ),
+                          
+                          // Blockquotes
+                          blockquote: ({ node, ...props }) => (
+                            <blockquote className="border-l-4 border-gray-300 pl-4 py-1 my-2 italic text-gray-700" {...props} />
+                          ),
+                          
+                          // Strong & Em
+                          strong: ({ node, ...props }) => <strong className="font-bold" {...props} />,
+                          em: ({ node, ...props }) => <em className="italic" {...props} />,
+                          
+                          // Horizontal Rule
+                          hr: ({ node, ...props }) => <hr className="my-3 border-t border-gray-300" {...props} />,
+                        }}
+                      >
+                        {message.content}
+                      </ReactMarkdown>
+                    )}
+                  </div>
                   <button
                     onClick={() => copyToClipboard(message.content, index)}
-                    className={`opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity p-2 sm:p-1 rounded-lg touch-manipulation active:scale-95 ${
+                    className={`opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity p-2 sm:p-1 rounded-lg touch-manipulation active:scale-95 flex-shrink-0 ${
                       message.role === 'user'
                         ? 'active:bg-blue-700 text-white'
                         : 'active:bg-gray-100 text-gray-600'
