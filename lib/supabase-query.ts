@@ -468,12 +468,11 @@ export async function queryTableWithJoin(
 }
 
 /**
- * Get projects with assigned staff members (always returns employee names, never IDs)
- * This function ensures consistent results with proper JOINs
+ * Get projects with assigned staff members using PostgreSQL RPC function
+ * This ensures consistent results with guaranteed correct JOINs and employee names (never IDs)
  */
 export async function getProjectsWithStaff(filters?: {
   plan_date?: string
-  project_id?: string
   project_name?: string
 }) {
   try {
@@ -481,72 +480,43 @@ export async function getProjectsWithStaff(filters?: {
       return { data: null, error: 'Supabase admin client not initialized' }
     }
 
-    // Build query with proper JOINs (simplified syntax)
-    let query = supabaseAdmin
-      .from('t_morningplan')
-      .select(`
-        *,
-        t_projects(project_id, project_code, name, ort, dienstleistungen, notes),
-        t_vehicles(vehicle_id, name),
-        t_morningplan_staff(role, individual_start_time, member_notes, t_employees(employee_id, name, role, contract_type))
-      `)
-
-    // Apply filters
-    if (filters?.plan_date) {
-      query = query.eq('plan_date', filters.plan_date)
-    }
-    if (filters?.project_id) {
-      query = query.eq('project_id', filters.project_id)
-    }
-    // Note: For project_name filter, we'll filter in post-processing
-    // because Supabase doesn't support filtering on joined table columns directly in this syntax
-
-    const { data, error } = await query
+    // Call the PostgreSQL RPC function
+    const { data, error } = await supabaseAdmin.rpc('get_projects_with_staff', {
+      filter_plan_date: filters?.plan_date || null,
+      filter_project_name: filters?.project_name || null,
+    })
 
     if (error) {
+      console.error('[getProjectsWithStaff] RPC error:', error)
       return { data: null, error: error.message }
     }
 
-    // Filter by project name if needed (post-processing)
-    let filteredData = data
-    if (filters?.project_name && data) {
-      filteredData = data.filter((plan: any) => 
-        plan.t_projects?.name?.toLowerCase().includes(filters.project_name!.toLowerCase())
-      )
-    }
-
-    // Transform data into a more readable format
-    const transformed = filteredData?.map((plan: any) => ({
-      plan_id: plan.plan_id,
-      date: plan.plan_date,
-      start_time: plan.start_time,
-      service_type: plan.service_type,
+    // Transform the data into a more user-friendly format
+    const transformed = data?.map((row: any) => ({
+      plan_id: row.plan_id,
+      date: row.plan_date,
+      start_time: row.start_time,
+      service_type: row.service_type,
+      plan_notes: row.plan_notes,
       project: {
-        id: plan.t_projects.project_id,
-        code: plan.t_projects.project_code,
-        name: plan.t_projects.name,
-        location: plan.t_projects.ort,
-        services: plan.t_projects.dienstleistungen,
-        notes: plan.t_projects.notes,
+        id: row.project_id,
+        code: row.project_code,
+        name: row.project_name,
+        location: row.project_location,
+        services: row.project_services,
+        notes: row.project_notes,
       },
-      vehicle: plan.t_vehicles ? {
-        id: plan.t_vehicles.vehicle_id,
-        name: plan.t_vehicles.name,
+      vehicle: row.vehicle_id ? {
+        id: row.vehicle_id,
+        name: row.vehicle_name,
       } : null,
-      staff: plan.t_morningplan_staff?.map((staff: any) => ({
-        employee_id: staff.t_employees.employee_id,
-        employee_name: staff.t_employees.name, // ALWAYS return name, never just ID
-        role: staff.role,
-        employee_role: staff.t_employees.role,
-        contract_type: staff.t_employees.contract_type,
-        start_time: staff.individual_start_time || plan.start_time,
-        notes: staff.member_notes,
-      })) || [],
-      notes: plan.notes,
+      staff: row.staff || [], // Already formatted by the RPC function
     }))
 
+    console.log(`[getProjectsWithStaff] Found ${transformed?.length || 0} plans with staff`)
     return { data: transformed, error: null }
   } catch (err) {
+    console.error('[getProjectsWithStaff] Exception:', err)
     return {
       data: null,
       error: err instanceof Error ? err.message : 'Failed to get projects with staff'

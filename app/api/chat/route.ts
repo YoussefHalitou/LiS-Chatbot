@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
-import { queryTable, getTableNames, getTableStructure, queryTableWithJoin } from '@/lib/supabase-query'
+import { queryTable, getTableNames, getTableStructure, queryTableWithJoin, getProjectsWithStaff } from '@/lib/supabase-query'
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -170,16 +170,20 @@ Rules:
      - If multiple projects match (e.g., multiple "Umzug" on same date), say so and ask which one.
      - Do NOT guess or pick randomly.
 
-7. **CRITICAL: Complex Queries with JOINs:**
-   - For queries about "Projekte mit Mitarbeitern", "Welche Mitarbeiter sind eingeplant", use queryTableWithJoin
-   - **Required approach:**
-     1. First: Query t_morningplan with queryTable to get plan_ids for the date
-     2. Then: Use queryTableWithJoin to join t_morningplan_staff → t_employees
-     3. ALWAYS use queryTableWithJoin to get employee NAMES from IDs
-   - **Example flow for "Projekte am 10.12.2025 mit Mitarbeitern":**
-     Step 1: queryTable('t_morningplan', {plan_date: '2025-12-10'})
-     Step 2: For each plan, queryTableWithJoin('t_morningplan_staff', 't_employees') 
-   - **NEVER show UUIDs/IDs to users - always resolve to names using queryTableWithJoin**
+7. **CRITICAL: Use getProjectsWithStaff for Complex Queries:**
+   - For ANY query about "Projekte mit Mitarbeitern", "Welche Mitarbeiter sind eingeplant", "Einsätze":
+     **ALWAYS use the getProjectsWithStaff() function**
+   - This is a specialized PostgreSQL RPC function that:
+     * GUARANTEES correct multi-table JOINs
+     * ALWAYS returns employee NAMES (never UUIDs/IDs)
+     * Returns complete data in one call (projects + staff + vehicles)
+     * Is fast and reliable
+   - **Usage examples:**
+     * "Projekte am 10.12.2025 mit Mitarbeitern" → getProjectsWithStaff({plan_date: "2025-12-10"})
+     * "Mitarbeiter für Projekt Stojkovic" → getProjectsWithStaff({project_name: "Stojkovic"})
+     * "Alle Einsätze heute" → getProjectsWithStaff({plan_date: "2025-12-10"})
+   - **DO NOT use queryTableWithJoin for these queries - it doesn't handle the complexity properly**
+   - **NEVER show UUIDs to users - getProjectsWithStaff already returns names**
 
 --------------------------------------------------
 ANSWER STYLE
@@ -420,6 +424,27 @@ export async function POST(req: NextRequest) {
             },
           },
         },
+        {
+          type: 'function',
+          function: {
+            name: 'getProjectsWithStaff',
+            description: 'SPECIALIZED FUNCTION: Get projects from MorningPlan with assigned staff members. ALWAYS use this function for ANY query about "Projekte mit Mitarbeitern", "Welche Mitarbeiter sind eingeplant", "Einsätze", etc. This function uses a PostgreSQL RPC that GUARANTEES correct JOINs and ALWAYS returns employee names (never IDs). Returns complete data: project details, vehicle, and staff with names.',
+            parameters: {
+              type: 'object',
+              properties: {
+                plan_date: {
+                  type: 'string',
+                  description: 'Optional: Filter by date in YYYY-MM-DD format (e.g., "2025-12-10"). Use for "am 10.12.2025", "heute", etc.',
+                },
+                project_name: {
+                  type: 'string',
+                  description: 'Optional: Filter by project name (partial match, case-insensitive). Use for "Projekt Stojkovic", "LIS Verkehr", etc.',
+                },
+              },
+              required: [],
+            },
+          },
+        },
       ],
       tool_choice: 'auto',
       temperature: 0.3, // Lower temperature to reduce hallucinations and be more factual
@@ -500,6 +525,12 @@ export async function POST(req: NextRequest) {
           functionResult = result
         } else if (functionName === 'getTableStructure') {
           const result = await getTableStructure(functionArgs.tableName)
+          functionResult = result
+        } else if (functionName === 'getProjectsWithStaff') {
+          const result = await getProjectsWithStaff({
+            plan_date: functionArgs.plan_date,
+            project_name: functionArgs.project_name,
+          })
           functionResult = result
         } else {
           functionResult = { error: `Unknown function: ${functionName}` }
