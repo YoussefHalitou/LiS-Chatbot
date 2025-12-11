@@ -2,6 +2,53 @@ import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { queryTable, getTableNames, getTableStructure, queryTableWithJoin } from '@/lib/supabase-query'
 
+/**
+ * Get current date and time in Berlin timezone
+ */
+function getCurrentDateTime() {
+  const now = new Date()
+  
+  // Convert to Berlin time (Europe/Berlin)
+  const berlinTime = new Intl.DateTimeFormat('de-DE', {
+    timeZone: 'Europe/Berlin',
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).format(now)
+  
+  // Also get ISO date for easy parsing
+  const berlinDate = new Intl.DateTimeFormat('de-DE', {
+    timeZone: 'Europe/Berlin',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now)
+  
+  const berlinTimeOnly = new Intl.DateTimeFormat('de-DE', {
+    timeZone: 'Europe/Berlin',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(now)
+  
+  // Get day of week in German
+  const dayOfWeek = new Intl.DateTimeFormat('de-DE', {
+    timeZone: 'Europe/Berlin',
+    weekday: 'long',
+  }).format(now)
+  
+  return {
+    fullDateTime: berlinTime,
+    date: berlinDate, // DD.MM.YYYY
+    time: berlinTimeOnly, // HH:MM
+    dayOfWeek: dayOfWeek,
+    isoDate: now.toISOString().split('T')[0], // YYYY-MM-DD for SQL queries
+  }
+}
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 })
@@ -158,13 +205,26 @@ Rules:
      - Versuche z.B. contract_type IN ('intern', 'Intern', 'Fest') oder filtern nach is_active = true.
      - Wenn unklar, sag kurz dazu, welche Annahme du verwendet hast.
    - "Aktive Mitarbeiter" → is_active = true.
-   - **"Heute" / "Welchen Tag haben wir":**
-     - DO NOT invent or hardcode dates like "1. November 2023"
-     - Instead, infer from the data context (e.g., "based on recent project dates, today appears to be around [DATE]")
-     - Or say: "Ich kann das aktuelle Datum nicht direkt abrufen, aber basierend auf den Projektdaten..."
-     - When user asks "Welchen Tag haben wir heute?", be honest: "Ich habe keinen direkten Zugriff auf das aktuelle Systemdatum, aber ich kann dir Daten basierend auf den Projektdaten zeigen."
-   - "Diese Woche" → Wochenspanne auf denselben Datumsfeldern (z.B. Montag bis Sonntag).
-   - "Letzte X Tage/Wochen" → Zeitintervalle mit date ranges.
+  - **"Heute" / "Welchen Tag haben wir" / "Was steht heute an":**
+    - **ALWAYS call getCurrentDateTime() FIRST** to get the current date and time in Berlin timezone!
+    - Use the isoDate field (YYYY-MM-DD format) from getCurrentDateTime() for SQL queries
+    - Example: User asks "Was steht heute an?" → getCurrentDateTime() → query v_morningplan_full with plan_date = isoDate
+    - **Always mention the current date** in your response (e.g., "Heute ist Montag, der 10. Dezember 2025. Hier sind die Projekte...")
+  - **"Morgen" / "tomorrow":**
+    - Call getCurrentDateTime() to get today's date, then add 1 day
+    - Example: "Morgen (11.12.2025) sind folgende Projekte geplant..."
+  - **"Gestern" / "Vorgestern":**
+    - Call getCurrentDateTime(), then subtract 1 or 2 days
+  - **"Diese Woche" / "Nächste Woche":**
+    - Call getCurrentDateTime() to get current date and day of week
+    - Calculate Monday to Sunday of the requested week
+    - Query with date range (e.g., plan_date BETWEEN '2025-12-09' AND '2025-12-15')
+  - The getCurrentDateTime() function returns:
+    * fullDateTime: Complete date/time in German (e.g., "Montag, 10. Dezember 2025, 15:30:00")
+    * date: Date in DD.MM.YYYY format
+    * time: Time in HH:MM format  
+    * dayOfWeek: Day name in German (e.g., "Montag")
+    * isoDate: Date in YYYY-MM-DD format (USE THIS FOR SQL QUERIES!)
 
 4. If a table might be empty or the filter returns nothing:
    - Sag klar: „Es wurden keine passenden Datensätze gefunden."
@@ -447,6 +507,18 @@ export async function POST(req: NextRequest) {
             },
           },
         },
+        {
+          type: 'function',
+          function: {
+            name: 'getCurrentDateTime',
+            description: 'Get the current date and time in Berlin timezone (Europe/Berlin). Use this to answer questions about "heute" (today), "morgen" (tomorrow), "gestern" (yesterday), "diese Woche" (this week), etc. Returns date in multiple formats for easy use in queries.',
+            parameters: {
+              type: 'object',
+              properties: {},
+              required: [],
+            },
+          },
+        },
       ],
       tool_choice: 'auto',
       temperature: 0.3, // Lower temperature to reduce hallucinations and be more factual
@@ -528,6 +600,8 @@ export async function POST(req: NextRequest) {
         } else if (functionName === 'getTableStructure') {
           const result = await getTableStructure(functionArgs.tableName)
           functionResult = result
+        } else if (functionName === 'getCurrentDateTime') {
+          functionResult = getCurrentDateTime()
         } else {
           functionResult = { error: `Unknown function: ${functionName}` }
         }
