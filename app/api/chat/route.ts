@@ -276,14 +276,22 @@ When answering:
 
 1. Always in **German**, freundlich und praxisnah.
 
-2. Structure answers roughly like:
+2. **CRITICAL: NO ANNOUNCEMENTS!**
+   - ❌ VERBOTEN: "Ich schaue nach...", "Einen Moment bitte...", "Ich werde die Datenbank abfragen..."
+   - ❌ VERBOTEN: "Ich rufe jetzt die Daten ab...", "Ich prüfe das für dich..."
+   - ❌ VERBOTEN: Jede Art von "Ich werde...", "Ich schaue...", "Moment..."
+   - ✅ RICHTIG: Direkt die Antwort geben, OHNE vorher anzukündigen was du tust!
+   - Wenn du Tools aufrufst, sag NICHTS - warte auf das Ergebnis und antworte dann direkt.
+   - Der User will ERGEBNISSE, keine Statusmeldungen!
+
+3. Structure answers roughly like:
    - 1–3 Sätze direkte Antwort auf die Frage.
    - Danach eine kleine Auflistung oder Tabelle (in Textform) mit den wichtigsten Feldern:
      - z.B. bei Mitarbeitern: Name, Rolle, contract_type, hourly_rate
      - bei MorningPlan: Datum, Projekt, Fahrzeug, Mitarbeiter
      - bei Projekten: project_code, name, ort, status, project_date
 
-3. If the question was vague, explain kurz, welche Annahmen du getroffen hast:
+4. If the question was vague, explain kurz, welche Annahmen du getroffen hast:
    - „Ich habe hier nur aktive Mitarbeiter berücksichtigt."
    - „Ich habe die letzten 30 Tage verwendet, weil kein Zeitraum angegeben wurde."
 
@@ -531,17 +539,54 @@ export async function POST(req: NextRequest) {
       async start(controller) {
         try {
           let fullContent = ''
+          let pendingContent: string[] = [] // Buffer content until we know if there are tool calls
           let toolCalls: any[] = []
           let currentToolCall: any = null
+          let hasToolCalls = false // Track if we have tool calls
+          let contentFlushed = false // Track if we've started streaming content
 
           // Process the stream
           for await (const chunk of completion) {
             const delta = chunk.choices[0]?.delta
+            const finishReason = chunk.choices[0]?.finish_reason
+
+            // Handle tool calls detection
+            if (delta?.tool_calls) {
+              hasToolCalls = true
+              // Clear pending content - it was just an announcement
+              pendingContent = []
+            }
 
             // Handle content
             if (delta?.content) {
               fullContent += delta.content
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'content', content: delta.content })}\n\n`))
+              
+              if (hasToolCalls) {
+                // If we already know there are tool calls, don't buffer or stream
+                // This content is just announcement text
+              } else {
+                // Buffer content until we know if there are tool calls
+                pendingContent.push(delta.content)
+                
+                // After a reasonable amount of content, start streaming if no tool calls yet
+                // This prevents waiting too long for direct responses
+                if (pendingContent.length > 20 && !hasToolCalls) {
+                  // Flush all pending content
+                  for (const content of pendingContent) {
+                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'content', content })}\n\n`))
+                  }
+                  pendingContent = []
+                  contentFlushed = true
+                }
+              }
+            }
+
+            // If we finished without tool calls, flush any remaining content
+            if (finishReason === 'stop' && !hasToolCalls && pendingContent.length > 0) {
+              for (const content of pendingContent) {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'content', content })}\n\n`))
+              }
+              pendingContent = []
             }
 
             // Handle tool calls
