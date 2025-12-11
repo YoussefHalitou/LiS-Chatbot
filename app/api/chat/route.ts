@@ -539,13 +539,12 @@ export async function POST(req: NextRequest) {
       async start(controller) {
         try {
           let fullContent = ''
-          let pendingContent: string[] = [] // Buffer content until we know if there are tool calls
+          let pendingContent: string[] = [] // Buffer ALL content until stream ends
           let toolCalls: any[] = []
           let currentToolCall: any = null
           let hasToolCalls = false // Track if we have tool calls
-          let contentFlushed = false // Track if we've started streaming content
 
-          // Process the stream
+          // Process the stream - collect everything first, decide what to stream at the end
           for await (const chunk of completion) {
             const delta = chunk.choices[0]?.delta
             const finishReason = chunk.choices[0]?.finish_reason
@@ -553,39 +552,24 @@ export async function POST(req: NextRequest) {
             // Handle tool calls detection
             if (delta?.tool_calls) {
               hasToolCalls = true
-              // Clear pending content - it was just an announcement
-              pendingContent = []
             }
 
-            // Handle content
+            // Handle content - buffer it, don't stream yet
             if (delta?.content) {
               fullContent += delta.content
-              
-              if (hasToolCalls) {
-                // If we already know there are tool calls, don't buffer or stream
-                // This content is just announcement text
-              } else {
-                // Buffer content until we know if there are tool calls
-                pendingContent.push(delta.content)
-                
-                // After a reasonable amount of content, start streaming if no tool calls yet
-                // This prevents waiting too long for direct responses
-                if (pendingContent.length > 20 && !hasToolCalls) {
-                  // Flush all pending content
-                  for (const content of pendingContent) {
-                    controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'content', content })}\n\n`))
-                  }
-                  pendingContent = []
-                  contentFlushed = true
-                }
-              }
+              pendingContent.push(delta.content)
             }
 
-            // If we finished without tool calls, flush any remaining content
-            if (finishReason === 'stop' && !hasToolCalls && pendingContent.length > 0) {
+            // At the end of the stream, decide what to do
+            if (finishReason === 'stop' && !hasToolCalls) {
+              // No tool calls - this is a direct response, stream it now
               for (const content of pendingContent) {
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'content', content })}\n\n`))
               }
+              pendingContent = []
+            } else if (finishReason === 'tool_calls') {
+              // Tool calls detected - discard the announcement content
+              // The actual response will come from the follow-up call
               pendingContent = []
             }
 
