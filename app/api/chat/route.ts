@@ -161,7 +161,7 @@ Rules:
   - **"Heute" / "Welchen Tag haben wir":**
     - Nutze die bereitgestellte Systemzeit (siehe unten), um Datum/Uhrzeit direkt zu nennen.
     - Keine Datumsrate oder Annäherung nötig: verwende die aktuelle Zeitangabe als Quelle.
-  - "Diese Woche" → Wochenspanne auf denselben Datumsfeldern (z.B. Montag bis Sonntag).
+  - "Diese Woche" / "diese Kalenderwoche" → **immer** Wochenspanne Montag–Sonntag auf denselben Datumsfeldern (Berlin-Zeit) und nur Datensätze innerhalb dieses Bereichs zurückgeben.
   - "Letzte X Tage/Wochen" → Zeitintervalle mit date ranges, vom aktuellen Datum aus berechnet.
 
 4. If a table might be empty or the filter returns nothing:
@@ -329,6 +329,27 @@ export async function POST(req: NextRequest) {
       second: '2-digit',
     }).format(now)
 
+    const berlinIsoDateForCalc = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Berlin',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(now)
+
+    const [year, month, day] = berlinIsoDateForCalc.split('-').map(Number)
+    const berlinDateUtc = new Date(Date.UTC(year, month - 1, day))
+    const dayOfWeek = berlinDateUtc.getUTCDay()
+    const daysSinceMonday = (dayOfWeek + 6) % 7
+
+    const weekStart = new Date(berlinDateUtc)
+    weekStart.setUTCDate(berlinDateUtc.getUTCDate() - daysSinceMonday)
+
+    const weekEnd = new Date(weekStart)
+    weekEnd.setUTCDate(weekStart.getUTCDate() + 6)
+
+    const formatIsoDate = (date: Date) => date.toISOString().slice(0, 10)
+    const berlinWeekRange = `${formatIsoDate(weekStart)} bis ${formatIsoDate(weekEnd)}`
+
     const berlinIsoDate = new Intl.DateTimeFormat('sv-SE', {
       timeZone: 'Europe/Berlin',
       year: 'numeric',
@@ -359,7 +380,7 @@ export async function POST(req: NextRequest) {
       hour12: false,
     }).format(now)
 
-    const systemPromptWithTime = `${SYSTEM_PROMPT}\n\nAKTUELLE SYSTEMZEIT:\n- ISO (UTC): ${now.toISOString()}\n- Europa/Berlin: ${berlinTime}\n- Berlin (ISO-ähnlich, Datum): ${berlinIsoDate}\n- Berlin (ISO-ähnlich, Datum+Zeit 24h): ${berlinIsoDateTime}\n- Berlin (ISO-Offset): ${berlinIsoDateTimeWithOffset}\nNutze diese Angaben direkt, wenn nach dem aktuellen Datum oder der aktuellen Uhrzeit gefragt wird. Berechne relative Zeitangaben (z.B. gestern, morgen, übermorgen, letzte Woche, nächste Woche) ausschließlich auf Basis der Berlin-Zeit.`
+    const systemPromptWithTime = `${SYSTEM_PROMPT}\n\nAKTUELLE SYSTEMZEIT:\n- ISO (UTC): ${now.toISOString()}\n- Europa/Berlin: ${berlinTime}\n- Berlin (ISO-ähnlich, Datum): ${berlinIsoDate}\n- Berlin (ISO-ähnlich, Datum+Zeit 24h): ${berlinIsoDateTime}\n- Berlin (ISO-Offset): ${berlinIsoDateTimeWithOffset}\n- Aktuelle Kalenderwoche (Mo-So, Berlin): ${berlinWeekRange}\nNutze diese Angaben direkt, wenn nach dem aktuellen Datum oder der aktuellen Uhrzeit gefragt wird. Berechne relative Zeitangaben (z.B. gestern, morgen, übermorgen, letzte Woche, nächste Woche) ausschließlich auf Basis der Berlin-Zeit und filtere Woche/"Kalenderwoche"-Anfragen strikt auf ${berlinWeekRange}.`
 
     // Prepare messages for OpenAI
     const openaiMessages: any[] = [
