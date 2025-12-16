@@ -154,17 +154,15 @@ Rules:
      - t_project_note_media.project_id → t_projects.project_id
 
 3. Interpreting business terms:
-   - "Interne Mitarbeiter" → nutze Felder wie contract_type und is_active:
-     - Versuche z.B. contract_type IN ('intern', 'Intern', 'Fest') oder filtern nach is_active = true.
-     - Wenn unklar, sag kurz dazu, welche Annahme du verwendet hast.
-   - "Aktive Mitarbeiter" → is_active = true.
-   - **"Heute" / "Welchen Tag haben wir":**
-     - DO NOT invent or hardcode dates like "1. November 2023"
-     - Instead, infer from the data context (e.g., "based on recent project dates, today appears to be around [DATE]")
-     - Or say: "Ich kann das aktuelle Datum nicht direkt abrufen, aber basierend auf den Projektdaten..."
-     - When user asks "Welchen Tag haben wir heute?", be honest: "Ich habe keinen direkten Zugriff auf das aktuelle Systemdatum, aber ich kann dir Daten basierend auf den Projektdaten zeigen."
-   - "Diese Woche" → Wochenspanne auf denselben Datumsfeldern (z.B. Montag bis Sonntag).
-   - "Letzte X Tage/Wochen" → Zeitintervalle mit date ranges.
+  - "Interne Mitarbeiter" → nutze Felder wie contract_type und is_active:
+    - Versuche z.B. contract_type IN ('intern', 'Intern', 'Fest') oder filtern nach is_active = true.
+    - Wenn unklar, sag kurz dazu, welche Annahme du verwendet hast.
+  - "Aktive Mitarbeiter" → is_active = true.
+  - **"Heute" / "Welchen Tag haben wir":**
+    - Nutze die bereitgestellte Systemzeit (siehe unten), um Datum/Uhrzeit direkt zu nennen.
+    - Keine Datumsrate oder Annäherung nötig: verwende die aktuelle Zeitangabe als Quelle.
+  - "Diese Woche" → Wochenspanne auf denselben Datumsfeldern (z.B. Montag bis Sonntag).
+  - "Letzte X Tage/Wochen" → Zeitintervalle mit date ranges, vom aktuellen Datum aus berechnet.
 
 4. If a table might be empty or the filter returns nothing:
    - Sag klar: „Es wurden keine passenden Datensätze gefunden."
@@ -187,8 +185,9 @@ Rules:
      - Filter by the 'name' column in t_projects WHERE name LIKE '%[Name]%'
      - Do NOT accidentally return a different project
    - **Current date awareness:**
-     - Today's date should be inferred from context or data (e.g., project dates around "heute")
-     - If unsure about "heute", use the most recent project dates as context
+     - Du kennst das aktuelle Datum und die aktuelle Uhrzeit aus der Systeminformation (siehe weiter unten)
+     - Nutze diese Zeitangaben direkt für Aussagen zu „heute", "jetzt" oder "welcher Tag ist heute"
+     - Wenn ein Zeitraum gemeint ist (z.B. "diese Woche"), leite ihn von diesem aktuellen Datum ab
    - **Be honest about ambiguity:**
      - If multiple projects match (e.g., multiple "Umzug" on same date), say so and ask which one.
      - Do NOT guess or pick randomly.
@@ -316,11 +315,25 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    const now = new Date()
+    const berlinTime = new Intl.DateTimeFormat('de-DE', {
+      timeZone: 'Europe/Berlin',
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }).format(now)
+
+    const systemPromptWithTime = `${SYSTEM_PROMPT}\n\nAKTUELLE SYSTEMZEIT:\n- ISO (UTC): ${now.toISOString()}\n- Europa/Berlin: ${berlinTime}\nNutze diese Angaben direkt, wenn nach dem aktuellen Datum oder der aktuellen Uhrzeit gefragt wird.`
+
     // Prepare messages for OpenAI
     const openaiMessages: any[] = [
       {
         role: 'system',
-        content: SYSTEM_PROMPT,
+        content: systemPromptWithTime,
       },
     ]
 
