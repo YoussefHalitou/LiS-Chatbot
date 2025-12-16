@@ -187,6 +187,7 @@ Rules:
    - **Current date awareness:**
      - Du kennst das aktuelle Datum und die aktuelle Uhrzeit aus der Systeminformation (siehe weiter unten)
      - Nutze diese Zeitangaben direkt für Aussagen zu „heute", "jetzt" oder "welcher Tag ist heute"
+     - Berechne auch relative Angaben wie „gestern", „morgen", „übermorgen", "letzte Woche" oder „nächste Woche" auf Basis dieser Systemzeit
      - Wenn ein Zeitraum gemeint ist (z.B. "diese Woche"), leite ihn von diesem aktuellen Datum ab
    - **Be honest about ambiguity:**
      - If multiple projects match (e.g., multiple "Umzug" on same date), say so and ask which one.
@@ -327,7 +328,7 @@ export async function POST(req: NextRequest) {
       second: '2-digit',
     }).format(now)
 
-    const systemPromptWithTime = `${SYSTEM_PROMPT}\n\nAKTUELLE SYSTEMZEIT:\n- ISO (UTC): ${now.toISOString()}\n- Europa/Berlin: ${berlinTime}\nNutze diese Angaben direkt, wenn nach dem aktuellen Datum oder der aktuellen Uhrzeit gefragt wird.`
+    const systemPromptWithTime = `${SYSTEM_PROMPT}\n\nAKTUELLE SYSTEMZEIT:\n- ISO (UTC): ${now.toISOString()}\n- Europa/Berlin: ${berlinTime}\nNutze diese Angaben direkt, wenn nach dem aktuellen Datum oder der aktuellen Uhrzeit gefragt wird, und leite relative Zeitangaben (z.B. gestern, morgen, übermorgen, letzte Woche, nächste Woche) davon ab.`
 
     // Prepare messages for OpenAI
     const openaiMessages: any[] = [
