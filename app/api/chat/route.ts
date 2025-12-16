@@ -154,17 +154,15 @@ Rules:
      - t_project_note_media.project_id → t_projects.project_id
 
 3. Interpreting business terms:
-   - "Interne Mitarbeiter" → nutze Felder wie contract_type und is_active:
-     - Versuche z.B. contract_type IN ('intern', 'Intern', 'Fest') oder filtern nach is_active = true.
-     - Wenn unklar, sag kurz dazu, welche Annahme du verwendet hast.
-   - "Aktive Mitarbeiter" → is_active = true.
-   - **"Heute" / "Welchen Tag haben wir":**
-     - DO NOT invent or hardcode dates like "1. November 2023"
-     - Instead, infer from the data context (e.g., "based on recent project dates, today appears to be around [DATE]")
-     - Or say: "Ich kann das aktuelle Datum nicht direkt abrufen, aber basierend auf den Projektdaten..."
-     - When user asks "Welchen Tag haben wir heute?", be honest: "Ich habe keinen direkten Zugriff auf das aktuelle Systemdatum, aber ich kann dir Daten basierend auf den Projektdaten zeigen."
-   - "Diese Woche" → Wochenspanne auf denselben Datumsfeldern (z.B. Montag bis Sonntag).
-   - "Letzte X Tage/Wochen" → Zeitintervalle mit date ranges.
+  - "Interne Mitarbeiter" → nutze Felder wie contract_type und is_active:
+    - Versuche z.B. contract_type IN ('intern', 'Intern', 'Fest') oder filtern nach is_active = true.
+    - Wenn unklar, sag kurz dazu, welche Annahme du verwendet hast.
+  - "Aktive Mitarbeiter" → is_active = true.
+  - **"Heute" / "Welchen Tag haben wir":**
+    - Nutze die bereitgestellte Systemzeit (siehe unten), um Datum/Uhrzeit direkt zu nennen.
+    - Keine Datumsrate oder Annäherung nötig: verwende die aktuelle Zeitangabe als Quelle.
+  - "Diese Woche" / "diese Kalenderwoche" → **immer** Wochenspanne Montag–Sonntag auf denselben Datumsfeldern (Berlin-Zeit) und nur Datensätze innerhalb dieses Bereichs zurückgeben.
+  - "Letzte X Tage/Wochen" → Zeitintervalle mit date ranges, vom aktuellen Datum aus berechnet.
 
 4. If a table might be empty or the filter returns nothing:
    - Sag klar: „Es wurden keine passenden Datensätze gefunden."
@@ -187,11 +185,14 @@ Rules:
      - Filter by the 'name' column in t_projects WHERE name LIKE '%[Name]%'
      - Do NOT accidentally return a different project
    - **Current date awareness:**
-     - Today's date should be inferred from context or data (e.g., project dates around "heute")
-     - If unsure about "heute", use the most recent project dates as context
-   - **Be honest about ambiguity:**
-     - If multiple projects match (e.g., multiple "Umzug" on same date), say so and ask which one.
-     - Do NOT guess or pick randomly.
+     - Du kennst das aktuelle Datum und die aktuelle Uhrzeit aus der Systeminformation (siehe weiter unten)
+     - Nutze diese Zeitangaben direkt für Aussagen zu „heute", "jetzt" oder "welcher Tag ist heute"
+     - Berechne auch relative Angaben wie „gestern", „morgen", „übermorgen", "letzte Woche" oder „nächste Woche" auf Basis dieser Systemzeit
+     - Wenn ein Zeitraum gemeint ist (z.B. "diese Woche"), leite ihn von diesem aktuellen Datum ab
+     - Nutze **Europa/Berlin** als Referenzzeitzone für relative Datumsangaben und nenne Datum/Uhrzeit explizit, falls hilfreich
+     - **Be honest about ambiguity:**
+      - If multiple projects match (e.g., multiple "Umzug" on same date), say so and ask which one.
+      - Do NOT guess or pick randomly.
 
 7. **CRITICAL: Always Use Pre-Built Views:**
    - For "Projekte mit Mitarbeitern", "Welche Mitarbeiter sind eingeplant", "Einsätze":
@@ -316,11 +317,76 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    const now = new Date()
+    const berlinTime = new Intl.DateTimeFormat('de-DE', {
+      timeZone: 'Europe/Berlin',
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }).format(now)
+
+    const berlinIsoDateForCalc = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Berlin',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(now)
+
+    const [year, month, day] = berlinIsoDateForCalc.split('-').map(Number)
+    const berlinDateUtc = new Date(Date.UTC(year, month - 1, day))
+    const dayOfWeek = berlinDateUtc.getUTCDay()
+    const daysSinceMonday = (dayOfWeek + 6) % 7
+
+    const weekStart = new Date(berlinDateUtc)
+    weekStart.setUTCDate(berlinDateUtc.getUTCDate() - daysSinceMonday)
+
+    const weekEnd = new Date(weekStart)
+    weekEnd.setUTCDate(weekStart.getUTCDate() + 6)
+
+    const formatIsoDate = (date: Date) => date.toISOString().slice(0, 10)
+    const berlinWeekRange = `${formatIsoDate(weekStart)} bis ${formatIsoDate(weekEnd)}`
+
+    const berlinIsoDate = new Intl.DateTimeFormat('sv-SE', {
+      timeZone: 'Europe/Berlin',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(now)
+
+    const berlinIsoDateTime = new Intl.DateTimeFormat('sv-SE', {
+      timeZone: 'Europe/Berlin',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    }).format(now)
+
+    const berlinIsoDateTimeWithOffset = new Intl.DateTimeFormat('sv-SE', {
+      timeZone: 'Europe/Berlin',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      timeZoneName: 'shortOffset',
+      hour12: false,
+    }).format(now)
+
+    const systemPromptWithTime = `${SYSTEM_PROMPT}\n\nAKTUELLE SYSTEMZEIT:\n- ISO (UTC): ${now.toISOString()}\n- Europa/Berlin: ${berlinTime}\n- Berlin (ISO-ähnlich, Datum): ${berlinIsoDate}\n- Berlin (ISO-ähnlich, Datum+Zeit 24h): ${berlinIsoDateTime}\n- Berlin (ISO-Offset): ${berlinIsoDateTimeWithOffset}\n- Aktuelle Kalenderwoche (Mo-So, Berlin): ${berlinWeekRange}\nNutze diese Angaben direkt, wenn nach dem aktuellen Datum oder der aktuellen Uhrzeit gefragt wird. Berechne relative Zeitangaben (z.B. gestern, morgen, übermorgen, letzte Woche, nächste Woche) ausschließlich auf Basis der Berlin-Zeit und filtere Woche/"Kalenderwoche"-Anfragen strikt auf ${berlinWeekRange}.`
+
     // Prepare messages for OpenAI
     const openaiMessages: any[] = [
       {
         role: 'system',
-        content: SYSTEM_PROMPT,
+        content: systemPromptWithTime,
       },
     ]
 
