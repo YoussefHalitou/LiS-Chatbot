@@ -135,6 +135,20 @@ Nutze diese Befehle, um die Absicherungen schnell zu prüfen:
    - Erwartet: Ohne gültigen Schlüssel `401 Unauthorized`; mit korrektem Schlüssel `200 OK` oder ein gültiger Fehlercode der Upstream-Provider. Analog kannst du `/api/stt` (POST mit Audio) und `/api/tts` (POST mit `text`) testen.
 4. **Ratenbegrenzung sichtbar machen:** Wiederhole den Aufruf einer Route schnell n-mal; bei Überschreitung erscheint `429 Too Many Requests` mit `Retry-After` und `X-RateLimit-*` Headern.
 
+## Kann ich es jetzt nutzen?
+
+Ja, wenn folgende Voraussetzungen erfüllt sind:
+
+- **Umgebungsvariablen gesetzt:** Alle Pflicht-Keys (OpenAI, Supabase, Deepgram, ElevenLabs, `INTERNAL_API_KEY` und `NEXT_PUBLIC_INTERNAL_API_KEY`) müssen vorhanden sein; prüfe mit `GET /api/health`.
+- **Authentifizierte Aufrufe:** Jeder Client-Request an `/api/chat`, `/api/stt` und `/api/tts` muss den Header `x-api-key: $INTERNAL_API_KEY` senden. Der Client nutzt dafür automatisch `NEXT_PUBLIC_INTERNAL_API_KEY`.
+- **Grenzen beachten:** Chat begrenzt Nachrichtenanzahl/-länge; STT erlaubt nur unterstützte Audio-MIME-Typen und Größen; TTS limitiert Textlänge. Bei Überschreitung kommen 400er- oder 429-Antworten mit Hinweisen.
+
+Bekannte Einschränkungen, die du einplanen solltest:
+
+- **Supabase-RLS fehlt noch:** Der Service-Role-Key wird weiterhin serverseitig genutzt; setze das System nicht dem Internet aus, bevor RLS/Least-Privilege umgesetzt ist.
+- **Keine Inhaltsmoderation:** Eingaben werden nicht auf toxische/PII-Inhalte geprüft; betreibe nur in kontrollierten Umgebungen.
+- **Kein Streaming/Observability:** Antworten werden nicht gestreamt und es fehlen Telemetriedaten für Kosten/Fehler. Rechne mit längeren Antwortzeiten und begrenzter Einsicht.
+
 ## Wie es weitergeht (Empfohlene nächsten Schritte)
 
 1. **Supabase absichern**

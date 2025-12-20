@@ -89,6 +89,10 @@
 - **Auth + rate limits:** Call `/api/chat`, `/api/stt`, and `/api/tts` with the `x-api-key: $INTERNAL_API_KEY` header. Missing/invalid keys should return `401`, while repeated rapid calls should yield `429` plus `Retry-After` and `X-RateLimit-*` headers.
 - **Shape validation:** Send empty message arrays, missing audio files, or overlong text to confirm the new guards reject malformed requests before contacting upstream providers.
 
+## Can it be used today?
+- **Yes, in controlled environments:** With all environment variables configured and the `x-api-key` header supplied on every request, chat/STT/TTS work end-to-end and enforce basic rate limits and payload guards.
+- **Caveats to account for:** Supabase still uses the service-role key without RLS, no content moderation exists, and responses are non-streaming with limited observability. Avoid exposing the app publicly until RLS and moderation are added; expect slower responses under load.
+
 ## What to implement next (action checklist)
 - **Supabase least-privilege access:** Turn on RLS, create view-scoped policies, and avoid the service-role key in request handling.
 - **Moderation in the request path:** Run OpenAI Moderation (or equivalent) before forwarding chat/voice input and show user-friendly refusal messages when blocked.
