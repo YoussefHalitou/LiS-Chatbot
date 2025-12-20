@@ -35,7 +35,9 @@ export default function ChatInterface() {
   const streamRef = useRef<MediaStream | null>(null)
   const silenceStartTimeRef = useRef<number | null>(null)
   const voiceOnlyModeRef = useRef<boolean>(false) // Use ref to track voice-only mode reliably
-  const streamingDisabled = process.env.NEXT_PUBLIC_DISABLE_STREAMING === 'true'
+  const streamingDisabled =
+    process.env.NEXT_PUBLIC_DISABLE_STREAMING === 'true' ||
+    process.env.CHAT_STREAMING_DISABLED === 'true'
   const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
   // Load chat history from localStorage on mount
@@ -1008,6 +1010,7 @@ export default function ChatInterface() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(streamingDisabled ? { 'X-Disable-Streaming': 'true' } : {}),
         },
         body: JSON.stringify({ messages: conversationMessages }),
         signal: controller.signal,

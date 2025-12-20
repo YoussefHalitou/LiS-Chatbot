@@ -410,9 +410,14 @@ export async function POST(req: NextRequest) {
       openaiMessages.push(openaiMessage)
     }
 
-    const streamingDisabled = process.env.CHAT_STREAMING_DISABLED === 'true'
+    const streamingDisabledEnv =
+      process.env.CHAT_STREAMING_DISABLED === 'true' ||
+      process.env.NEXT_PUBLIC_DISABLE_STREAMING === 'true'
 
-    if (streamingDisabled) {
+    const streamingDisabledRequest =
+      req.headers.get('x-disable-streaming') === 'true'
+
+    if (streamingDisabledEnv || streamingDisabledRequest) {
       return await handleNonStreamingCompletion(openaiMessages)
     }
 
