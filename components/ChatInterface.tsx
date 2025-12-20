@@ -14,10 +14,14 @@ interface Message {
 const HISTORY_LIMIT = 100
 const CLIENT_API_KEY = process.env.NEXT_PUBLIC_INTERNAL_API_KEY
 
+const hasClientApiKey = (value: string | undefined) =>
+  typeof value === 'string' && value.trim().length > 0 && value !== 'undefined'
+
 export default function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [isClientKeyConfigured, setIsClientKeyConfigured] = useState(hasClientApiKey(CLIENT_API_KEY))
   const [isRecording, setIsRecording] = useState(false)
   const [isPlayingAudio, setIsPlayingAudio] = useState(false)
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
@@ -40,6 +44,8 @@ export default function ChatInterface() {
 
   // Load chat history from localStorage on mount
   useEffect(() => {
+    setIsClientKeyConfigured(hasClientApiKey(CLIENT_API_KEY))
+
     if (typeof window !== 'undefined') {
       const savedMessages = localStorage.getItem('chat-history')
       if (savedMessages) {
@@ -91,6 +97,12 @@ export default function ChatInterface() {
 
   const startRecording = async () => {
     if (isRecording) return
+
+    if (apiKeyMissing) {
+      alert('Der interne API-Schlüssel fehlt. Bitte setze NEXT_PUBLIC_INTERNAL_API_KEY in deiner .env.local und starte die Anwendung neu.')
+      setIsClientKeyConfigured(false)
+      return
+    }
 
     try {
       // Check if we're in the browser (not SSR)
@@ -357,8 +369,9 @@ export default function ChatInterface() {
         }
 
         try {
-          if (!CLIENT_API_KEY) {
+          if (!isClientKeyConfigured) {
             alert('Der interne API-Schlüssel fehlt. Bitte setze NEXT_PUBLIC_INTERNAL_API_KEY in deiner .env.local und starte die Anwendung neu.')
+            setIsClientKeyConfigured(false)
             return
           }
 
@@ -521,8 +534,9 @@ export default function ChatInterface() {
       setIsPlayingAudio(false)
     }
 
-    if (!CLIENT_API_KEY) {
+    if (!isClientKeyConfigured) {
       alert('Der interne API-Schlüssel fehlt. Bitte setze NEXT_PUBLIC_INTERNAL_API_KEY in deiner .env.local und starte die Anwendung neu.')
+      setIsClientKeyConfigured(false)
       return
     }
 
@@ -908,13 +922,14 @@ export default function ChatInterface() {
   const sendMessage = async () => {
     if (!input.trim() || isLoading) return
 
-    if (!CLIENT_API_KEY) {
+    if (!isClientKeyConfigured) {
       const errorMessage: Message = {
         role: 'assistant',
         content: 'Der interne API-Schlüssel fehlt in der Client-Konfiguration. Bitte setze NEXT_PUBLIC_INTERNAL_API_KEY in deiner .env.local.',
         timestamp: new Date(),
       }
       setMessages((prev) => [...prev, errorMessage])
+      setIsClientKeyConfigured(false)
       return
     }
 
@@ -984,7 +999,7 @@ export default function ChatInterface() {
   }, [input])
 
   const handleVoiceOnlyMessage = async (transcript: string) => {
-    if (!CLIENT_API_KEY) {
+    if (!isClientKeyConfigured) {
       const errorMessage: Message = {
         role: 'assistant',
         content: 'Der interne API-Schlüssel fehlt in der Client-Konfiguration. Bitte setze NEXT_PUBLIC_INTERNAL_API_KEY in deiner .env.local.',
@@ -992,6 +1007,7 @@ export default function ChatInterface() {
       }
       setMessages((prev) => [...prev, errorMessage])
       setIsLoading(false)
+      setIsClientKeyConfigured(false)
       return
     }
 
@@ -1089,6 +1105,8 @@ export default function ChatInterface() {
     }
   }
 
+  const apiKeyMissing = !isClientKeyConfigured
+
   return (
     <div className="flex flex-col h-screen bg-white safe-area-inset">
       {/* Header - Mobile optimized */}
@@ -1135,6 +1153,17 @@ export default function ChatInterface() {
       </div>
 
       {/* Messages - Mobile optimized scrolling */}
+      {!isClientKeyConfigured && (
+        <div className="bg-amber-50 border-b border-amber-200 px-3 py-2.5 sm:px-4 sm:py-3 text-amber-900 text-sm sm:text-base">
+          <div className="max-w-3xl mx-auto flex flex-col gap-1">
+            <p className="font-semibold">Interner API-Schlüssel fehlt</p>
+            <p className="leading-relaxed">
+              Bitte setze <code className="font-mono text-xs sm:text-sm">NEXT_PUBLIC_INTERNAL_API_KEY</code> in deiner <code className="font-mono text-xs sm:text-sm">.env.local</code> und starte die Anwendung neu, damit Anfragen an die gesicherten Endpunkte funktionieren.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto bg-gray-50 px-3 py-4 sm:px-4 sm:py-5 overscroll-contain">
         <div className="max-w-3xl mx-auto space-y-3 sm:space-y-4">
           {messages.length === 0 && (
@@ -1432,7 +1461,7 @@ export default function ChatInterface() {
               <div className="flex items-center gap-2 sm:gap-1.5 flex-shrink-0">
                 <button
                   onClick={isRecording ? stopRecording : enterVoiceOnlyMode}
-                  disabled={isLoading}
+                  disabled={isLoading || apiKeyMissing}
                   className={`p-3 sm:p-2.5 rounded-xl sm:rounded-lg transition-all duration-150 touch-manipulation active:scale-95 ${
                     isRecording
                       ? 'bg-red-500 text-white animate-pulse'
@@ -1451,7 +1480,7 @@ export default function ChatInterface() {
                 {messages.length > 0 && (
                   <button
                     onClick={isPlayingAudio ? stopSpeaking : playLastResponse}
-                    disabled={isLoading}
+                    disabled={isLoading || apiKeyMissing}
                     className={`p-3 sm:p-2.5 rounded-xl sm:rounded-lg transition-all duration-150 touch-manipulation active:scale-95 ${
                       isPlayingAudio
                         ? 'bg-green-500 text-white'
@@ -1466,7 +1495,7 @@ export default function ChatInterface() {
 
                 <button
                   onClick={sendMessage}
-                  disabled={!input.trim() || isLoading}
+                  disabled={!input.trim() || isLoading || apiKeyMissing}
                   className="p-3 sm:p-2.5 bg-blue-600 active:bg-blue-700 text-white rounded-xl sm:rounded-lg transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation active:scale-95 shadow-sm active:shadow min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center"
                   title="Nachricht senden"
                   aria-label="Nachricht senden"
