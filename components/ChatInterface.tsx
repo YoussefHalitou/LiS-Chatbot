@@ -12,7 +12,7 @@ interface Message {
 }
 
 const HISTORY_LIMIT = 100
-const CLIENT_API_KEY = process.env.NEXT_PUBLIC_INTERNAL_API_KEY
+const CLIENT_API_KEY = process.env.NEXT_PUBLIC_INTERNAL_API_KEY ?? ''
 
 const hasClientApiKey = (value: string | undefined) =>
   typeof value === 'string' && value.trim().length > 0 && value !== 'undefined'
