@@ -92,7 +92,7 @@
 
 ## Can it be used today?
 - **Yes, in controlled environments:** With all environment variables configured and the `x-api-key` header supplied on every request, chat/STT/TTS work end-to-end and enforce basic rate limits and payload guards.
-- **Caveats to account for:** Supabase still uses the service-role key without RLS, responses are non-streaming with limited observability, and moderation is limited to OpenAI’s general policies (keine PII-Redaction/Allowlisting). Avoid exposing the app publicly until RLS and broader safeguards are added; expect slower responses under load.
+- **Caveats to account for:** Supabase still uses the service-role key without RLS, responses are non-streaming with limited observability, and moderation is limited to OpenAI’s signal plus einfache PII-Checks (E-Mail/Telefon/KK). Avoid exposing the app publicly until RLS und breitere Richtlinien/Redactions ergänzt sind; expect slower responses under load.
 
 ## Improvement status snapshot
 - ✅ API key enforcement, per-route rate limits, and payload guards for chat/STT/TTS
@@ -100,11 +100,12 @@
 - ❌ Supabase least-privilege access with RLS and user-scoped tokens
 - ❌ Streaming responses, prompt compaction, and client-side incremental rendering
 - ⚠️ Structured telemetry (latency/error/token metrics) is still missing; basic concurrency caps now exist but lack monitoring/alerts
-- ❌ PII-focused filtering/redaction and policy-specific moderation rules
+- ✅ Basis-PII-Filter (E-Mail/Telefon/KK) vor den Provider-Calls
+- ❌ Feingranulare policy-spezifische Moderation, Allowlists und tiefergehende Redactions
 
 ## What to implement next (action checklist)
 - **Supabase least-privilege access:** Turn on RLS, create view-scoped policies, and avoid the service-role key in request handling.
-- **Moderation coverage:** Add PII redaction/allowlisting and friendlier refusal messaging; broaden rules beyond the baseline OpenAI moderation signal.
+- **Moderation coverage:** Über die bestehenden Moderations- und PII-Checks hinaus Allowlists/Policies ergänzen und freundlichere Ablehnungs-Messages liefern; Regeln über das OpenAI-Basissignal hinaus ausweiten.
 - **Streaming responses:** Enable token streaming from OpenAI and render incrementally on the client; add tests that assert partial content arrives.
 - **Telemetry and limits:** Capture structured logs/metrics for latency and token usage; monitor/alert on the new per-route concurrency caps so saturation is visible.
 - **Regression coverage:** Add automated unit/integration/E2E cases for auth enforcement, rate limiting, moderation paths, and streaming UI updates.
@@ -112,7 +113,7 @@
 ## Adjustment map (what to tune and where)
 - **RLS + token scoping** – Refactor Supabase usage in `lib/supabase.ts` and chat tool calls in `app/api/chat/route.ts` to rely on user-scoped tokens and RLS-protected views; update tests to cover policy denials.
 - **Streaming path** – Turn the blocking completion in `app/api/chat/route.ts` into a streaming flow and update `components/ChatInterface.tsx` to render partial tokens; add E2E coverage for streaming and backpressure.
-- **Moderation depth** – Extend moderation to include PII redaction/allowlists and propagate user-facing refusals through `components/ChatInterface.tsx` so blocked requests explain the reason.
+- **Moderation depth** – Bestehende Moderations- und PII-Checks um Allowlists/Policies erweitern und geblockte Inhalte mit klaren UI-Hinweisen durch `components/ChatInterface.tsx` kommunizieren.
 - **Observability** – Emit structured logs/metrics (latency, token usage, provider errors) from `app/api/chat|stt|tts/route.ts`, wire dashboards/alerts, and assert log formats in tests.
 - **Voice resilience** – Add feature detection and keyboard/focus affordances around STT/TTS flows in `components/ChatInterface.tsx`, with retries or inline fallbacks when permissions or browser capabilities are missing.
 

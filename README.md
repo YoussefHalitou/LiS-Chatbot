@@ -143,7 +143,7 @@ Nutze diese Befehle, um die Absicherungen schnell zu prüfen:
    ```
    - Erwartet: Ohne gültigen Schlüssel `401 Unauthorized`; mit korrektem Schlüssel `200 OK` oder ein gültiger Fehlercode der Upstream-Provider. Analog kannst du `/api/stt` (POST mit Audio) und `/api/tts` (POST mit `text`) testen.
 4. **Ratenbegrenzung sichtbar machen:** Wiederhole den Aufruf einer Route schnell n-mal; bei Überschreitung erscheint `429 Too Many Requests` mit `Retry-After` und `X-RateLimit-*` Headern.
-5. **Moderations-Block testen:** Sende einen klar schädlichen/beleidigenden Beispieltext an `/api/chat` oder `/api/tts` (oder nutze STT mit entsprechender Sprachnachricht); der Server sollte mit `400` und einer Moderations-Fehlermeldung antworten.
+5. **Moderations- und PII-Block testen:** Sende einen klar schädlichen/beleidigenden Beispieltext oder erkennbare PII (E-Mail/Telefon) an `/api/chat` oder `/api/tts` (oder nutze STT mit entsprechender Sprachnachricht); der Server sollte mit `400` und einer Moderations-/PII-Fehlermeldung antworten.
 
 ## Asset-Richtlinie (keine Binärdateien)
 
@@ -162,7 +162,7 @@ Bekannte Einschränkungen, die du einplanen solltest:
 
 - **Supabase-RLS fehlt noch:** Der Service-Role-Key wird weiterhin serverseitig genutzt; setze das System nicht dem Internet aus, bevor RLS/Least-Privilege umgesetzt ist.
 - **Kein Streaming/Observability:** Antworten werden nicht gestreamt und es fehlen Telemetriedaten für Kosten/Fehler. Rechne mit längeren Antwortzeiten und begrenzter Einsicht.
-- **Moderation nur grundlegend:** Chat-, STT- und TTS-Eingaben werden per OpenAI-Moderation geprüft und blockiert, aber es gibt noch keine zusätzlichen Filter/Redactions für PII oder Custom-Richtlinien.
+- **Moderation noch einfach:** Chat-, STT- und TTS-Eingaben werden per OpenAI-Moderation plus einfachen PII-Checks (E-Mail/Telefon/KK) geprüft und blockiert. Es fehlen weitergehende Richtlinien/Allowlists und UI-Hinweise für unterschiedliche Ablehnungsgründe.
 
 ## Status der Verbesserungen (Kurzüberblick)
 
@@ -172,21 +172,22 @@ Bekannte Einschränkungen, die du einplanen solltest:
 - [ ] Supabase mit RLS und Least-Privilege-Token statt Service-Role-Key
 - [ ] Streaming-Antworten und Kontext-Kompaktion zur Latenz- und Kostenreduktion
 - [ ] Beobachtbarkeit (strukturierte Logs/Alerts) und Concurrency-Governance
-- [ ] PII-Filter/Redactions und policy-spezifische Moderationsregeln
+- [x] Grundlegende PII-Filter (E-Mail/Telefon/KK) vor Modellaufrufen
+- [ ] Erweiterte policy-spezifische Moderationsregeln und feinere Redactions
 
 ## Quick App-Audit: Was ist konkret anzupassen?
 
 - **Supabase absichern** – `lib/supabase.ts` und alle Tool-Calls in `app/api/chat/route.ts` sollten auf RLS-geschützte Views umgestellt werden; der Service-Role-Key darf nicht mehr im Request-Pfad verwendet werden.
 - **Streaming & Prompt-Kompaktion** – Die Chat-Route (`app/api/chat/route.ts`) sendet jede Antwort als Blocking-Completion mit vollem Verlauf. Aktiviere Streaming, rendere tokens im Client inkrementell und kürze ältere Nachrichten/System-Prompt-Fragmente.
 - **Telemetry & Governance** – Ergänze strukturierte Logs/Tracing in den API-Routen (`app/api/chat|stt|tts/route.ts`) und mache die bestehenden Rate-/Concurrency-Limits beobachtbar (Dashboards/Alerts) statt nur per Header.
-- **Moderation & PII-Redaction** – Die aktuellen Moderationsschritte erlauben nur das OpenAI-Default-Signal. Ergänze PII-Filter/Allowlists und klarere UI-Rückmeldungen in `components/ChatInterface.tsx` für geblockte Anfragen.
+- **Moderation & PII-Redaction** – Basis-PII-Checks (E-Mail/Telefon/KK) sind aktiv. Ergänze trotzdem Richtlinien/Allowlists, PII-Redactions in Telemetrie und klarere UI-Rückmeldungen in `components/ChatInterface.tsx` für geblockte Anfragen.
 - **Voice-Fallbacks & Barrierefreiheit** – Ergänze Feature-Detection, Tastatur-Fokus-Styles und Retry-Hinweise im Voice-UI in `components/ChatInterface.tsx`, damit STT/TTS auch bei fehlenden Berechtigungen oder Browser-Limits verständlich degradieren.
 
 ## Was jetzt konkret zu tun ist
 
 1. **Deployment prüfen:** Nach jedem Key- oder Code-Update `GET /api/health` aufrufen und sicherstellen, dass `ready: true` zurückkommt.
 2. **Supabase absichern:** RLS aktivieren, Policies für die benötigten Views/Tabellen definieren und den Service-Role-Key aus dem Request-Pfad entfernen.
-3. **Moderation erweitern:** PII-Redactions/Allowlists ergänzen und geblockte Inhalte mit klaren UI-Hinweisen quittieren.
+3. **Moderation erweitern:** Über die bestehenden Moderations- und PII-Checks hinaus Allowlists/Richtlinien ergänzen, PII-Redactions in Logs/Telemetry sicherstellen und geblockte Inhalte mit klaren UI-Hinweisen quittieren.
 4. **Streaming & Telemetrie einführen:** Chat-Antworten streamen, ältere Verlaufsanteile komprimieren und strukturierte Logs/Metriken für Latenz, Token und Fehler ausgeben.
 5. **Regressionstests ergänzen:** Automatisierte Tests für Auth-Zwang, Raten-/Concurrency-Limits, Moderationspfade und Streaming-Rendering aufsetzen.
 

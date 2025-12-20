@@ -3,6 +3,7 @@ import OpenAI from 'openai'
 import { queryTable, getTableNames, getTableStructure, queryTableWithJoin } from '@/lib/supabase-query'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { InMemoryConcurrencyLimiter } from '@/lib/concurrency'
+import { detectPii, redactForLogging } from '@/lib/safety'
 
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY
 const MODERATION_MODEL = 'omni-moderation-latest'
@@ -447,6 +448,19 @@ export async function POST(req: NextRequest) {
       .filter(Boolean)
 
     if (userInputs.length > 0) {
+      const piiCheck = detectPii(userInputs)
+
+      if (piiCheck.flagged) {
+        return NextResponse.json(
+          {
+            error:
+              'Die Eingabe enthält sensible personenbezogene Informationen (z.B. E-Mail oder Telefonnummer) und wurde nicht verarbeitet.',
+            details: { detected: piiCheck.matches },
+          },
+          { status: 400, headers: baseHeaders }
+        )
+      }
+
       const moderation = await openAiClient.moderations.create({
         model: MODERATION_MODEL,
         input: userInputs,
@@ -791,10 +805,7 @@ export async function POST(req: NextRequest) {
       (error as any)?.response?.error?.code ??
       (error as any)?.error?.code
 
-    const message = (error instanceof Error ? error.message : 'Unknown error').replace(
-      /sk-[A-Za-z0-9-_.]{8,}/g,
-      '[redacted]'
-    )
+    const message = redactForLogging(error instanceof Error ? error.message : 'Unknown error')
 
     console.error('Chat API error:', { status, code, message })
 

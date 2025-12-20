@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { InMemoryConcurrencyLimiter } from '@/lib/concurrency'
+import { detectPii, redactForLogging } from '@/lib/safety'
 
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY
@@ -111,6 +112,19 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    const piiCheck = detectPii([trimmedText])
+
+    if (piiCheck.flagged) {
+      return NextResponse.json(
+        {
+          error:
+            'Die Eingabe enthält sensible personenbezogene Informationen (z.B. E-Mail oder Telefonnummer) und wurde nicht verarbeitet.',
+          details: { detected: piiCheck.matches },
+        },
+        { status: 400, headers: baseHeaders }
+      )
+    }
+
     const openaiClient = getOpenAIClient()
 
     if (!openaiClient) {
@@ -188,10 +202,7 @@ export async function POST(req: NextRequest) {
       (error as any)?.response?.error?.code ??
       (error as any)?.error?.code
 
-    const message = (error instanceof Error ? error.message : 'Unknown error').replace(
-      /sk-[A-Za-z0-9-_.]{8,}/g,
-      '[redacted]'
-    )
+    const message = redactForLogging(error instanceof Error ? error.message : 'Unknown error')
 
     console.error('TTS API error:', { status, code, message })
 
