@@ -88,3 +88,10 @@
 - **Environment readiness:** `curl -i http://localhost:3000/api/health` → expect `200 OK` when all required variables (incl. `INTERNAL_API_KEY` and `NEXT_PUBLIC_INTERNAL_API_KEY`) are set; otherwise `503` with `ready: false`.
 - **Auth + rate limits:** Call `/api/chat`, `/api/stt`, and `/api/tts` with the `x-api-key: $INTERNAL_API_KEY` header. Missing/invalid keys should return `401`, while repeated rapid calls should yield `429` plus `Retry-After` and `X-RateLimit-*` headers.
 - **Shape validation:** Send empty message arrays, missing audio files, or overlong text to confirm the new guards reject malformed requests before contacting upstream providers.
+
+## What to implement next (action checklist)
+- **Supabase least-privilege access:** Turn on RLS, create view-scoped policies, and avoid the service-role key in request handling.
+- **Moderation in the request path:** Run OpenAI Moderation (or equivalent) before forwarding chat/voice input and show user-friendly refusal messages when blocked.
+- **Streaming responses:** Enable token streaming from OpenAI and render incrementally on the client; add tests that assert partial content arrives.
+- **Telemetry and limits:** Capture structured logs/metrics for latency and token usage; add concurrency caps per route to complement existing rate limits.
+- **Regression coverage:** Add automated unit/integration/E2E cases for auth enforcement, rate limiting, moderation paths, and streaming UI updates.

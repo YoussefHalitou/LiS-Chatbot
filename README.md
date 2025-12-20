@@ -135,6 +135,28 @@ Nutze diese Befehle, um die Absicherungen schnell zu prüfen:
    - Erwartet: Ohne gültigen Schlüssel `401 Unauthorized`; mit korrektem Schlüssel `200 OK` oder ein gültiger Fehlercode der Upstream-Provider. Analog kannst du `/api/stt` (POST mit Audio) und `/api/tts` (POST mit `text`) testen.
 4. **Ratenbegrenzung sichtbar machen:** Wiederhole den Aufruf einer Route schnell n-mal; bei Überschreitung erscheint `429 Too Many Requests` mit `Retry-After` und `X-RateLimit-*` Headern.
 
+## Wie es weitergeht (Empfohlene nächsten Schritte)
+
+1. **Supabase absichern**
+   - Aktiviere Row-Level Security für alle Tabellen und greife aus der Anwendung nur noch über RLS-geschützte Views/Policies zu.
+   - Ersetze den Service-Role-Key im Runtime-Pfad durch einen User-bezogenen Token, damit Anfragen die richtigen Policies erben.
+
+2. **Inhalts-Moderation hinzufügen**
+   - Führe vor jedem OpenAI-Aufruf eine Moderationsprüfung durch (z.B. OpenAI Moderation API) und blocke oder entschärfe toxische/PII-haltige Eingaben.
+   - Ergänze UI-Hinweise, die bei Blockierungen eine verständliche Begründung liefern.
+
+3. **Streaming & Kontext-Optimierung umsetzen**
+   - Schalte Token-Streaming für Chat-Antworten ein und schreibe den Client auf inkrementelles Rendering um.
+   - Kürze den System-Prompt/Verlauf (z.B. nur letzte N-Nachrichten) oder fasse ältere Einträge zusammen, um Tokenkosten zu senken.
+
+4. **Beobachtbarkeit und Kostenkontrolle**
+   - Sammle strukturierte Server-Logs (Latenzen, Fehlerraten, Token-Usage) und setze Warnungen/Alerts auf Ausreißer.
+   - Ergänze einfache Concurrency-Limits pro Route, damit parallele Anfragen nicht unkontrolliert eskalieren.
+
+5. **Regressionen früh erkennen**
+   - Führe `npm run lint` und `npm run build` lokal aus, bevor du neue Deployments anstößt.
+   - Ergänze zeitnah automatisierte Tests (Unit + E2E) für Auth-Zwang, Ratenbegrenzung, Moderation und Streaming-Rendering.
+
 ## Browser-Unterstützung
 
 - ✅ Chrome (Desktop & Mobile)
