@@ -360,6 +360,12 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  const rateLimitHeaders = {
+    'X-RateLimit-Limit': rateLimit.limit.toString(),
+    'X-RateLimit-Remaining': rateLimit.remaining.toString(),
+    'X-RateLimit-Reset': rateLimit.reset.toString(),
+  }
+
   try {
     const body: ChatRequest = await req.json()
     const { messages } = body
@@ -367,16 +373,34 @@ export async function POST(req: NextRequest) {
     if (!messages || !Array.isArray(messages)) {
       return NextResponse.json(
         { error: 'Messages array is required' },
-        { status: 400 }
+        { status: 400, headers: rateLimitHeaders }
       )
     }
 
     if (messages.length === 0) {
-      return NextResponse.json({ error: 'Messages cannot be empty' }, { status: 400 })
+      return NextResponse.json(
+        { error: 'Messages cannot be empty' },
+        { status: 400, headers: rateLimitHeaders }
+      )
     }
 
     if (messages.length > 50) {
-      return NextResponse.json({ error: 'Too many messages in a single request' }, { status: 400 })
+      return NextResponse.json(
+        { error: 'Too many messages in a single request' },
+        { status: 400, headers: rateLimitHeaders }
+      )
+    }
+
+    const totalContentLength = messages.reduce(
+      (sum, message) => sum + (typeof message.content === 'string' ? message.content.length : 0),
+      0
+    )
+
+    if (totalContentLength > 24_000) {
+      return NextResponse.json(
+        { error: 'Conversation is too large. Please start a new chat or shorten your messages.' },
+        { status: 400, headers: rateLimitHeaders }
+      )
     }
 
     const invalidMessage = messages.find(
@@ -389,7 +413,10 @@ export async function POST(req: NextRequest) {
     )
 
     if (invalidMessage) {
-      return NextResponse.json({ error: 'Invalid message payload' }, { status: 400 })
+      return NextResponse.json(
+        { error: 'Invalid message payload' },
+        { status: 400, headers: rateLimitHeaders }
+      )
     }
 
     const now = new Date()
@@ -690,28 +717,34 @@ export async function POST(req: NextRequest) {
 
       const finalMessage = finalCompletion.choices[0].message
 
-      return NextResponse.json({
-        message: {
-          role: 'assistant',
-          content: finalMessage.content || 'I processed your request, but got no response.',
+      return NextResponse.json(
+        {
+          message: {
+            role: 'assistant',
+            content: finalMessage.content || 'I processed your request, but got no response.',
+          },
         },
-      })
+        { headers: rateLimitHeaders }
+      )
     }
 
     // Return the assistant's response
-    return NextResponse.json({
-      message: {
-        role: 'assistant',
-        content: responseMessage.content,
+    return NextResponse.json(
+      {
+        message: {
+          role: 'assistant',
+          content: responseMessage.content,
+        },
       },
-    })
+      { headers: rateLimitHeaders }
+    )
   } catch (error) {
     console.error('Chat API error:', error)
     return NextResponse.json(
       {
         error: error instanceof Error ? error.message : 'An error occurred',
       },
-      { status: 500 }
+      { status: 500, headers: rateLimitHeaders }
     )
   }
 }

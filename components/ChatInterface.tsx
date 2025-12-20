@@ -11,6 +11,8 @@ interface Message {
   timestamp?: Date
 }
 
+const HISTORY_LIMIT = 100
+
 export default function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
@@ -47,7 +49,8 @@ export default function ChatInterface() {
             ...msg,
             timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date(),
           }))
-          setMessages(messagesWithDates)
+          const cappedHistory = messagesWithDates.slice(-HISTORY_LIMIT)
+          setMessages(cappedHistory)
         } catch (e) {
           console.error('Failed to load chat history:', e)
         }
@@ -55,10 +58,18 @@ export default function ChatInterface() {
     }
   }, [])
 
+  // Trim in-memory history to avoid unbounded growth
+  useEffect(() => {
+    if (messages.length > HISTORY_LIMIT) {
+      setMessages((prev) => (prev.length > HISTORY_LIMIT ? prev.slice(-HISTORY_LIMIT) : prev))
+    }
+  }, [messages])
+
   // Save chat history to localStorage whenever messages change
   useEffect(() => {
     if (typeof window !== 'undefined' && messages.length > 0) {
-      localStorage.setItem('chat-history', JSON.stringify(messages))
+      const cappedMessages = messages.slice(-HISTORY_LIMIT)
+      localStorage.setItem('chat-history', JSON.stringify(cappedMessages))
     }
   }, [messages])
 

@@ -46,6 +46,12 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  const rateLimitHeaders = {
+    'X-RateLimit-Limit': rateLimit.limit.toString(),
+    'X-RateLimit-Remaining': rateLimit.remaining.toString(),
+    'X-RateLimit-Reset': rateLimit.reset.toString(),
+  }
+
   try {
     const formData = await req.formData()
     const audioFile = formData.get('audio') as File
@@ -53,14 +59,14 @@ export async function POST(req: NextRequest) {
     if (!audioFile) {
       return NextResponse.json(
         { error: 'Audio file is required' },
-        { status: 400 }
+        { status: 400, headers: rateLimitHeaders }
       )
     }
 
     if (audioFile.size === 0) {
       return NextResponse.json(
         { error: 'Audio file is empty' },
-        { status: 400 }
+        { status: 400, headers: rateLimitHeaders }
       )
     }
 
@@ -71,12 +77,22 @@ export async function POST(req: NextRequest) {
     if (audioBuffer.byteLength > MAX_AUDIO_BYTES) {
       return NextResponse.json(
         { error: 'Audio file is too large. Please limit recordings to ~30 seconds.' },
-        { status: 413 }
+        { status: 413, headers: rateLimitHeaders }
       )
     }
 
     // Determine content type - Deepgram needs the correct MIME type
     let contentType = audioFile.type
+    const allowedMimeTypes = new Set([
+      'audio/webm',
+      'audio/mp4',
+      'audio/m4a',
+      'audio/ogg',
+      'audio/aac',
+      'audio/wav',
+      'audio/mpeg',
+    ])
+
     if (!contentType) {
       // Try to infer from filename or default to webm
       const fileName = audioFile.name.toLowerCase()
@@ -89,6 +105,13 @@ export async function POST(req: NextRequest) {
       } else {
         contentType = 'audio/webm' // Default
       }
+    }
+
+    if (!allowedMimeTypes.has(contentType)) {
+      return NextResponse.json(
+        { error: 'Unsupported audio format. Please upload webm, mp4/m4a, ogg, wav, aac, or mp3 audio.' },
+        { status: 415, headers: rateLimitHeaders }
+      )
     }
 
     // Call Deepgram API directly
@@ -123,7 +146,7 @@ export async function POST(req: NextRequest) {
       
       return NextResponse.json(
         { error: errorMessage, details: error },
-        { status: response.status }
+        { status: response.status, headers: rateLimitHeaders }
       )
     }
 
@@ -136,18 +159,21 @@ export async function POST(req: NextRequest) {
     if (!transcript) {
       return NextResponse.json(
         { error: 'No speech detected' },
-        { status: 400 }
+        { status: 400, headers: rateLimitHeaders }
       )
     }
 
-    return NextResponse.json({ transcript })
+    return NextResponse.json(
+      { transcript },
+      { headers: rateLimitHeaders }
+    )
   } catch (error) {
     console.error('STT API error:', error)
     return NextResponse.json(
       {
         error: error instanceof Error ? error.message : 'An error occurred',
       },
-      { status: 500 }
+      { status: 500, headers: rateLimitHeaders }
     )
   }
 }

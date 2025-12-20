@@ -47,6 +47,12 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  const rateLimitHeaders = {
+    'X-RateLimit-Limit': rateLimit.limit.toString(),
+    'X-RateLimit-Remaining': rateLimit.remaining.toString(),
+    'X-RateLimit-Reset': rateLimit.reset.toString(),
+  }
+
   try {
     const { text } = await req.json()
     const trimmedText = typeof text === 'string' ? text.trim() : ''
@@ -54,14 +60,14 @@ export async function POST(req: NextRequest) {
     if (!trimmedText) {
       return NextResponse.json(
         { error: 'Text is required' },
-        { status: 400 }
+        { status: 400, headers: rateLimitHeaders }
       )
     }
 
     if (trimmedText.length > 1200) {
       return NextResponse.json(
         { error: 'Text is too long. Please keep requests under 1200 characters.' },
-        { status: 413 }
+        { status: 413, headers: rateLimitHeaders }
       )
     }
 
@@ -94,7 +100,7 @@ export async function POST(req: NextRequest) {
       console.error('ElevenLabs TTS error:', error)
       return NextResponse.json(
         { error: 'Failed to generate speech' },
-        { status: response.status }
+        { status: response.status, headers: rateLimitHeaders }
       )
     }
 
@@ -106,6 +112,7 @@ export async function POST(req: NextRequest) {
       headers: {
         'Content-Type': 'audio/mpeg',
         'Content-Length': audioBuffer.byteLength.toString(),
+        ...rateLimitHeaders,
       },
     })
   } catch (error) {
@@ -114,7 +121,7 @@ export async function POST(req: NextRequest) {
       {
         error: error instanceof Error ? error.message : 'An error occurred',
       },
-      { status: 500 }
+      { status: 500, headers: rateLimitHeaders }
     )
   }
 }
