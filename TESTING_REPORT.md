@@ -109,6 +109,13 @@
 - **Telemetry and limits:** Capture structured logs/metrics for latency and token usage; monitor/alert on the new per-route concurrency caps so saturation is visible.
 - **Regression coverage:** Add automated unit/integration/E2E cases for auth enforcement, rate limiting, moderation paths, and streaming UI updates.
 
+## Adjustment map (what to tune and where)
+- **RLS + token scoping** – Refactor Supabase usage in `lib/supabase.ts` and chat tool calls in `app/api/chat/route.ts` to rely on user-scoped tokens and RLS-protected views; update tests to cover policy denials.
+- **Streaming path** – Turn the blocking completion in `app/api/chat/route.ts` into a streaming flow and update `components/ChatInterface.tsx` to render partial tokens; add E2E coverage for streaming and backpressure.
+- **Moderation depth** – Extend moderation to include PII redaction/allowlists and propagate user-facing refusals through `components/ChatInterface.tsx` so blocked requests explain the reason.
+- **Observability** – Emit structured logs/metrics (latency, token usage, provider errors) from `app/api/chat|stt|tts/route.ts`, wire dashboards/alerts, and assert log formats in tests.
+- **Voice resilience** – Add feature detection and keyboard/focus affordances around STT/TTS flows in `components/ChatInterface.tsx`, with retries or inline fallbacks when permissions or browser capabilities are missing.
+
 ## Additional improvement ideas (with test focus)
 - **Data handling & retention:** Encrypt any persisted chat data, add expiry for localStorage backups, and create tests that verify deletion/expiry paths are honored.
 - **Privacy-first logging:** Ensure logs redact API keys, user identifiers, and payload excerpts; add snapshot tests that inspect serialized log events for redaction.

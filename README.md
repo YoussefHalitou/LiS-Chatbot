@@ -174,6 +174,14 @@ Bekannte Einschränkungen, die du einplanen solltest:
 - [ ] Beobachtbarkeit (strukturierte Logs/Alerts) und Concurrency-Governance
 - [ ] PII-Filter/Redactions und policy-spezifische Moderationsregeln
 
+## Quick App-Audit: Was ist konkret anzupassen?
+
+- **Supabase absichern** – `lib/supabase.ts` und alle Tool-Calls in `app/api/chat/route.ts` sollten auf RLS-geschützte Views umgestellt werden; der Service-Role-Key darf nicht mehr im Request-Pfad verwendet werden.
+- **Streaming & Prompt-Kompaktion** – Die Chat-Route (`app/api/chat/route.ts`) sendet jede Antwort als Blocking-Completion mit vollem Verlauf. Aktiviere Streaming, rendere tokens im Client inkrementell und kürze ältere Nachrichten/System-Prompt-Fragmente.
+- **Telemetry & Governance** – Ergänze strukturierte Logs/Tracing in den API-Routen (`app/api/chat|stt|tts/route.ts`) und mache die bestehenden Rate-/Concurrency-Limits beobachtbar (Dashboards/Alerts) statt nur per Header.
+- **Moderation & PII-Redaction** – Die aktuellen Moderationsschritte erlauben nur das OpenAI-Default-Signal. Ergänze PII-Filter/Allowlists und klarere UI-Rückmeldungen in `components/ChatInterface.tsx` für geblockte Anfragen.
+- **Voice-Fallbacks & Barrierefreiheit** – Ergänze Feature-Detection, Tastatur-Fokus-Styles und Retry-Hinweise im Voice-UI in `components/ChatInterface.tsx`, damit STT/TTS auch bei fehlenden Berechtigungen oder Browser-Limits verständlich degradieren.
+
 ## Was jetzt konkret zu tun ist
 
 1. **Deployment prüfen:** Nach jedem Key- oder Code-Update `GET /api/health` aufrufen und sicherstellen, dass `ready: true` zurückkommt.
