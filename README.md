@@ -109,6 +109,7 @@ Ein vollständiger Chatbot mit Text- und Sprach-Ein-/Ausgabe, verbunden mit Supa
 - **HTTPS erforderlich:** Die Mikrofon-API funktioniert nur über HTTPS (oder localhost). Daher ist Hosting auf Vercel empfohlen.
 - **API Keys:** Stelle sicher, dass alle API Keys in Vercel gesetzt sind. Für alle API-Routen (`/api/chat`, `/api/stt`, `/api/tts`) muss der Header `x-api-key` mit `INTERNAL_API_KEY` gesendet werden. Damit der Client diesen Header senden kann, muss derselbe Wert zusätzlich als `NEXT_PUBLIC_INTERNAL_API_KEY` bereitgestellt werden.
 - **Ratenbegrenzung:** Die API-Routen begrenzen Anfragen pro Minute (z.B. `/api/chat` 30 Anfragen/Minute, `/api/stt` 20 Anfragen/Minute, `/api/tts` 30 Anfragen/Minute) basierend auf der Quell-IP. Bei Überschreitung wird ein 429-Fehler mit `Retry-After` Header zurückgegeben.
+- **Health Check:** `GET /api/health` liefert den aktuellen Status der benötigten Umgebungsvariablen (ohne Werte offenzulegen) und gibt bei fehlenden Variablen HTTP 503 zurück. Nutze den Endpunkt für Monitoring oder Deployment-Validierung.
 - **Supabase:** Verwende den Service Role Key für Admin-Zugriff auf die Datenbank.
 
 ## Browser-Unterstützung
