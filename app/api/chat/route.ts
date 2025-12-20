@@ -739,12 +739,23 @@ export async function POST(req: NextRequest) {
       { headers: rateLimitHeaders }
     )
   } catch (error) {
-    console.error('Chat API error:', error)
+    const status = (error as any)?.status ?? (error as any)?.response?.status
+    const code =
+      (error as any)?.code ??
+      (error as any)?.response?.error?.code ??
+      (error as any)?.error?.code
+
+    const message = (error instanceof Error ? error.message : 'Unknown error').replace(
+      /sk-[A-Za-z0-9-_.]{8,}/g,
+      '[redacted]'
+    )
+
+    console.error('Chat API error:', { status, code, message })
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : 'An error occurred',
+        error: 'Upstream provider error. Please verify server API key configuration.',
       },
-      { status: 500, headers: rateLimitHeaders }
+      { status: 502, headers: rateLimitHeaders }
     )
   }
 }
