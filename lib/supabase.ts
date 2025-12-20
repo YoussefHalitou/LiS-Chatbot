@@ -1,26 +1,37 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables')
-}
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
 // Client for client-side operations
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
+export const supabase = supabaseUrl && supabaseAnonKey
+  ? createClient(supabaseUrl, supabaseAnonKey)
+  : null
 
 // Admin client for server-side operations (with service role key)
-export const supabaseAdmin = supabaseServiceKey
+export const supabaseAdmin = supabaseUrl && supabaseServiceKey
   ? createClient(supabaseUrl, supabaseServiceKey)
   : null
+
+export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey)
+
+export const isSupabaseServiceConfigured = Boolean(
+  supabaseUrl && supabaseServiceKey
+)
 
 /**
  * Get database schema information
  */
 export async function getDatabaseSchema() {
   try {
+    if (!supabase) {
+      return {
+        tables: [],
+        error: 'Supabase client not configured. Please set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.'
+      }
+    }
+
     // Query information_schema to get table and column information
     const { data, error } = await supabase.rpc('get_schema_info')
 
