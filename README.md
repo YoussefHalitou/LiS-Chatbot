@@ -174,6 +174,14 @@ Bekannte Einschränkungen, die du einplanen solltest:
 - [ ] Beobachtbarkeit (strukturierte Logs/Alerts) und Concurrency-Governance
 - [ ] PII-Filter/Redactions und policy-spezifische Moderationsregeln
 
+## Was jetzt konkret zu tun ist
+
+1. **Deployment prüfen:** Nach jedem Key- oder Code-Update `GET /api/health` aufrufen und sicherstellen, dass `ready: true` zurückkommt.
+2. **Supabase absichern:** RLS aktivieren, Policies für die benötigten Views/Tabellen definieren und den Service-Role-Key aus dem Request-Pfad entfernen.
+3. **Moderation erweitern:** PII-Redactions/Allowlists ergänzen und geblockte Inhalte mit klaren UI-Hinweisen quittieren.
+4. **Streaming & Telemetrie einführen:** Chat-Antworten streamen, ältere Verlaufsanteile komprimieren und strukturierte Logs/Metriken für Latenz, Token und Fehler ausgeben.
+5. **Regressionstests ergänzen:** Automatisierte Tests für Auth-Zwang, Raten-/Concurrency-Limits, Moderationspfade und Streaming-Rendering aufsetzen.
+
 ## Wie es weitergeht (Empfohlene nächsten Schritte)
 
 1. **Supabase absichern**
