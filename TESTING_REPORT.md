@@ -83,3 +83,8 @@
 
 ## Executed Checks (CI surrogate)
 - `npm run lint` (passes): Verifies there are no ESLint errors in the Next.js codebase, serving as a fast regression signal in the absence of full integration tests in this environment.
+
+## How to Validate Locally
+- **Environment readiness:** `curl -i http://localhost:3000/api/health` → expect `200 OK` when all required variables (incl. `INTERNAL_API_KEY` and `NEXT_PUBLIC_INTERNAL_API_KEY`) are set; otherwise `503` with `ready: false`.
+- **Auth + rate limits:** Call `/api/chat`, `/api/stt`, and `/api/tts` with the `x-api-key: $INTERNAL_API_KEY` header. Missing/invalid keys should return `401`, while repeated rapid calls should yield `429` plus `Retry-After` and `X-RateLimit-*` headers.
+- **Shape validation:** Send empty message arrays, missing audio files, or overlong text to confirm the new guards reject malformed requests before contacting upstream providers.

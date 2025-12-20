@@ -112,6 +112,29 @@ Ein vollständiger Chatbot mit Text- und Sprach-Ein-/Ausgabe, verbunden mit Supa
 - **Health Check:** `GET /api/health` liefert den aktuellen Status der benötigten Umgebungsvariablen (ohne Werte offenzulegen), inkl. des Client-Keys `NEXT_PUBLIC_INTERNAL_API_KEY`, und gibt bei fehlenden Variablen HTTP 503 zurück. Optionale Werte wie `ELEVENLABS_VOICE_ID` werden ebenfalls als vorhanden/nicht vorhanden ausgewiesen. Nutze den Endpunkt für Monitoring oder Deployment-Validierung.
 - **Supabase:** Verwende den Service Role Key für Admin-Zugriff auf die Datenbank.
 
+## Schnelltests (lokal)
+
+Nutze diese Befehle, um die Absicherungen schnell zu prüfen:
+
+1. **Linting:**
+   ```bash
+   npm run lint
+   ```
+2. **Health-Check:**
+   ```bash
+   curl -i http://localhost:3000/api/health
+   ```
+   - Erwartet: `200 OK` wenn alle benötigten Variablen gesetzt sind, sonst `503 Service Unavailable` mit `ready: false` im JSON.
+3. **Autorisierung der API-Routen:**
+   ```bash
+   curl -i -H "x-api-key: $INTERNAL_API_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{"messages":[{"role":"user","content":"Hallo"}]}' \
+     http://localhost:3000/api/chat
+   ```
+   - Erwartet: Ohne gültigen Schlüssel `401 Unauthorized`; mit korrektem Schlüssel `200 OK` oder ein gültiger Fehlercode der Upstream-Provider. Analog kannst du `/api/stt` (POST mit Audio) und `/api/tts` (POST mit `text`) testen.
+4. **Ratenbegrenzung sichtbar machen:** Wiederhole den Aufruf einer Route schnell n-mal; bei Überschreitung erscheint `429 Too Many Requests` mit `Retry-After` und `X-RateLimit-*` Headern.
+
 ## Browser-Unterstützung
 
 - ✅ Chrome (Desktop & Mobile)
