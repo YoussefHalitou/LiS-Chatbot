@@ -1,0 +1,12 @@
+# Normalize line endings and prefer text-based assets for review-friendly diffs
+* text=auto eol=lf
+
+# Treat common vector assets as text so they remain patchable
+*.svg text
+
+# Mark binary-heavy formats explicitly; prefer vector replacements in this repo
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary

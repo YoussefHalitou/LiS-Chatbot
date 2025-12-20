@@ -1,20 +1,118 @@
 import { NextRequest, NextResponse } from 'next/server'
+import OpenAI from 'openai'
+import { checkRateLimit } from '@/lib/rate-limit'
 
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY
 const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM' // Default voice: Rachel
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY
+const MODERATION_MODEL = 'omni-moderation-latest'
 
-if (!ELEVENLABS_API_KEY) {
-  throw new Error('ELEVENLABS_API_KEY is not set')
+let openai: OpenAI | null = null
+
+const getOpenAIClient = () => {
+  if (!OPENAI_API_KEY) {
+    return null
+  }
+
+  if (!openai) {
+    openai = new OpenAI({
+      apiKey: OPENAI_API_KEY,
+    })
+  }
+
+  return openai
 }
 
 export async function POST(req: NextRequest) {
+  if (!INTERNAL_API_KEY) {
+    return NextResponse.json(
+      { error: 'Server misconfigured: INTERNAL_API_KEY is not set' },
+      { status: 500 }
+    )
+  }
+
+  if (!ELEVENLABS_API_KEY) {
+    return NextResponse.json(
+      { error: 'Server misconfigured: ELEVENLABS_API_KEY is not set' },
+      { status: 500 }
+    )
+  }
+
+  const providedApiKey = req.headers.get('x-api-key')
+
+  if (!providedApiKey || providedApiKey !== INTERNAL_API_KEY) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const rateLimit = checkRateLimit(req, {
+    limit: 30,
+    windowMs: 60_000,
+    segment: 'tts',
+  })
+
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: 'Rate limit exceeded. Please wait and try again.' },
+      {
+        status: 429,
+        headers: {
+          'Retry-After': Math.ceil((rateLimit.reset - Date.now()) / 1000).toString(),
+          'X-RateLimit-Limit': rateLimit.limit.toString(),
+          'X-RateLimit-Remaining': rateLimit.remaining.toString(),
+          'X-RateLimit-Reset': rateLimit.reset.toString(),
+        },
+      }
+    )
+  }
+
+  const rateLimitHeaders = {
+    'X-RateLimit-Limit': rateLimit.limit.toString(),
+    'X-RateLimit-Remaining': rateLimit.remaining.toString(),
+    'X-RateLimit-Reset': rateLimit.reset.toString(),
+  }
+
   try {
     const { text } = await req.json()
+    const trimmedText = typeof text === 'string' ? text.trim() : ''
 
-    if (!text || typeof text !== 'string') {
+    if (!trimmedText) {
       return NextResponse.json(
         { error: 'Text is required' },
-        { status: 400 }
+        { status: 400, headers: rateLimitHeaders }
+      )
+    }
+
+    if (trimmedText.length > 1200) {
+      return NextResponse.json(
+        { error: 'Text is too long. Please keep requests under 1200 characters.' },
+        { status: 413, headers: rateLimitHeaders }
+      )
+    }
+
+    const openaiClient = getOpenAIClient()
+
+    if (!openaiClient) {
+      return NextResponse.json(
+        { error: 'Server misconfigured: OPENAI_API_KEY is not set' },
+        { status: 500, headers: rateLimitHeaders }
+      )
+    }
+
+    const moderation = await openaiClient.moderations.create({
+      model: MODERATION_MODEL,
+      input: [trimmedText],
+    })
+
+    const flagged = moderation.results?.some((result) => result.flagged)
+
+    if (flagged) {
+      return NextResponse.json(
+        {
+          error:
+            'Die Eingabe wurde aufgrund von Sicherheitsregeln blockiert. Bitte formuliere deine Anfrage sachlich und ohne sensible Inhalte.',
+        },
+        { status: 400, headers: rateLimitHeaders }
       )
     }
 
@@ -23,7 +121,7 @@ export async function POST(req: NextRequest) {
     const headers: HeadersInit = {
       'Accept': 'audio/mpeg',
       'Content-Type': 'application/json',
-      'xi-api-key': ELEVENLABS_API_KEY!,
+      'xi-api-key': ELEVENLABS_API_KEY,
     }
 
     const response = await fetch(
@@ -32,7 +130,7 @@ export async function POST(req: NextRequest) {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          text: text,
+          text: trimmedText,
           model_id: 'eleven_multilingual_v2', // Supports multiple languages including German
           voice_settings: {
             stability: 0.65, // Higher stability for more consistent speed and delivery
@@ -47,7 +145,7 @@ export async function POST(req: NextRequest) {
       console.error('ElevenLabs TTS error:', error)
       return NextResponse.json(
         { error: 'Failed to generate speech' },
-        { status: response.status }
+        { status: response.status, headers: rateLimitHeaders }
       )
     }
 
@@ -59,6 +157,7 @@ export async function POST(req: NextRequest) {
       headers: {
         'Content-Type': 'audio/mpeg',
         'Content-Length': audioBuffer.byteLength.toString(),
+        ...rateLimitHeaders,
       },
     })
   } catch (error) {
@@ -67,7 +166,7 @@ export async function POST(req: NextRequest) {
       {
         error: error instanceof Error ? error.message : 'An error occurred',
       },
-      { status: 500 }
+      { status: 500, headers: rateLimitHeaders }
     )
   }
 }
