@@ -31,8 +31,16 @@ export function detectPii(texts: string[]) {
 }
 
 export function redactForLogging(message: string) {
-  return message
-    .replace(SECRET_KEY_REGEX, '[redacted-key]')
-    .replace(PII_PATTERNS[0].regex, '[redacted-email]')
-    .replace(PII_PATTERNS[1].regex, '[redacted-phone]')
+  let redacted = message.replace(SECRET_KEY_REGEX, '[redacted-key]')
+
+  for (const pattern of PII_PATTERNS) {
+    const replaceRegex =
+      pattern.regex.flags.includes('g')
+        ? pattern.regex
+        : new RegExp(pattern.regex.source, `${pattern.regex.flags}g`)
+
+    redacted = redacted.replace(replaceRegex, `[redacted-${pattern.label}]`)
+  }
+
+  return redacted
 }
