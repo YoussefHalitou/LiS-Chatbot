@@ -107,3 +107,10 @@
 - **Streaming responses:** Enable token streaming from OpenAI and render incrementally on the client; add tests that assert partial content arrives.
 - **Telemetry and limits:** Capture structured logs/metrics for latency and token usage; add concurrency caps per route to complement existing rate limits.
 - **Regression coverage:** Add automated unit/integration/E2E cases for auth enforcement, rate limiting, moderation paths, and streaming UI updates.
+
+## Additional improvement ideas (with test focus)
+- **Data handling & retention:** Encrypt any persisted chat data, add expiry for localStorage backups, and create tests that verify deletion/expiry paths are honored.
+- **Privacy-first logging:** Ensure logs redact API keys, user identifiers, and payload excerpts; add snapshot tests that inspect serialized log events for redaction.
+- **Resilience under dependency failures:** Introduce retries with jitter for OpenAI, Supabase, Deepgram, and ElevenLabs; add integration tests that simulate 5xx/timeout responses and assert graceful fallbacks.
+- **Accessibility & UX polish:** Add keyboard navigation, focus outlines, and inline retry helpers for STT/TTS; cover with E2E tests that tab through controls and verify ARIA labels.
+- **Cost governance:** Track per-request token usage and set budget alerts; include tests that validate cost metadata is emitted and capped per request/session.

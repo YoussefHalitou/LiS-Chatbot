@@ -195,6 +195,17 @@ Bekannte Einschränkungen, die du einplanen solltest:
    - Führe `npm run lint` und `npm run build` lokal aus, bevor du neue Deployments anstößt.
    - Ergänze zeitnah automatisierte Tests (Unit + E2E) für Auth-Zwang, Ratenbegrenzung, Moderation und Streaming-Rendering.
 
+## Weiterführende Verbesserungen (Priorität & Aufwand)
+
+| Priorität | Aufwand | Maßnahme | Nutzen |
+| --- | --- | --- | --- |
+| Hoch | Mittel | **Supabase RLS + Least-Privilege** – Service-Role-Key aus Requests entfernen, Policies pro Tabelle/View definieren und Access-Tokens pro Nutzer ausstellen. | Minimiert Datenexfiltration und separiert Mandanten sauber. |
+| Hoch | Mittel | **PII-Redaction & erweiterte Moderation** – Eingaben/Transkripte vor dem Modell neutralisieren (z. B. E-Mail/Telefon) und blockierte Inhalte mit verständlichen UI-Hinweisen quittieren. | Reduziert Compliance-Risiken und liefert klare Nutzerführung. |
+| Mittel | Mittel | **Streaming + Kontextkompression** – Token-Streaming aktivieren, ältere Verlaufsteile kürzen oder zusammenfassen. | Schnellere wahrgenommene Antwortzeit und geringere Tokenkosten. |
+| Mittel | Niedrig | **Beobachtbarkeit & Alerts** – Strukturierte Logs (Latenz, Token, Fehlercodes), Dashboards und Alarme bei Ausreißern hinzufügen. | Schnellere Fehlersuche und Kostenkontrolle. |
+| Mittel | Niedrig | **Concurrency-Governance** – Pro-Route Parallelitätslimits und Backpressure einbauen, ggf. Supabase-Reads cachen. | Stabilere Responses unter Last und geringere Provider-Fehler. |
+| Niedrig | Mittel | **UX & Barrierefreiheit** – Tastatursteuerung, Fokus-Styles und klare Retry-Hinweise für STT/TTS ergänzen. | Bessere Nutzbarkeit für breitere Zielgruppen. |
+
 ## Browser-Unterstützung
 
 - ✅ Chrome (Desktop & Mobile)
