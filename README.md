@@ -100,6 +100,7 @@ Ein vollständiger Chatbot mit Text- und Sprach-Ein-/Ausgabe, verbunden mit Supa
 3. **Umgebungsvariablen setzen:**
    - Im Vercel Dashboard → Settings → Environment Variables
    - Füge alle Variablen hinzu (siehe oben)
+   - Setze **INTERNAL_API_KEY** und **NEXT_PUBLIC_INTERNAL_API_KEY** auf denselben Wert im Vercel-UI und löse danach ein neues Deploy/Rebuild aus, damit der Build die Werte sieht. Prüfe mit `GET /api/health`, ob die Keys aktiv sind.
 
 4. **Deploy:**
    - Vercel deployed automatisch bei jedem Push zu `main`
