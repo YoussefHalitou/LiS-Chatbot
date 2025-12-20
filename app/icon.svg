@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="LiS Chatbot icon">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0ea5e9" />
+      <stop offset="100%" stop-color="#6366f1" />
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="22" fill="url(#grad)" />
+  <path fill="#fff" d="M34 40c0-5.5 4.5-10 10-10h40c5.5 0 10 4.5 10 10v22c0 5.5-4.5 10-10 10H58l-14 14-2-14H44c-5.5 0-10-4.5-10-10V40Zm14 12a6 6 0 1 0 0 12 6 6 0 0 0 0-12Zm16 0a6 6 0 1 0 0 12 6 6 0 0 0 0-12Zm22 6a6 6 0 1 0-12 0 6 6 0 0 0 12 0Z"/>
+</svg>

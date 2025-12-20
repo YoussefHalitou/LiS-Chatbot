@@ -1,13 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { queryTable, getTableNames, getTableStructure, queryTableWithJoin } from '@/lib/supabase-query'
+import { checkRateLimit } from '@/lib/rate-limit'
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-})
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY
+const MODERATION_MODEL = 'omni-moderation-latest'
 
-if (!process.env.OPENAI_API_KEY) {
-  throw new Error('OPENAI_API_KEY is not set')
+let openai: OpenAI | null = null
+
+const getOpenAIClient = () => {
+  if (!process.env.OPENAI_API_KEY) {
+    return null
+  }
+
+  if (!openai) {
+    openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    })
+  }
+
+  return openai
 }
 
 /**
@@ -306,6 +318,55 @@ interface ChatRequest {
 }
 
 export async function POST(req: NextRequest) {
+  if (!INTERNAL_API_KEY) {
+    return NextResponse.json(
+      { error: 'Server misconfigured: INTERNAL_API_KEY is not set' },
+      { status: 500 }
+    )
+  }
+
+  const openAiClient = getOpenAIClient()
+
+  if (!openAiClient) {
+    return NextResponse.json(
+      { error: 'Server misconfigured: OPENAI_API_KEY is not set' },
+      { status: 500 }
+    )
+  }
+
+  const providedApiKey = req.headers.get('x-api-key')
+
+  if (!providedApiKey || providedApiKey !== INTERNAL_API_KEY) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const rateLimit = checkRateLimit(req, {
+    limit: 30,
+    windowMs: 60_000,
+    segment: 'chat',
+  })
+
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: 'Rate limit exceeded. Please wait and try again.' },
+      {
+        status: 429,
+        headers: {
+          'Retry-After': Math.ceil((rateLimit.reset - Date.now()) / 1000).toString(),
+          'X-RateLimit-Limit': rateLimit.limit.toString(),
+          'X-RateLimit-Remaining': rateLimit.remaining.toString(),
+          'X-RateLimit-Reset': rateLimit.reset.toString(),
+        },
+      }
+    )
+  }
+
+  const rateLimitHeaders = {
+    'X-RateLimit-Limit': rateLimit.limit.toString(),
+    'X-RateLimit-Remaining': rateLimit.remaining.toString(),
+    'X-RateLimit-Reset': rateLimit.reset.toString(),
+  }
+
   try {
     const body: ChatRequest = await req.json()
     const { messages } = body
@@ -313,8 +374,74 @@ export async function POST(req: NextRequest) {
     if (!messages || !Array.isArray(messages)) {
       return NextResponse.json(
         { error: 'Messages array is required' },
-        { status: 400 }
+        { status: 400, headers: rateLimitHeaders }
       )
+    }
+
+    if (messages.length === 0) {
+      return NextResponse.json(
+        { error: 'Messages cannot be empty' },
+        { status: 400, headers: rateLimitHeaders }
+      )
+    }
+
+    if (messages.length > 50) {
+      return NextResponse.json(
+        { error: 'Too many messages in a single request' },
+        { status: 400, headers: rateLimitHeaders }
+      )
+    }
+
+    const totalContentLength = messages.reduce(
+      (sum, message) => sum + (typeof message.content === 'string' ? message.content.length : 0),
+      0
+    )
+
+    if (totalContentLength > 24_000) {
+      return NextResponse.json(
+        { error: 'Conversation is too large. Please start a new chat or shorten your messages.' },
+        { status: 400, headers: rateLimitHeaders }
+      )
+    }
+
+    const invalidMessage = messages.find(
+      (message) =>
+        !message?.role ||
+        !['system', 'user', 'assistant', 'function', 'tool'].includes(message.role) ||
+        typeof message.content !== 'string' ||
+        message.content.trim().length === 0 ||
+        message.content.length > 8000
+    )
+
+    if (invalidMessage) {
+      return NextResponse.json(
+        { error: 'Invalid message payload' },
+        { status: 400, headers: rateLimitHeaders }
+      )
+    }
+
+    const userInputs = messages
+      .filter((message) => message.role === 'user')
+      .map((message) => message.content)
+      .filter(Boolean)
+
+    if (userInputs.length > 0) {
+      const moderation = await openAiClient.moderations.create({
+        model: MODERATION_MODEL,
+        input: userInputs,
+      })
+
+      const flagged = moderation.results?.some((result) => result.flagged)
+
+      if (flagged) {
+        return NextResponse.json(
+          {
+            error:
+              'Die Eingabe wurde aufgrund von Sicherheitsregeln blockiert. Bitte formuliere deine Anfrage sachlich und ohne sensible Inhalte.',
+          },
+          { status: 400, headers: rateLimitHeaders }
+        )
+      }
     }
 
     const now = new Date()
@@ -411,7 +538,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Create a completion with tools (function calling) for database queries
-    const completion = await openai.chat.completions.create({
+    const completion = await openAiClient.chat.completions.create({
       model: 'gpt-4o',
       messages: openaiMessages,
       tools: [
@@ -607,7 +734,7 @@ export async function POST(req: NextRequest) {
       }
 
       // Get the final response from OpenAI after tool execution
-      const finalCompletion = await openai.chat.completions.create({
+      const finalCompletion = await openAiClient.chat.completions.create({
         model: 'gpt-4o',
         messages: openaiMessages,
         temperature: 0.3, // Lower temperature to reduce hallucinations and be more factual
@@ -615,28 +742,53 @@ export async function POST(req: NextRequest) {
 
       const finalMessage = finalCompletion.choices[0].message
 
-      return NextResponse.json({
-        message: {
-          role: 'assistant',
-          content: finalMessage.content || 'I processed your request, but got no response.',
+      return NextResponse.json(
+        {
+          message: {
+            role: 'assistant',
+            content: finalMessage.content || 'I processed your request, but got no response.',
+          },
         },
-      })
+        { headers: rateLimitHeaders }
+      )
     }
 
     // Return the assistant's response
-    return NextResponse.json({
-      message: {
-        role: 'assistant',
-        content: responseMessage.content,
-      },
-    })
-  } catch (error) {
-    console.error('Chat API error:', error)
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : 'An error occurred',
+        message: {
+          role: 'assistant',
+          content: responseMessage.content,
+        },
       },
-      { status: 500 }
+      { headers: rateLimitHeaders }
+    )
+  } catch (error) {
+    const status = (error as any)?.status ?? (error as any)?.response?.status
+    const code =
+      (error as any)?.code ??
+      (error as any)?.response?.error?.code ??
+      (error as any)?.error?.code
+
+    const message = (error instanceof Error ? error.message : 'Unknown error').replace(
+      /sk-[A-Za-z0-9-_.]{8,}/g,
+      '[redacted]'
+    )
+
+    console.error('Chat API error:', { status, code, message })
+
+    if (status === 401 || code === 'invalid_api_key') {
+      return NextResponse.json(
+        { error: 'Server misconfigured: OPENAI_API_KEY is invalid or missing. Please update the key and redeploy.' },
+        { status: 401, headers: rateLimitHeaders }
+      )
+    }
+
+    return NextResponse.json(
+      {
+        error: 'Upstream provider error. Please verify server API key configuration.',
+      },
+      { status: 502, headers: rateLimitHeaders }
     )
   }
 }
