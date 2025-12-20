@@ -12,6 +12,7 @@ interface Message {
 }
 
 const HISTORY_LIMIT = 100
+const CLIENT_API_KEY = process.env.NEXT_PUBLIC_INTERNAL_API_KEY
 
 export default function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([])
@@ -356,6 +357,11 @@ export default function ChatInterface() {
         }
 
         try {
+          if (!CLIENT_API_KEY) {
+            alert('Der interne API-Schlüssel fehlt. Bitte setze NEXT_PUBLIC_INTERNAL_API_KEY in deiner .env.local und starte die Anwendung neu.')
+            return
+          }
+
           setIsProcessingVoice(true)
           const formData = new FormData()
           formData.append('audio', audioBlob, `recording.${fileExtension}`)
@@ -368,6 +374,9 @@ export default function ChatInterface() {
             try {
               const candidate = await fetch('/api/stt', {
                 method: 'POST',
+                headers: {
+                  'x-api-key': CLIENT_API_KEY,
+                },
                 body: formData,
               })
 
@@ -512,6 +521,11 @@ export default function ChatInterface() {
       setIsPlayingAudio(false)
     }
 
+    if (!CLIENT_API_KEY) {
+      alert('Der interne API-Schlüssel fehlt. Bitte setze NEXT_PUBLIC_INTERNAL_API_KEY in deiner .env.local und starte die Anwendung neu.')
+      return
+    }
+
     let audioUrl: string | null = null
 
     try {
@@ -529,6 +543,7 @@ export default function ChatInterface() {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
+              'x-api-key': CLIENT_API_KEY,
             },
             body: JSON.stringify({ text: preparedText }),
           })
@@ -893,6 +908,16 @@ export default function ChatInterface() {
   const sendMessage = async () => {
     if (!input.trim() || isLoading) return
 
+    if (!CLIENT_API_KEY) {
+      const errorMessage: Message = {
+        role: 'assistant',
+        content: 'Der interne API-Schlüssel fehlt in der Client-Konfiguration. Bitte setze NEXT_PUBLIC_INTERNAL_API_KEY in deiner .env.local.',
+        timestamp: new Date(),
+      }
+      setMessages((prev) => [...prev, errorMessage])
+      return
+    }
+
     const userMessage: Message = {
       role: 'user',
       content: input.trim(),
@@ -908,6 +933,7 @@ export default function ChatInterface() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'x-api-key': CLIENT_API_KEY,
         },
         body: JSON.stringify({
           messages: [...messages, userMessage].map((m) => ({
@@ -958,6 +984,17 @@ export default function ChatInterface() {
   }, [input])
 
   const handleVoiceOnlyMessage = async (transcript: string) => {
+    if (!CLIENT_API_KEY) {
+      const errorMessage: Message = {
+        role: 'assistant',
+        content: 'Der interne API-Schlüssel fehlt in der Client-Konfiguration. Bitte setze NEXT_PUBLIC_INTERNAL_API_KEY in deiner .env.local.',
+        timestamp: new Date(),
+      }
+      setMessages((prev) => [...prev, errorMessage])
+      setIsLoading(false)
+      return
+    }
+
     const userMessage: Message = {
       role: 'user',
       content: transcript,
@@ -972,6 +1009,7 @@ export default function ChatInterface() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'x-api-key': CLIENT_API_KEY,
         },
         body: JSON.stringify({
           messages: [...messages, userMessage].map((m) => ({

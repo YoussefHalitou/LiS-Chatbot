@@ -37,6 +37,7 @@ Ein vollständiger Chatbot mit Text- und Sprach-Ein-/Ausgabe, verbunden mit Supa
    ELEVENLABS_API_KEY=dein_elevenlabs_key
    ELEVENLABS_VOICE_ID=deine_voice_id (optional, Standard: Rachel)
    INTERNAL_API_KEY=geheimer_schluessel_fuer_api_zugriff
+   NEXT_PUBLIC_INTERNAL_API_KEY=gleicher_schluessel_fuer_den_client
    ```
 
 3. **Development Server starten:**
@@ -106,7 +107,7 @@ Ein vollständiger Chatbot mit Text- und Sprach-Ein-/Ausgabe, verbunden mit Supa
 ## Wichtige Hinweise
 
 - **HTTPS erforderlich:** Die Mikrofon-API funktioniert nur über HTTPS (oder localhost). Daher ist Hosting auf Vercel empfohlen.
-- **API Keys:** Stelle sicher, dass alle API Keys in Vercel gesetzt sind. Für alle API-Routen (`/api/chat`, `/api/stt`, `/api/tts`) muss der Header `x-api-key` mit `INTERNAL_API_KEY` gesendet werden.
+- **API Keys:** Stelle sicher, dass alle API Keys in Vercel gesetzt sind. Für alle API-Routen (`/api/chat`, `/api/stt`, `/api/tts`) muss der Header `x-api-key` mit `INTERNAL_API_KEY` gesendet werden. Damit der Client diesen Header senden kann, muss derselbe Wert zusätzlich als `NEXT_PUBLIC_INTERNAL_API_KEY` bereitgestellt werden.
 - **Ratenbegrenzung:** Die API-Routen begrenzen Anfragen pro Minute (z.B. `/api/chat` 30 Anfragen/Minute, `/api/stt` 20 Anfragen/Minute, `/api/tts` 30 Anfragen/Minute) basierend auf der Quell-IP. Bei Überschreitung wird ein 429-Fehler mit `Retry-After` Header zurückgegeben.
 - **Supabase:** Verwende den Service Role Key für Admin-Zugriff auf die Datenbank.
 
