@@ -22,6 +22,7 @@ export default function ChatInterface() {
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [isClientKeyConfigured, setIsClientKeyConfigured] = useState(hasClientApiKey(CLIENT_API_KEY))
+  const [hasShownMissingClientKeyAlert, setHasShownMissingClientKeyAlert] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [isPlayingAudio, setIsPlayingAudio] = useState(false)
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
@@ -65,6 +66,14 @@ export default function ChatInterface() {
     }
   }, [])
 
+  const notifyMissingClientKey = () => {
+    if (!hasShownMissingClientKeyAlert) {
+      alert('Der interne API-Schlüssel fehlt. Bitte setze NEXT_PUBLIC_INTERNAL_API_KEY in deiner .env.local und starte die Anwendung neu.')
+      setHasShownMissingClientKeyAlert(true)
+    }
+    setIsClientKeyConfigured(false)
+  }
+
   // Trim in-memory history to avoid unbounded growth
   useEffect(() => {
     if (messages.length > HISTORY_LIMIT) {
@@ -99,8 +108,7 @@ export default function ChatInterface() {
     if (isRecording) return
 
     if (apiKeyMissing) {
-      alert('Der interne API-Schlüssel fehlt. Bitte setze NEXT_PUBLIC_INTERNAL_API_KEY in deiner .env.local und starte die Anwendung neu.')
-      setIsClientKeyConfigured(false)
+      notifyMissingClientKey()
       return
     }
 
@@ -370,8 +378,7 @@ export default function ChatInterface() {
 
         try {
           if (!isClientKeyConfigured) {
-            alert('Der interne API-Schlüssel fehlt. Bitte setze NEXT_PUBLIC_INTERNAL_API_KEY in deiner .env.local und starte die Anwendung neu.')
-            setIsClientKeyConfigured(false)
+            notifyMissingClientKey()
             return
           }
 
@@ -535,8 +542,7 @@ export default function ChatInterface() {
     }
 
     if (!isClientKeyConfigured) {
-      alert('Der interne API-Schlüssel fehlt. Bitte setze NEXT_PUBLIC_INTERNAL_API_KEY in deiner .env.local und starte die Anwendung neu.')
-      setIsClientKeyConfigured(false)
+      notifyMissingClientKey()
       return
     }
 
