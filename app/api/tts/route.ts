@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY
 const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM' // Default voice: Rachel
 
@@ -8,13 +9,34 @@ if (!ELEVENLABS_API_KEY) {
 }
 
 export async function POST(req: NextRequest) {
+  if (!INTERNAL_API_KEY) {
+    return NextResponse.json(
+      { error: 'Server misconfigured: INTERNAL_API_KEY is not set' },
+      { status: 500 }
+    )
+  }
+
+  const providedApiKey = req.headers.get('x-api-key')
+
+  if (!providedApiKey || providedApiKey !== INTERNAL_API_KEY) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   try {
     const { text } = await req.json()
+    const trimmedText = typeof text === 'string' ? text.trim() : ''
 
-    if (!text || typeof text !== 'string') {
+    if (!trimmedText) {
       return NextResponse.json(
         { error: 'Text is required' },
         { status: 400 }
+      )
+    }
+
+    if (trimmedText.length > 1200) {
+      return NextResponse.json(
+        { error: 'Text is too long. Please keep requests under 1200 characters.' },
+        { status: 413 }
       )
     }
 
@@ -32,7 +54,7 @@ export async function POST(req: NextRequest) {
         method: 'POST',
         headers,
         body: JSON.stringify({
-          text: text,
+          text: trimmedText,
           model_id: 'eleven_multilingual_v2', // Supports multiple languages including German
           voice_settings: {
             stability: 0.65, // Higher stability for more consistent speed and delivery

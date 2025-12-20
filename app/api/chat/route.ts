@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { queryTable, getTableNames, getTableStructure, queryTableWithJoin } from '@/lib/supabase-query'
 
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 })
@@ -306,6 +308,19 @@ interface ChatRequest {
 }
 
 export async function POST(req: NextRequest) {
+  if (!INTERNAL_API_KEY) {
+    return NextResponse.json(
+      { error: 'Server misconfigured: INTERNAL_API_KEY is not set' },
+      { status: 500 }
+    )
+  }
+
+  const providedApiKey = req.headers.get('x-api-key')
+
+  if (!providedApiKey || providedApiKey !== INTERNAL_API_KEY) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   try {
     const body: ChatRequest = await req.json()
     const { messages } = body
@@ -315,6 +330,27 @@ export async function POST(req: NextRequest) {
         { error: 'Messages array is required' },
         { status: 400 }
       )
+    }
+
+    if (messages.length === 0) {
+      return NextResponse.json({ error: 'Messages cannot be empty' }, { status: 400 })
+    }
+
+    if (messages.length > 50) {
+      return NextResponse.json({ error: 'Too many messages in a single request' }, { status: 400 })
+    }
+
+    const invalidMessage = messages.find(
+      (message) =>
+        !message?.role ||
+        !['system', 'user', 'assistant', 'function', 'tool'].includes(message.role) ||
+        typeof message.content !== 'string' ||
+        message.content.trim().length === 0 ||
+        message.content.length > 8000
+    )
+
+    if (invalidMessage) {
+      return NextResponse.json({ error: 'Invalid message payload' }, { status: 400 })
     }
 
     const now = new Date()

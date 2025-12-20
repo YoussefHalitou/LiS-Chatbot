@@ -36,6 +36,7 @@ Ein vollständiger Chatbot mit Text- und Sprach-Ein-/Ausgabe, verbunden mit Supa
    DEEPGRAM_API_KEY=dein_deepgram_key
    ELEVENLABS_API_KEY=dein_elevenlabs_key
    ELEVENLABS_VOICE_ID=deine_voice_id (optional, Standard: Rachel)
+   INTERNAL_API_KEY=geheimer_schluessel_fuer_api_zugriff
    ```
 
 3. **Development Server starten:**
@@ -105,7 +106,7 @@ Ein vollständiger Chatbot mit Text- und Sprach-Ein-/Ausgabe, verbunden mit Supa
 ## Wichtige Hinweise
 
 - **HTTPS erforderlich:** Die Mikrofon-API funktioniert nur über HTTPS (oder localhost). Daher ist Hosting auf Vercel empfohlen.
-- **API Keys:** Stelle sicher, dass alle API Keys in Vercel gesetzt sind.
+- **API Keys:** Stelle sicher, dass alle API Keys in Vercel gesetzt sind. Für alle API-Routen (`/api/chat`, `/api/stt`, `/api/tts`) muss der Header `x-api-key` mit `INTERNAL_API_KEY` gesendet werden.
 - **Supabase:** Verwende den Service Role Key für Admin-Zugriff auf die Datenbank.
 
 ## Browser-Unterstützung

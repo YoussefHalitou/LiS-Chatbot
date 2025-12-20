@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY
 const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY
 
 if (!DEEPGRAM_API_KEY) {
@@ -7,6 +8,19 @@ if (!DEEPGRAM_API_KEY) {
 }
 
 export async function POST(req: NextRequest) {
+  if (!INTERNAL_API_KEY) {
+    return NextResponse.json(
+      { error: 'Server misconfigured: INTERNAL_API_KEY is not set' },
+      { status: 500 }
+    )
+  }
+
+  const providedApiKey = req.headers.get('x-api-key')
+
+  if (!providedApiKey || providedApiKey !== INTERNAL_API_KEY) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   try {
     const formData = await req.formData()
     const audioFile = formData.get('audio') as File
@@ -18,8 +32,23 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    if (audioFile.size === 0) {
+      return NextResponse.json(
+        { error: 'Audio file is empty' },
+        { status: 400 }
+      )
+    }
+
     // Convert File to ArrayBuffer
     const audioBuffer = await audioFile.arrayBuffer()
+
+    const MAX_AUDIO_BYTES = 5 * 1024 * 1024 // 5MB
+    if (audioBuffer.byteLength > MAX_AUDIO_BYTES) {
+      return NextResponse.json(
+        { error: 'Audio file is too large. Please limit recordings to ~30 seconds.' },
+        { status: 413 }
+      )
+    }
 
     // Determine content type - Deepgram needs the correct MIME type
     let contentType = audioFile.type
