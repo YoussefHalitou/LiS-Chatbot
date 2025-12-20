@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { checkRateLimit } from '@/lib/rate-limit'
 
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY
 const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY
-
-if (!DEEPGRAM_API_KEY) {
-  throw new Error('DEEPGRAM_API_KEY is not set')
-}
 
 export async function POST(req: NextRequest) {
   if (!INTERNAL_API_KEY) {
@@ -15,10 +12,38 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  if (!DEEPGRAM_API_KEY) {
+    return NextResponse.json(
+      { error: 'Server misconfigured: DEEPGRAM_API_KEY is not set' },
+      { status: 500 }
+    )
+  }
+
   const providedApiKey = req.headers.get('x-api-key')
 
   if (!providedApiKey || providedApiKey !== INTERNAL_API_KEY) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const rateLimit = checkRateLimit(req, {
+    limit: 20,
+    windowMs: 60_000,
+    segment: 'stt',
+  })
+
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: 'Rate limit exceeded. Please wait and try again.' },
+      {
+        status: 429,
+        headers: {
+          'Retry-After': Math.ceil((rateLimit.reset - Date.now()) / 1000).toString(),
+          'X-RateLimit-Limit': rateLimit.limit.toString(),
+          'X-RateLimit-Remaining': rateLimit.remaining.toString(),
+          'X-RateLimit-Reset': rateLimit.reset.toString(),
+        },
+      }
+    )
   }
 
   try {

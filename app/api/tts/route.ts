@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { checkRateLimit } from '@/lib/rate-limit'
 
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY
 const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM' // Default voice: Rachel
-
-if (!ELEVENLABS_API_KEY) {
-  throw new Error('ELEVENLABS_API_KEY is not set')
-}
 
 export async function POST(req: NextRequest) {
   if (!INTERNAL_API_KEY) {
@@ -16,10 +13,38 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  if (!ELEVENLABS_API_KEY) {
+    return NextResponse.json(
+      { error: 'Server misconfigured: ELEVENLABS_API_KEY is not set' },
+      { status: 500 }
+    )
+  }
+
   const providedApiKey = req.headers.get('x-api-key')
 
   if (!providedApiKey || providedApiKey !== INTERNAL_API_KEY) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const rateLimit = checkRateLimit(req, {
+    limit: 30,
+    windowMs: 60_000,
+    segment: 'tts',
+  })
+
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: 'Rate limit exceeded. Please wait and try again.' },
+      {
+        status: 429,
+        headers: {
+          'Retry-After': Math.ceil((rateLimit.reset - Date.now()) / 1000).toString(),
+          'X-RateLimit-Limit': rateLimit.limit.toString(),
+          'X-RateLimit-Remaining': rateLimit.remaining.toString(),
+          'X-RateLimit-Reset': rateLimit.reset.toString(),
+        },
+      }
+    )
   }
 
   try {
@@ -45,7 +70,7 @@ export async function POST(req: NextRequest) {
     const headers: HeadersInit = {
       'Accept': 'audio/mpeg',
       'Content-Type': 'application/json',
-      'xi-api-key': ELEVENLABS_API_KEY!,
+      'xi-api-key': ELEVENLABS_API_KEY,
     }
 
     const response = await fetch(

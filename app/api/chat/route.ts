@@ -1,15 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { queryTable, getTableNames, getTableStructure, queryTableWithJoin } from '@/lib/supabase-query'
+import { checkRateLimit } from '@/lib/rate-limit'
 
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-})
+let openai: OpenAI | null = null
 
-if (!process.env.OPENAI_API_KEY) {
-  throw new Error('OPENAI_API_KEY is not set')
+const getOpenAIClient = () => {
+  if (!process.env.OPENAI_API_KEY) {
+    return null
+  }
+
+  if (!openai) {
+    openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    })
+  }
+
+  return openai
 }
 
 /**
@@ -315,10 +324,40 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  const openAiClient = getOpenAIClient()
+
+  if (!openAiClient) {
+    return NextResponse.json(
+      { error: 'Server misconfigured: OPENAI_API_KEY is not set' },
+      { status: 500 }
+    )
+  }
+
   const providedApiKey = req.headers.get('x-api-key')
 
   if (!providedApiKey || providedApiKey !== INTERNAL_API_KEY) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const rateLimit = checkRateLimit(req, {
+    limit: 30,
+    windowMs: 60_000,
+    segment: 'chat',
+  })
+
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: 'Rate limit exceeded. Please wait and try again.' },
+      {
+        status: 429,
+        headers: {
+          'Retry-After': Math.ceil((rateLimit.reset - Date.now()) / 1000).toString(),
+          'X-RateLimit-Limit': rateLimit.limit.toString(),
+          'X-RateLimit-Remaining': rateLimit.remaining.toString(),
+          'X-RateLimit-Reset': rateLimit.reset.toString(),
+        },
+      }
+    )
   }
 
   try {
@@ -447,7 +486,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Create a completion with tools (function calling) for database queries
-    const completion = await openai.chat.completions.create({
+    const completion = await openAiClient.chat.completions.create({
       model: 'gpt-4o',
       messages: openaiMessages,
       tools: [
@@ -643,7 +682,7 @@ export async function POST(req: NextRequest) {
       }
 
       // Get the final response from OpenAI after tool execution
-      const finalCompletion = await openai.chat.completions.create({
+      const finalCompletion = await openAiClient.chat.completions.create({
         model: 'gpt-4o',
         messages: openaiMessages,
         temperature: 0.3, // Lower temperature to reduce hallucinations and be more factual
