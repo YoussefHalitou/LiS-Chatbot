@@ -104,6 +104,13 @@ Ein vollständiger Chatbot mit Text- und Sprach-Ein-/Ausgabe, verbunden mit Supa
 4. **Deploy:**
    - Vercel deployed automatisch bei jedem Push zu `main`
 
+### Sicher mit API Keys umgehen
+
+- **Keine Secrets commiten:** Die Datei `.env.local` ist bereits im `.gitignore` aufgeführt. Trage dort lokal deine echten Schlüssel ein, aber pushe die Datei niemals. Für geteilte Beispiele verwende nur Platzhalterwerte.
+- **Vercel-Dashboards nutzen:** Hinterlege produktive Keys ausschließlich im Vercel-UI unter *Settings → Environment Variables*. So bleiben sie aus dem Code-Repository und Build-Logs heraus.
+- **Rotation einplanen:** Erzeuge bei Bedarf neue OpenAI-Schlüssel und ersetze den alten Wert in `.env.local` bzw. im Vercel-Dashboard. Lösche anschließend den alten Schlüssel im OpenAI-Account, falls er kompromittiert sein könnte.
+- **Zugriff einschränken:** Gib Teammitgliedern nur die notwendigen Rollen im OpenAI- und Vercel-Workspace. Teilst du Builds mit anderen, nutze separate Projekt-Keys statt deinen persönlichen Hauptschlüssel.
+
 ## Wichtige Hinweise
 
 - **HTTPS erforderlich:** Die Mikrofon-API funktioniert nur über HTTPS (oder localhost). Daher ist Hosting auf Vercel empfohlen.
