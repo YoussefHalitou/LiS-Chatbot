@@ -93,6 +93,14 @@
 - **Yes, in controlled environments:** With all environment variables configured and the `x-api-key` header supplied on every request, chat/STT/TTS work end-to-end and enforce basic rate limits and payload guards.
 - **Caveats to account for:** Supabase still uses the service-role key without RLS, responses are non-streaming with limited observability, and moderation is limited to OpenAI’s general policies (keine PII-Redaction/Allowlisting). Avoid exposing the app publicly until RLS and broader safeguards are added; expect slower responses under load.
 
+## Improvement status snapshot
+- ✅ API key enforcement, per-route rate limits, and payload guards for chat/STT/TTS
+- ✅ Baseline moderation across chat, STT transcripts, and TTS text
+- ❌ Supabase least-privilege access with RLS and user-scoped tokens
+- ❌ Streaming responses, prompt compaction, and client-side incremental rendering
+- ❌ Structured telemetry (latency/error/token metrics) and concurrency governance
+- ❌ PII-focused filtering/redaction and policy-specific moderation rules
+
 ## What to implement next (action checklist)
 - **Supabase least-privilege access:** Turn on RLS, create view-scoped policies, and avoid the service-role key in request handling.
 - **Moderation coverage:** Add PII redaction/allowlisting and friendlier refusal messaging; broaden rules beyond the baseline OpenAI moderation signal.

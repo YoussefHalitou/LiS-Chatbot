@@ -163,6 +163,16 @@ Bekannte Einschränkungen, die du einplanen solltest:
 - **Kein Streaming/Observability:** Antworten werden nicht gestreamt und es fehlen Telemetriedaten für Kosten/Fehler. Rechne mit längeren Antwortzeiten und begrenzter Einsicht.
 - **Moderation nur grundlegend:** Chat-, STT- und TTS-Eingaben werden per OpenAI-Moderation geprüft und blockiert, aber es gibt noch keine zusätzlichen Filter/Redactions für PII oder Custom-Richtlinien.
 
+## Status der Verbesserungen (Kurzüberblick)
+
+- [x] API-Key-Pflicht und Ratenbegrenzung für Chat, STT und TTS
+- [x] Payload-Validierung (Nachrichtenanzahl/-länge, Audio-MIME/Größe, TTS-Textlänge)
+- [x] Basis-Moderation für Chat, STT und TTS
+- [ ] Supabase mit RLS und Least-Privilege-Token statt Service-Role-Key
+- [ ] Streaming-Antworten und Kontext-Kompaktion zur Latenz- und Kostenreduktion
+- [ ] Beobachtbarkeit (strukturierte Logs/Alerts) und Concurrency-Governance
+- [ ] PII-Filter/Redactions und policy-spezifische Moderationsregeln
+
 ## Wie es weitergeht (Empfohlene nächsten Schritte)
 
 1. **Supabase absichern**
