@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
-import { queryTable, getTableNames, getTableStructure, queryTableWithJoin } from '@/lib/supabase-query'
+import type { ChatCompletionTool } from 'openai/resources/chat/completions'
+import {
+  queryTable,
+  getTableNames,
+  getTableStructure,
+  queryTableWithJoin,
+  insertRow
+} from '@/lib/supabase-query'
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -137,9 +144,11 @@ Your primary technical task is to:
 
 Rules:
 
-1. **SELECT only.**
+1. **SELECT only, unless the user explicitly asks to create/insert new data AND confirms the insert.**
    - Allowed: SELECT, WITH, JOIN, WHERE, GROUP BY, ORDER BY, LIMIT.
-   - Absolutely forbidden: INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE or any schema-changing statement.
+   - For inserts: only when user explicitly requests creation, confirms the insert, and the tool supports it.
+   - Absolutely forbidden: UPDATE, DELETE, DROP, ALTER, TRUNCATE or any schema-changing statement.
+   - If you ask for confirmation before inserting, include an "INSERT_PAYLOAD" JSON code block so the system can execute on confirmation.
 
 2. Respect the schema:
    - Join using the defined foreign keys, e.g.:
@@ -305,6 +314,349 @@ interface ChatRequest {
   messages: Message[]
 }
 
+type DateRange = {
+  start: string
+  end: string
+}
+
+const DATE_RANGE_TABLE_FIELDS: Record<string, string> = {
+  v_morningplan_full: 'plan_date',
+  t_morningplan: 'plan_date',
+  v_project_full: 'project_date',
+  t_projects: 'project_date',
+}
+
+const INSERT_ALLOWED_TABLES = new Set([
+  't_projects',
+  't_morningplan',
+  't_morningplan_staff',
+  't_vehicles',
+  't_employees',
+  't_services',
+  't_materials',
+])
+
+const PROJECT_FILTER_FIELDS: Record<
+  string,
+  { name?: string; code?: string; id?: string }
+> = {
+  v_morningplan_full: { name: 'project_name', code: 'project_code', id: 'project_id' },
+  v_project_full: { name: 'project_name', code: 'project_code', id: 'project_id' },
+  t_projects: { name: 'name', code: 'project_code', id: 'project_id' },
+  t_morningplan: { id: 'project_id' },
+}
+
+const includesAny = (text: string, values: string[]) =>
+  values.some((value) => text.includes(value))
+
+const formatIsoDate = (date: Date) => date.toISOString().slice(0, 10)
+
+const normalizeText = (text: string) =>
+  text
+    .toLowerCase()
+    .replace(/[.,!?/\\]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+const isConfirmationMessage = (text: string) => {
+  const normalized = normalizeText(text)
+  if (!normalized) {
+    return false
+  }
+
+  return includesAny(normalized, [
+    'ja',
+    'jap',
+    'jo',
+    'yes',
+    'ok',
+    'okay',
+    'klar',
+    'bitte',
+    'mach',
+    'machs',
+    'machs bitte',
+    'bitte eintragen',
+  ])
+}
+
+const normalizeInsertPayload = (payload: Record<string, any>) => {
+  if (payload.tableName && payload.values && typeof payload.values === 'object') {
+    return {
+      tableName: payload.tableName,
+      values: payload.values,
+    }
+  }
+
+  return {
+    tableName: payload.tableName,
+    values: payload,
+  }
+}
+
+const extractInsertPayload = (content: string) => {
+  const codeBlockMatch = content.match(/```json\s*INSERT_PAYLOAD\s*([\s\S]*?)```/i)
+  const inlineMatch = content.match(/INSERT_PAYLOAD:\s*({[\s\S]*})/i)
+  const rawJson = codeBlockMatch?.[1] ?? inlineMatch?.[1]
+
+  if (rawJson) {
+    try {
+      const payload = JSON.parse(rawJson.trim())
+      if (!payload || typeof payload !== 'object') {
+        return null
+      }
+      return normalizeInsertPayload(payload)
+    } catch (error) {
+      console.error('Failed to parse INSERT_PAYLOAD JSON:', error)
+      return null
+    }
+  }
+
+  const candidates: string[] = []
+  let depth = 0
+  let startIndex = -1
+  for (let i = 0; i < content.length; i++) {
+    const char = content[i]
+    if (char === '{') {
+      if (depth === 0) {
+        startIndex = i
+      }
+      depth += 1
+    } else if (char === '}') {
+      depth -= 1
+      if (depth === 0 && startIndex !== -1) {
+        candidates.push(content.slice(startIndex, i + 1))
+        startIndex = -1
+      }
+    }
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const payload = JSON.parse(candidate.trim())
+      if (payload && typeof payload === 'object') {
+        return normalizeInsertPayload(payload)
+      }
+    } catch (error) {
+      continue
+    }
+  }
+
+  return null
+}
+
+const inferInsertTable = (text: string) => {
+  const match = text.match(/\bt_[a-z0-9_]+\b/i)
+  if (!match) {
+    return null
+  }
+
+  const table = match[0]
+  return INSERT_ALLOWED_TABLES.has(table) ? table : null
+}
+
+const inferProjectName = (userText: string) => {
+  const normalized = normalizeText(userText)
+  if (!normalized) return null
+
+  const stopWords = new Set([
+    'heute',
+    'morgen',
+    'gestern',
+    'woche',
+    'monat',
+    'jetzt',
+    'now',
+    'diese',
+    'dieser',
+    'dieses',
+    'nächste',
+    'naechste',
+    'nächsten',
+    'naechsten',
+    'letzte',
+    'letzten',
+    'letzter',
+    'aktuelle',
+    'aktuellen',
+    'aktuell',
+    'kommende',
+    'kommenden',
+  ])
+
+  if (normalized.includes('projekt ')) {
+    const afterProject = normalized.split('projekt ')[1]
+    if (!afterProject) return null
+    const tokens = afterProject.split(' ')
+    const collected: string[] = []
+    for (const token of tokens) {
+      if (stopWords.has(token) || ['am', 'im', 'in', 'für', 'mit', 'vom', 'von', 'der', 'die', 'das'].includes(token)) {
+        break
+      }
+      collected.push(token)
+    }
+    return collected.length ? collected.join(' ') : null
+  }
+
+  const tokens = normalized.split(' ').filter(Boolean)
+  if (tokens.length <= 2 && tokens.every((token) => !stopWords.has(token))) {
+    return tokens.join(' ')
+  }
+
+  return null
+}
+
+const inferProjectIdentifier = (userText: string) => {
+  const normalized = normalizeText(userText)
+  if (!normalized) return null
+
+  const uuidMatch = normalized.match(
+    /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i
+  )
+  const codeMatch = normalized.match(/\bprj-[0-9]{8}-[a-z0-9]{4,}\b/i)
+
+  const name = inferProjectName(normalized)
+
+  if (!uuidMatch && !codeMatch && !name) {
+    return null
+  }
+
+  return {
+    projectId: uuidMatch ? uuidMatch[0] : null,
+    projectCode: codeMatch ? codeMatch[0].toUpperCase() : null,
+    projectName: name,
+  }
+}
+
+const inferDateRange = ({
+  userText,
+  weekStart,
+  weekEnd,
+  berlinDateUtc,
+}: {
+  userText: string
+  weekStart: Date
+  weekEnd: Date
+  berlinDateUtc: Date
+}): DateRange | null => {
+  const text = userText.toLowerCase()
+  const hasWeek = text.includes('woche') || text.includes('week')
+  const hasMonth = text.includes('monat') || text.includes('month')
+
+  if (!hasWeek && !hasMonth) {
+    return null
+  }
+
+  if (hasMonth) {
+    const year = berlinDateUtc.getUTCFullYear()
+    const month = berlinDateUtc.getUTCMonth()
+    const currentStart = new Date(Date.UTC(year, month, 1))
+    const currentEnd = new Date(Date.UTC(year, month + 1, 0))
+    const nextStart = new Date(Date.UTC(year, month + 1, 1))
+    const nextEnd = new Date(Date.UTC(year, month + 2, 0))
+    const previousStart = new Date(Date.UTC(year, month - 1, 1))
+    const previousEnd = new Date(Date.UTC(year, month, 0))
+
+    if (includesAny(text, ['nächsten monat', 'naechsten monat', 'kommenden monat'])) {
+      return { start: formatIsoDate(nextStart), end: formatIsoDate(nextEnd) }
+    }
+
+    if (includesAny(text, ['letzten monat', 'vorigen monat', 'vergangenen monat'])) {
+      return { start: formatIsoDate(previousStart), end: formatIsoDate(previousEnd) }
+    }
+
+    if (includesAny(text, ['diesen monat', 'aktuellen monat', 'aktuell', 'jetzt', 'now'])) {
+      return { start: formatIsoDate(currentStart), end: formatIsoDate(currentEnd) }
+    }
+  }
+
+  if (hasWeek) {
+    const currentStart = weekStart
+    const currentEnd = weekEnd
+    const previousStart = new Date(weekStart)
+    previousStart.setUTCDate(previousStart.getUTCDate() - 7)
+    const previousEnd = new Date(weekEnd)
+    previousEnd.setUTCDate(previousEnd.getUTCDate() - 7)
+    const nextStart = new Date(weekStart)
+    nextStart.setUTCDate(nextStart.getUTCDate() + 7)
+    const nextEnd = new Date(weekEnd)
+    nextEnd.setUTCDate(nextEnd.getUTCDate() + 7)
+
+    if (includesAny(text, ['nächste woche', 'naechste woche', 'kommende woche'])) {
+      return { start: formatIsoDate(nextStart), end: formatIsoDate(nextEnd) }
+    }
+
+    if (includesAny(text, ['letzte woche', 'vorige woche', 'vergangene woche'])) {
+      return { start: formatIsoDate(previousStart), end: formatIsoDate(previousEnd) }
+    }
+
+    if (includesAny(text, ['diese woche', 'aktuelle woche', 'kalenderwoche', 'jetzt', 'now'])) {
+      return { start: formatIsoDate(currentStart), end: formatIsoDate(currentEnd) }
+    }
+  }
+
+  return null
+}
+
+const applyDateRangeFilters = (
+  tableName: string,
+  filters: Record<string, any>,
+  dateRange: DateRange | null
+) => {
+  const dateField = DATE_RANGE_TABLE_FIELDS[tableName]
+  if (!dateField || !dateRange) {
+    return filters
+  }
+
+  return {
+    ...filters,
+    [dateField]: {
+      type: 'between',
+      value: [dateRange.start, dateRange.end],
+    },
+  }
+}
+
+const applyProjectFilters = (
+  tableName: string,
+  filters: Record<string, any>,
+  projectIdentifiers: { projectId: string | null; projectCode: string | null; projectName: string | null } | null
+) => {
+  if (!projectIdentifiers) {
+    return filters
+  }
+
+  const fields = PROJECT_FILTER_FIELDS[tableName]
+  if (!fields) {
+    return filters
+  }
+
+  let nextFilters = { ...filters }
+
+  if (projectIdentifiers.projectId && fields.id && !nextFilters[fields.id]) {
+    nextFilters = {
+      ...nextFilters,
+      [fields.id]: { type: 'eq', value: projectIdentifiers.projectId },
+    }
+  }
+
+  if (projectIdentifiers.projectCode && fields.code && !nextFilters[fields.code]) {
+    nextFilters = {
+      ...nextFilters,
+      [fields.code]: { type: 'eq', value: projectIdentifiers.projectCode },
+    }
+  }
+
+  if (projectIdentifiers.projectName && fields.name && !nextFilters[fields.name]) {
+    nextFilters = {
+      ...nextFilters,
+      [fields.name]: { type: 'ilike', value: projectIdentifiers.projectName },
+    }
+  }
+
+  return nextFilters
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body: ChatRequest = await req.json()
@@ -315,6 +667,70 @@ export async function POST(req: NextRequest) {
         { error: 'Messages array is required' },
         { status: 400 }
       )
+    }
+
+    const lastUserMessage =
+      [...messages].reverse().find((message) => message.role === 'user')?.content || ''
+    const lastAssistantMessage =
+      [...messages].reverse().find((message) => message.role === 'assistant')?.content || ''
+
+    if (isConfirmationMessage(lastUserMessage) && lastAssistantMessage) {
+      const insertPayload = extractInsertPayload(lastAssistantMessage)
+      const inferredTable =
+        insertPayload?.tableName ||
+        inferInsertTable(lastAssistantMessage) ||
+        inferInsertTable(lastUserMessage)
+
+      const insertValues = insertPayload?.values
+      if (inferredTable && insertValues) {
+        if (!INSERT_ALLOWED_TABLES.has(inferredTable)) {
+          return NextResponse.json(
+            {
+              message: {
+                role: 'assistant',
+                content: `Eintrag nicht möglich: Tabelle "${inferredTable}" ist nicht erlaubt.`,
+              },
+            },
+            { headers: NO_CACHE_HEADERS }
+          )
+        }
+
+        const insertResult = await insertRow(inferredTable, insertValues)
+
+        if (insertResult.error) {
+          return NextResponse.json(
+            {
+              message: {
+                role: 'assistant',
+                content: `Der Eintrag konnte nicht erstellt werden: ${insertResult.error}`,
+              },
+            },
+            { headers: NO_CACHE_HEADERS }
+          )
+        }
+
+        return NextResponse.json(
+          {
+            message: {
+              role: 'assistant',
+              content: 'Der Eintrag wurde erstellt. Soll ich dir die Details anzeigen?',
+            },
+          },
+          { headers: NO_CACHE_HEADERS }
+        )
+      }
+      if (insertPayload && !insertValues) {
+        return NextResponse.json(
+          {
+            message: {
+              role: 'assistant',
+              content:
+                'Ich habe eine Bestätigung erhalten, aber keine vollständigen Eintragsdaten erkannt. Bitte sende die Details als JSON.',
+            },
+          },
+          { headers: NO_CACHE_HEADERS }
+        )
+      }
     }
 
     const now = new Date()
@@ -347,7 +763,6 @@ export async function POST(req: NextRequest) {
     const weekEnd = new Date(weekStart)
     weekEnd.setUTCDate(weekStart.getUTCDate() + 6)
 
-    const formatIsoDate = (date: Date) => date.toISOString().slice(0, 10)
     const berlinWeekRange = `${formatIsoDate(weekStart)} bis ${formatIsoDate(weekEnd)}`
 
     const berlinIsoDate = new Intl.DateTimeFormat('sv-SE', {
@@ -410,234 +825,493 @@ export async function POST(req: NextRequest) {
       openaiMessages.push(openaiMessage)
     }
 
-    // Create a completion with tools (function calling) for database queries
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o',
-      messages: openaiMessages,
-      tools: [
-        {
-          type: 'function',
-          function: {
-            name: 'queryTable',
-            description: 'Query a table in the Supabase database with optional filters. Use this for simple queries on a single table.',
-            parameters: {
-              type: 'object',
-              properties: {
-                tableName: {
-                  type: 'string',
-                  description: 'The name of the table to query',
-                },
-                filters: {
-                  type: 'object',
-                  description: 'Optional filters to apply (key-value pairs)',
-                  additionalProperties: true,
-                },
-                limit: {
-                  type: 'number',
-                  description: 'Maximum number of results to return (default: 100)',
-                  default: 100,
-                },
-                joins: {
-                  type: 'array',
-                  items: {
-                    type: 'string',
-                  },
-                  description: 'Optional array of related tables to join. Use Supabase join syntax like ["prices(*)", "categories(*)"]',
-                },
-              },
-              required: ['tableName'],
-            },
-          },
-        },
-        {
-          type: 'function',
-          function: {
-            name: 'queryTableWithJoin',
-            description: 'Query a table with a join to a related table. Use this when data is spread across multiple tables. For "Einkaufspreise der Materialien", use queryTableWithJoin with t_materials and t_material_prices. The function automatically tries multiple join patterns, so you can call it directly without checking structure first.',
-            parameters: {
-              type: 'object',
-              properties: {
-                tableName: {
-                  type: 'string',
-                  description: 'The name of the main table to query (e.g., "t_materials", "materials")',
-                },
-                joinTable: {
-                  type: 'string',
-                  description: 'The name of the related table to join (e.g., "t_material_prices", "material_prices", "prices")',
-                },
-                joinColumn: {
-                  type: 'string',
-                  description: 'Optional: The foreign key column name. For materials/prices, typically "material_id". If not provided, the function will try to auto-detect.',
-                },
-                filters: {
-                  type: 'object',
-                  description: 'Optional filters to apply to the main table (key-value pairs)',
-                  additionalProperties: true,
-                },
-                limit: {
-                  type: 'number',
-                  description: 'Maximum number of results to return (default: 100)',
-                  default: 100,
-                },
-              },
-              required: ['tableName', 'joinTable'],
-            },
-          },
-        },
-        {
-          type: 'function',
-          function: {
-            name: 'getTableNames',
-            description: 'Get a list of available table names in the database',
-            parameters: {
-              type: 'object',
-              properties: {},
-              required: [],
-            },
-          },
-        },
-        {
-          type: 'function',
-          function: {
-            name: 'getTableStructure',
-            description: 'Get the structure (column names) of a specific table or view. IMPORTANT: Many pre-built views exist (v_morningplan_full, v_project_full, v_employee_kpi, etc.) - check these first before manual JOINs!',
-            parameters: {
-              type: 'object',
-              properties: {
-                tableName: {
-                  type: 'string',
-                  description: 'The name of the table or view to get structure for (e.g., "v_morningplan_full", "t_employees")',
-                },
-              },
-              required: ['tableName'],
-            },
-          },
-        },
-      ],
-      tool_choice: 'auto',
-      temperature: 0.3, // Lower temperature to reduce hallucinations and be more factual
+    const streamingDisabledEnv =
+      process.env.CHAT_STREAMING_DISABLED === 'true' ||
+      process.env.NEXT_PUBLIC_DISABLE_STREAMING === 'true'
+
+    const streamingDisabledRequest =
+      req.headers.get('x-disable-streaming') === 'true'
+
+    const requestedDateRange = inferDateRange({
+      userText: lastUserMessage,
+      weekStart,
+      weekEnd,
+      berlinDateUtc,
     })
+    const requestedProjectIdentifiers = inferProjectIdentifier(lastUserMessage)
 
-    const responseMessage = completion.choices[0].message
-
-    // Check if the model wants to call a tool
-    if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
-      // Suppress announcement messages - if content is just announcing what will be done, ignore it
-      const content = responseMessage.content
-      const lowerContent = content?.toLowerCase() || ''
-      const isAnnouncement = content && (
-        lowerContent.includes('moment') ||
-        lowerContent.includes('während ich') ||
-        lowerContent.includes('i will') ||
-        lowerContent.includes('let me') ||
-        lowerContent.includes('ich werde') ||
-        lowerContent.includes('ich versuche') ||
-        lowerContent.includes('i\'ll') ||
-        lowerContent.includes('ich bin bereit') ||
-        lowerContent.includes('i\'m ready') ||
-        lowerContent.includes('i can help') ||
-        lowerContent.includes('wie kann ich dir helfen') ||
-        lowerContent.includes('was möchtest du wissen') ||
-        lowerContent.includes('was möchtest du tun') ||
-        lowerContent.includes('einen moment') ||
-        lowerContent.includes('einen augenblick') ||
-        lowerContent.includes('ich werde nun') ||
-        lowerContent.includes('ich werde jetzt') ||
-        lowerContent.includes('ich werde versuchen') ||
-        (content.length < 80 && (
-          lowerContent.includes('query') ||
-          lowerContent.includes('abfrage') ||
-          lowerContent.includes('check') ||
-          lowerContent.includes('prüfen') ||
-          lowerContent.includes('daten abrufen') ||
-          lowerContent.includes('informationen abrufen') ||
-          lowerContent.includes('daten aus der datenbank') ||
-          lowerContent.includes('informationen aus der datenbank')
-        ))
+    if (streamingDisabledEnv || streamingDisabledRequest) {
+      return await handleNonStreamingCompletion(
+        openaiMessages,
+        requestedDateRange,
+        requestedProjectIdentifiers
       )
-
-      // Add the assistant's tool call request to the conversation (with empty content if it's just an announcement)
-      openaiMessages.push({
-        role: 'assistant',
-        content: isAnnouncement ? null : content,
-        tool_calls: responseMessage.tool_calls,
-      })
-
-      // Execute all tool calls
-      for (const toolCall of responseMessage.tool_calls) {
-        const functionName = toolCall.function.name
-        const functionArgs = JSON.parse(toolCall.function.arguments || '{}')
-
-        let functionResult: any
-
-        // Execute the function
-        if (functionName === 'queryTable') {
-          const result = await queryTable(
-            functionArgs.tableName,
-            functionArgs.filters || {},
-            functionArgs.limit || 100,
-            functionArgs.joins
-          )
-          functionResult = result
-        } else if (functionName === 'queryTableWithJoin') {
-          const result = await queryTableWithJoin(
-            functionArgs.tableName,
-            functionArgs.joinTable,
-            functionArgs.joinColumn,
-            functionArgs.filters || {},
-            functionArgs.limit || 100
-          )
-          functionResult = result
-        } else if (functionName === 'getTableNames') {
-          const result = await getTableNames()
-          functionResult = result
-        } else if (functionName === 'getTableStructure') {
-          const result = await getTableStructure(functionArgs.tableName)
-          functionResult = result
-        } else {
-          functionResult = { error: `Unknown function: ${functionName}` }
-        }
-
-        // Add the function result to the conversation
-        openaiMessages.push({
-          role: 'tool',
-          tool_call_id: toolCall.id,
-          content: JSON.stringify(functionResult),
-        })
-      }
-
-      // Get the final response from OpenAI after tool execution
-      const finalCompletion = await openai.chat.completions.create({
-        model: 'gpt-4o',
-        messages: openaiMessages,
-        temperature: 0.3, // Lower temperature to reduce hallucinations and be more factual
-      })
-
-      const finalMessage = finalCompletion.choices[0].message
-
-      return NextResponse.json({
-        message: {
-          role: 'assistant',
-          content: finalMessage.content || 'I processed your request, but got no response.',
-        },
-      })
     }
 
-    // Return the assistant's response
-    return NextResponse.json({
-      message: {
-        role: 'assistant',
-        content: responseMessage.content,
-      },
-    })
+    return handleStreamingCompletion(
+      openaiMessages,
+      requestedDateRange,
+      requestedProjectIdentifiers
+    )
   } catch (error) {
     console.error('Chat API error:', error)
     return NextResponse.json(
       {
         error: error instanceof Error ? error.message : 'An error occurred',
       },
-      { status: 500 }
+      { status: 500, headers: NO_CACHE_HEADERS }
     )
   }
 }
 
+async function handleNonStreamingCompletion(
+  openaiMessages: any[],
+  requestedDateRange: DateRange | null,
+  requestedProjectIdentifiers: {
+    projectId: string | null
+    projectCode: string | null
+    projectName: string | null
+  } | null
+) {
+  // Create a completion with tools (function calling) for database queries
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: openaiMessages,
+    tools: getToolDefinitions(),
+    tool_choice: 'auto',
+    temperature: 0.3, // Lower temperature to reduce hallucinations and be more factual
+  })
+
+  const responseMessage = completion.choices[0].message
+
+  // Check if the model wants to call a tool
+  if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
+    await handleToolCalls(
+      responseMessage,
+      openaiMessages,
+      requestedDateRange,
+      requestedProjectIdentifiers
+    )
+
+    // Get the final response from OpenAI after tool execution
+    const finalCompletion = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      messages: openaiMessages,
+      temperature: 0.3, // Lower temperature to reduce hallucinations and be more factual
+    })
+
+    const finalMessage = finalCompletion.choices[0].message
+
+    return NextResponse.json(
+      {
+        message: {
+          role: 'assistant',
+          content: finalMessage.content || 'I processed your request, but got no response.',
+        },
+      },
+      { headers: NO_CACHE_HEADERS }
+    )
+  }
+
+  // Return the assistant's response
+  return NextResponse.json(
+    {
+      message: {
+        role: 'assistant',
+        content: responseMessage.content,
+      },
+    },
+    { headers: NO_CACHE_HEADERS }
+  )
+}
+
+function getToolDefinitions(): ChatCompletionTool[] {
+  return [
+    {
+      type: 'function',
+      function: {
+        name: 'queryTable',
+        description:
+          'Query a table in the Supabase database with optional filters. Use this for simple queries on a single table.',
+        parameters: {
+          type: 'object',
+          properties: {
+            tableName: {
+              type: 'string',
+              description: 'The name of the table to query',
+            },
+            filters: {
+              type: 'object',
+              description: 'Optional filters to apply (key-value pairs)',
+              additionalProperties: true,
+            },
+            limit: {
+              type: 'number',
+              description: 'Maximum number of results to return (default: 100)',
+              default: 100,
+            },
+            joins: {
+              type: 'array',
+              items: {
+                type: 'string',
+              },
+              description:
+                'Optional array of related tables to join. Use Supabase join syntax like ["prices(*)", "categories(*)"]',
+            },
+          },
+          required: ['tableName'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'queryTableWithJoin',
+        description:
+          'Query a table with a join to a related table. Use this when data is spread across multiple tables. For "Einkaufspreise der Materialien", use queryTableWithJoin with t_materials and t_material_prices. The function automatically tries multiple join patterns, so you can call it directly without checking structure first.',
+        parameters: {
+          type: 'object',
+          properties: {
+            tableName: {
+              type: 'string',
+              description: 'The name of the main table to query (e.g., "t_materials", "materials")',
+            },
+            joinTable: {
+              type: 'string',
+              description:
+                'The name of the related table to join (e.g., "t_material_prices", "material_prices", "prices")',
+            },
+            joinColumn: {
+              type: 'string',
+              description:
+                'Optional: The foreign key column name. For materials/prices, typically "material_id". If not provided, the function will try to auto-detect.',
+            },
+            filters: {
+              type: 'object',
+              description: 'Optional filters to apply to the main table (key-value pairs)',
+              additionalProperties: true,
+            },
+            limit: {
+              type: 'number',
+              description: 'Maximum number of results to return (default: 100)',
+              default: 100,
+            },
+          },
+          required: ['tableName', 'joinTable'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'getTableNames',
+        description: 'Get a list of available table names in the database',
+        parameters: {
+          type: 'object',
+          properties: {},
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'getTableStructure',
+        description:
+          'Get the structure (column names) of a specific table or view. IMPORTANT: Many pre-built views exist (v_morningplan_full, v_project_full, v_employee_kpi, etc.) - check these first before manual JOINs!',
+        parameters: {
+          type: 'object',
+          properties: {
+            tableName: {
+              type: 'string',
+              description: 'The name of the table or view to get structure for (e.g., "v_morningplan_full", "t_employees")',
+            },
+          },
+          required: ['tableName'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'insertRow',
+        description:
+          'Insert a single row into an allowed table. Use only when the user explicitly asks to create or add new data AND confirms the insert. Return the created row.',
+        parameters: {
+          type: 'object',
+          properties: {
+            tableName: {
+              type: 'string',
+              description:
+                'Target table name (must be one of the allowed tables).',
+            },
+            values: {
+              type: 'object',
+              description: 'Column/value pairs for the new row.',
+              additionalProperties: true,
+            },
+            confirm: {
+              type: 'boolean',
+              description: 'Must be true after the user explicitly confirms the insert.',
+            },
+          },
+          required: ['tableName', 'values', 'confirm'],
+        },
+      },
+    },
+  ]
+}
+
+async function handleToolCalls(
+  responseMessage: any,
+  openaiMessages: any[],
+  requestedDateRange: DateRange | null,
+  requestedProjectIdentifiers: {
+    projectId: string | null
+    projectCode: string | null
+    projectName: string | null
+  } | null
+) {
+  const content = responseMessage.content
+  const lowerContent = content?.toLowerCase() || ''
+  const isAnnouncement =
+    content &&
+    (lowerContent.includes('moment') ||
+      lowerContent.includes('während ich') ||
+      lowerContent.includes('i will') ||
+      lowerContent.includes('let me') ||
+      lowerContent.includes('ich werde') ||
+      lowerContent.includes('ich versuche') ||
+      lowerContent.includes("i'll") ||
+      lowerContent.includes('ich bin bereit') ||
+      lowerContent.includes("i'm ready") ||
+      lowerContent.includes('i can help') ||
+      lowerContent.includes('wie kann ich dir helfen') ||
+      lowerContent.includes('was möchtest du wissen') ||
+      lowerContent.includes('was möchtest du tun') ||
+      lowerContent.includes('einen moment') ||
+      lowerContent.includes('einen augenblick') ||
+      lowerContent.includes('ich werde nun') ||
+      lowerContent.includes('ich werde jetzt') ||
+      lowerContent.includes('ich werde versuchen') ||
+      (content.length < 80 &&
+        (lowerContent.includes('query') ||
+          lowerContent.includes('abfrage') ||
+          lowerContent.includes('check') ||
+          lowerContent.includes('prüfen') ||
+          lowerContent.includes('daten abrufen') ||
+          lowerContent.includes('informationen abrufen') ||
+          lowerContent.includes('daten aus der datenbank') ||
+          lowerContent.includes('informationen aus der datenbank'))))
+
+  openaiMessages.push({
+    role: 'assistant',
+    content: isAnnouncement ? null : content,
+    tool_calls: responseMessage.tool_calls,
+  })
+
+  for (const toolCall of responseMessage.tool_calls) {
+    const functionName = toolCall.function.name
+    const functionArgs = JSON.parse(toolCall.function.arguments || '{}')
+
+    let functionResult: any
+
+    if (functionName === 'queryTable') {
+      let filtersWithRange = applyDateRangeFilters(
+        functionArgs.tableName,
+        functionArgs.filters || {},
+        requestedDateRange
+      )
+      filtersWithRange = applyProjectFilters(
+        functionArgs.tableName,
+        filtersWithRange,
+        requestedProjectIdentifiers
+      )
+      const result = await queryTable(
+        functionArgs.tableName,
+        filtersWithRange,
+        functionArgs.limit || 100,
+        functionArgs.joins
+      )
+      functionResult = result
+    } else if (functionName === 'queryTableWithJoin') {
+      let filtersWithRange = applyDateRangeFilters(
+        functionArgs.tableName,
+        functionArgs.filters || {},
+        requestedDateRange
+      )
+      filtersWithRange = applyProjectFilters(
+        functionArgs.tableName,
+        filtersWithRange,
+        requestedProjectIdentifiers
+      )
+      const result = await queryTableWithJoin(
+        functionArgs.tableName,
+        functionArgs.joinTable,
+        functionArgs.joinColumn,
+        filtersWithRange,
+        functionArgs.limit || 100
+      )
+      functionResult = result
+    } else if (functionName === 'getTableNames') {
+      const result = await getTableNames()
+      functionResult = result
+    } else if (functionName === 'getTableStructure') {
+      const result = await getTableStructure(functionArgs.tableName)
+      functionResult = result
+    } else if (functionName === 'insertRow') {
+      if (!INSERT_ALLOWED_TABLES.has(functionArgs.tableName)) {
+        functionResult = {
+          error: `Insert not allowed for table: ${functionArgs.tableName}`,
+        }
+      } else if (!functionArgs.confirm) {
+        functionResult = { error: 'Insert requires explicit confirmation.' }
+      } else if (!functionArgs.values || typeof functionArgs.values !== 'object') {
+        functionResult = { error: 'Missing values for insertRow.' }
+      } else {
+        const result = await insertRow(functionArgs.tableName, functionArgs.values)
+        functionResult = result
+      }
+    } else {
+      functionResult = { error: `Unknown function: ${functionName}` }
+    }
+
+    openaiMessages.push({
+      role: 'tool',
+      tool_call_id: toolCall.id,
+      content: JSON.stringify(functionResult),
+    })
+  }
+}
+
+const NO_CACHE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+}
+
+function buildSseResponse(stream: ReadableStream<Uint8Array>) {
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    },
+  })
+}
+
+function encodeSse(data: object) {
+  const encoder = new TextEncoder()
+  return encoder.encode(`data: ${JSON.stringify(data)}\n\n`)
+}
+
+async function handleStreamingCompletion(
+  openaiMessages: any[],
+  requestedDateRange: DateRange | null,
+  requestedProjectIdentifiers: {
+    projectId: string | null
+    projectCode: string | null
+    projectName: string | null
+  } | null
+) {
+  const stream = new ReadableStream<Uint8Array>({
+    start: async (controller) => {
+      try {
+        const initialStream = await openai.chat.completions.create({
+          model: 'gpt-4o',
+          messages: openaiMessages,
+          tools: getToolDefinitions(),
+          tool_choice: 'auto',
+          temperature: 0.3,
+          stream: true,
+        })
+
+        let needsToolCall = false
+        const toolCallMap = new Map<
+          number,
+          {
+            id?: string
+            function: {
+              name?: string
+              arguments: string
+            }
+          }
+        >()
+
+        for await (const chunk of initialStream) {
+          const delta = chunk.choices[0]?.delta
+          if (!delta) continue
+
+          if (delta.tool_calls) {
+            needsToolCall = true
+            for (const toolCall of delta.tool_calls) {
+              const index = toolCall.index ?? 0
+              const existing = toolCallMap.get(index) || {
+                id: toolCall.id,
+                function: { name: toolCall.function?.name, arguments: '' },
+              }
+
+              if (toolCall.id) existing.id = toolCall.id
+              if (toolCall.function?.name) existing.function.name = toolCall.function.name
+              if (toolCall.function?.arguments) {
+                existing.function.arguments += toolCall.function.arguments
+              }
+
+              toolCallMap.set(index, existing)
+            }
+            continue
+          }
+
+          if (delta.content) {
+            controller.enqueue(encodeSse({ type: 'token', content: delta.content }))
+          }
+        }
+
+        if (needsToolCall) {
+          const tool_calls = Array.from(toolCallMap.entries())
+            .sort(([a], [b]) => a - b)
+            .map(([, value]) => ({
+              id: value.id,
+              type: 'function',
+              function: value.function,
+            }))
+
+          await handleToolCalls(
+            { tool_calls, content: null },
+            openaiMessages,
+            requestedDateRange,
+            requestedProjectIdentifiers
+          )
+
+          const finalStream = await openai.chat.completions.create({
+            model: 'gpt-4o',
+            messages: openaiMessages,
+            temperature: 0.3,
+            stream: true,
+          })
+
+          for await (const chunk of finalStream) {
+            const delta = chunk.choices[0]?.delta
+            if (!delta) continue
+            if (delta.content) {
+              controller.enqueue(encodeSse({ type: 'token', content: delta.content }))
+            }
+          }
+        }
+
+        controller.enqueue(encodeSse({ type: 'done' }))
+        controller.close()
+      } catch (error) {
+        console.error('Streaming error:', error)
+        controller.enqueue(
+          encodeSse({
+            type: 'error',
+            message: error instanceof Error ? error.message : 'An error occurred while streaming.',
+          })
+        )
+        controller.close()
+      }
+    },
+  })
+
+  return buildSseResponse(stream)
+}

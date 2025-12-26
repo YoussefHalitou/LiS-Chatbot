@@ -249,6 +249,11 @@ export async function queryTable(
           case 'lte':
             query = query.lte(key, filterValue)
             break
+          case 'between':
+            if (Array.isArray(filterValue) && filterValue.length === 2) {
+              query = query.gte(key, filterValue[0]).lte(key, filterValue[1])
+            }
+            break
           case 'like':
             query = query.like(key, `%${filterValue}%`)
             break
@@ -297,6 +302,37 @@ export async function queryTable(
     return {
       data: null,
       error: err instanceof Error ? err.message : 'Query failed'
+    }
+  }
+}
+
+export async function insertRow(
+  tableName: string,
+  values: Record<string, any>
+) {
+  try {
+    if (!supabaseAdmin) {
+      return {
+        data: null,
+        error: 'Service role key not configured'
+      }
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from(tableName)
+      .insert(values)
+      .select()
+      .single()
+
+    if (error) {
+      return { data: null, error: error.message }
+    }
+
+    return { data, error: null }
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err.message : 'Unknown error'
     }
   }
 }
@@ -393,6 +429,11 @@ export async function queryTableWithJoin(
             case 'lte':
               query = query.lte(key, filterValue)
               break
+            case 'between':
+              if (Array.isArray(filterValue) && filterValue.length === 2) {
+                query = query.gte(key, filterValue[0]).lte(key, filterValue[1])
+              }
+              break
             case 'like':
               query = query.like(key, `%${filterValue}%`)
               break
@@ -466,4 +507,3 @@ export async function queryTableWithJoin(
     error: `Failed to join "${tableName}" with "${joinTable}". Tried multiple join patterns. Possible issues: 1) Foreign key relationship not configured in Supabase, 2) Column names don't match expected patterns, 3) Tables don't have the expected relationship. Error details: Please check if "${joinTable}" has a foreign key column pointing to "${tableName}".`
   }
 }
-

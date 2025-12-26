@@ -15,6 +15,8 @@ export default function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [isStreamingResponse, setIsStreamingResponse] = useState(false)
+  const [showLoadingBubble, setShowLoadingBubble] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [isPlayingAudio, setIsPlayingAudio] = useState(false)
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
@@ -22,6 +24,9 @@ export default function ChatInterface() {
   const [isProcessingVoice, setIsProcessingVoice] = useState(false)
   const [audioLevel, setAudioLevel] = useState(0)
   const [silenceStartTime, setSilenceStartTime] = useState<number | null>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
+  const streamTimeoutRef = useRef<number | null>(null)
+  const loadingBubbleTimeoutRef = useRef<number | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -33,7 +38,12 @@ export default function ChatInterface() {
   const streamRef = useRef<MediaStream | null>(null)
   const silenceStartTimeRef = useRef<number | null>(null)
   const voiceOnlyModeRef = useRef<boolean>(false) // Use ref to track voice-only mode reliably
+  const streamingDisabled =
+    process.env.NEXT_PUBLIC_DISABLE_STREAMING === 'true' ||
+    process.env.CHAT_STREAMING_DISABLED === 'true'
   const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+  const TTS_FALLBACK_DELAY_MS = 2500
+  const TTS_SLOW_RATE = 0.95
 
   // Load chat history from localStorage on mount
   useEffect(() => {
@@ -502,9 +512,43 @@ export default function ChatInterface() {
     }
 
     let audioUrl: string | null = null
+    let fallbackTimeout: number | null = null
+
+    const speakWithWebSpeech = (fallbackText: string) => {
+      if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+        throw new Error('Web Speech API not available')
+      }
+
+      window.speechSynthesis.cancel()
+      const utterance = new SpeechSynthesisUtterance(fallbackText)
+      utterance.lang = 'de-DE'
+      utterance.rate = TTS_SLOW_RATE
+      utterance.pitch = 1
+      utterance.volume = 1
+
+      setIsPlayingAudio(true)
+
+      utterance.onend = () => {
+        setIsPlayingAudio(false)
+        if (voiceOnlyModeRef.current && !isRecording && !isLoading) {
+          setTimeout(() => {
+            if (voiceOnlyModeRef.current && !isRecording && !isLoading) {
+              startRecording()
+            }
+          }, 500)
+        }
+      }
+
+      utterance.onerror = () => {
+        setIsPlayingAudio(false)
+      }
+
+      window.speechSynthesis.speak(utterance)
+    }
 
     try {
       const preparedText = formatTextForSpeech(text)
+      const ttsStartTime = Date.now()
       
       console.log('[TTS] Starting TTS for text length:', preparedText.length)
 
@@ -561,6 +605,14 @@ export default function ChatInterface() {
       // Set up event handlers before setting source
       audio.onplay = () => {
         console.log('[TTS] Audio onplay event fired')
+        if (fallbackTimeout) {
+          window.clearTimeout(fallbackTimeout)
+          fallbackTimeout = null
+        }
+        const playbackDelayMs = Date.now() - ttsStartTime
+        if (playbackDelayMs > TTS_FALLBACK_DELAY_MS) {
+          audio.playbackRate = TTS_SLOW_RATE
+        }
         setIsPlayingAudio(true) // Ensure it's still true
       }
       
@@ -570,6 +622,10 @@ export default function ChatInterface() {
         audioRef.current = null
         if (urlToCleanup) {
           URL.revokeObjectURL(urlToCleanup)
+        }
+        if (fallbackTimeout) {
+          window.clearTimeout(fallbackTimeout)
+          fallbackTimeout = null
         }
         
         // In voice-only mode, restart recording after audio finishes
@@ -595,6 +651,10 @@ export default function ChatInterface() {
         audioRef.current = null
         if (urlToCleanup) {
           URL.revokeObjectURL(urlToCleanup)
+        }
+        if (fallbackTimeout) {
+          window.clearTimeout(fallbackTimeout)
+          fallbackTimeout = null
         }
         // Don't show alert in voice-only mode to avoid interrupting flow
         if (!voiceOnlyMode) {
@@ -639,6 +699,15 @@ export default function ChatInterface() {
             if (urlToCleanup) {
               URL.revokeObjectURL(urlToCleanup)
             }
+            if (fallbackTimeout) {
+              window.clearTimeout(fallbackTimeout)
+              fallbackTimeout = null
+            }
+            try {
+              speakWithWebSpeech(preparedText)
+            } catch (fallbackError) {
+              console.error('[TTS] Web Speech fallback failed:', fallbackError)
+            }
             if (!voiceOnlyMode) {
               alert('Die Audiowiedergabe wurde vom Browser blockiert. Bitte interagiere zuerst mit der Seite (z.B. ein Klick).')
             }
@@ -673,14 +742,39 @@ export default function ChatInterface() {
         // Wait for canplay event (HAVE_FUTURE_DATA)
         audio.addEventListener('canplay', attemptPlay, { once: true })
       }
+
+      fallbackTimeout = window.setTimeout(() => {
+        console.warn('[TTS] Playback delay exceeded, falling back to Web Speech API')
+        try {
+          if (audioRef.current) {
+            audioRef.current.pause()
+            audioRef.current.currentTime = 0
+            audioRef.current = null
+          }
+          if (urlToCleanup) {
+            URL.revokeObjectURL(urlToCleanup)
+          }
+          speakWithWebSpeech(preparedText)
+        } catch (fallbackError) {
+          console.error('[TTS] Web Speech fallback failed:', fallbackError)
+        }
+      }, TTS_FALLBACK_DELAY_MS)
     } catch (error) {
       console.error('TTS error:', error)
       setIsPlayingAudio(false)
+      if (fallbackTimeout) {
+        window.clearTimeout(fallbackTimeout)
+      }
       if (audioUrl) {
         URL.revokeObjectURL(audioUrl)
       }
       if (audioRef.current) {
         audioRef.current = null
+      }
+      try {
+        speakWithWebSpeech(formatTextForSpeech(text))
+      } catch (fallbackError) {
+        console.error('[TTS] Web Speech fallback failed:', fallbackError)
       }
       // Don't show alert in voice-only mode
       if (!voiceOnlyMode) {
@@ -871,12 +965,215 @@ export default function ChatInterface() {
     const hours = Math.floor(minutes / 60)
     if (hours < 24) return `${hours} Std.`
     
-    return date.toLocaleDateString('de-DE', { 
-      day: 'numeric', 
+    return date.toLocaleDateString('de-DE', {
+      day: 'numeric',
       month: 'short',
       hour: '2-digit',
       minute: '2-digit'
     })
+  }
+
+  const clearStreamTimeout = () => {
+    if (streamTimeoutRef.current) {
+      clearTimeout(streamTimeoutRef.current)
+      streamTimeoutRef.current = null
+    }
+  }
+
+  const clearLoadingBubbleTimeout = () => {
+    if (loadingBubbleTimeoutRef.current) {
+      clearTimeout(loadingBubbleTimeoutRef.current)
+      loadingBubbleTimeoutRef.current = null
+    }
+  }
+
+  const cancelStreaming = (message?: string) => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+      abortControllerRef.current = null
+    }
+
+    clearStreamTimeout()
+    clearLoadingBubbleTimeout()
+    setShowLoadingBubble(false)
+
+    if (message) {
+      const timestamp = new Date()
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: message,
+          timestamp,
+        },
+      ])
+    }
+  }
+
+  const readSseStream = async (
+    response: Response,
+    assistantIndex: number,
+    { speakResponse }: { speakResponse?: boolean } = {}
+  ) => {
+    const reader = response.body?.getReader()
+    if (!reader) {
+      throw new Error('Streaming wird nicht unterstützt.')
+    }
+
+    const decoder = new TextDecoder()
+    let buffer = ''
+    const assistantTimestamp = new Date()
+    let assembledContent = ''
+
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const events = buffer.split('\n\n')
+      buffer = events.pop() || ''
+
+      for (const event of events) {
+        if (!event.trim()) continue
+        const dataLine = event
+          .split('\n')
+          .find((line) => line.startsWith('data:'))
+        if (!dataLine) continue
+
+        try {
+          const payload = JSON.parse(dataLine.replace(/^data:\s*/, ''))
+          if (payload.type === 'token' && payload.content) {
+            setIsStreamingResponse(true)
+            setShowLoadingBubble(false)
+            assembledContent += payload.content
+            setMessages((prev) =>
+              prev.map((msg, idx) =>
+                idx === assistantIndex
+                  ? { ...msg, content: (msg.content || '') + payload.content, timestamp: assistantTimestamp }
+                  : msg
+              )
+            )
+          } else if (payload.type === 'done') {
+            if (speakResponse) {
+              speakText(assembledContent).catch((error) => {
+                console.error('TTS error in streaming:', error)
+              })
+            }
+            return
+          } else if (payload.type === 'error') {
+            throw new Error(payload.message || 'Streaming-Fehler')
+          }
+        } catch (err) {
+          console.error('SSE parsing error:', err)
+        }
+      }
+    }
+  }
+
+  const startChatRequest = async (
+    userMessage: Message,
+    { speakResponse }: { speakResponse?: boolean } = {}
+  ) => {
+    setMessages((prev) => [...prev, userMessage])
+    setIsLoading(true)
+    setIsStreamingResponse(false)
+    setShowLoadingBubble(false)
+
+    clearLoadingBubbleTimeout()
+    loadingBubbleTimeoutRef.current = window.setTimeout(() => {
+      setShowLoadingBubble(true)
+    }, 300)
+
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+
+    const timeoutId = window.setTimeout(() => {
+      controller.abort()
+    }, 60000)
+    streamTimeoutRef.current = timeoutId
+
+    const conversationMessages = [...messages, userMessage].map((m) => ({
+      role: m.role,
+      content: m.content,
+    }))
+
+    const assistantTimestamp = new Date()
+    let assistantIndex = -1
+
+    setMessages((prev) => {
+      assistantIndex = prev.length
+      return [
+        ...prev,
+        {
+          role: 'assistant',
+          content: '',
+          timestamp: assistantTimestamp,
+        },
+      ]
+    })
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(streamingDisabled ? { 'X-Disable-Streaming': 'true' } : {}),
+        },
+        body: JSON.stringify({ messages: conversationMessages }),
+        signal: controller.signal,
+      })
+
+      if (!response.ok) {
+        throw new Error('Antwort konnte nicht geladen werden.')
+      }
+
+      const contentType = response.headers.get('content-type') || ''
+
+      if (!streamingDisabled && contentType.includes('text/event-stream')) {
+        await readSseStream(response, assistantIndex, { speakResponse })
+      } else {
+        const data = await response.json()
+        setMessages((prev) =>
+          prev.map((msg, idx) =>
+            idx === assistantIndex
+              ? {
+                  ...msg,
+                  content: data.message?.content || 'Antwort konnte nicht geladen werden.',
+                  timestamp: assistantTimestamp,
+                }
+              : msg
+          )
+        )
+
+        if (speakResponse) {
+          speakText(data.message?.content || '').catch((error) => {
+            console.error('TTS error in fallback:', error)
+          })
+        }
+        setShowLoadingBubble(false)
+      }
+    } catch (error) {
+      console.error('Error sending message:', error)
+      setShowLoadingBubble(false)
+      const isAbort = error instanceof DOMException && error.name === 'AbortError'
+      const assistantMessage: Message = {
+        role: 'assistant',
+        content: isAbort
+          ? 'Die Anfrage wurde abgebrochen.'
+          : 'Entschuldigung, es ist ein Fehler aufgetreten. Bitte versuch es noch einmal.',
+        timestamp: new Date(),
+      }
+      setMessages((prev) =>
+        prev.map((msg, idx) => (idx === assistantIndex ? assistantMessage : msg))
+      )
+    } finally {
+      clearStreamTimeout()
+      clearLoadingBubbleTimeout()
+      abortControllerRef.current = null
+      setShowLoadingBubble(false)
+      setIsStreamingResponse(false)
+      setIsLoading(false)
+    }
   }
 
   const sendMessage = async () => {
@@ -888,47 +1185,8 @@ export default function ChatInterface() {
       timestamp: new Date(),
     }
 
-    setMessages((prev) => [...prev, userMessage])
     setInput('')
-    setIsLoading(true)
-
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messages: [...messages, userMessage].map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error('Antwort konnte nicht geladen werden.')
-      }
-
-      const data = await response.json()
-      const assistantMessage: Message = {
-        role: 'assistant',
-        content: data.message.content,
-        timestamp: new Date(),
-      }
-
-      setMessages((prev) => [...prev, assistantMessage])
-    } catch (error) {
-      console.error('Error sending message:', error)
-      const errorMessage: Message = {
-        role: 'assistant',
-        content: 'Entschuldigung, es ist ein Fehler aufgetreten. Bitte versuch es noch einmal.',
-        timestamp: new Date(),
-      }
-      setMessages((prev) => [...prev, errorMessage])
-    } finally {
-      setIsLoading(false)
-    }
+    await startChatRequest(userMessage)
   }
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -953,54 +1211,7 @@ export default function ChatInterface() {
       timestamp: new Date(),
     }
 
-    setMessages((prev) => [...prev, userMessage])
-    setIsLoading(true)
-
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messages: [...messages, userMessage].map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error('Antwort konnte nicht geladen werden.')
-      }
-
-      const data = await response.json()
-      const assistantMessage: Message = {
-        role: 'assistant',
-        content: data.message.content,
-        timestamp: new Date(),
-      }
-
-      setMessages((prev) => [...prev, assistantMessage])
-      
-      // Automatically play the response as audio (don't await - start immediately)
-      speakText(assistantMessage.content).catch((error) => {
-        console.error('TTS error in voice-only mode:', error)
-      })
-      
-      // Wait for audio to finish, then restart recording
-      // This is handled in the audio.onended callback
-    } catch (error) {
-      console.error('Error sending message:', error)
-      const errorMessage: Message = {
-        role: 'assistant',
-        content: 'Entschuldigung, es ist ein Fehler aufgetreten. Bitte versuch es noch einmal.',
-        timestamp: new Date(),
-      }
-      setMessages((prev) => [...prev, errorMessage])
-    } finally {
-      setIsLoading(false)
-    }
+    await startChatRequest(userMessage, { speakResponse: true })
   }
 
   const enterVoiceOnlyMode = async () => {
@@ -1211,7 +1422,7 @@ export default function ChatInterface() {
                     )}
                   </button>
                 </div>
-                {message.timestamp && (
+                {message.timestamp && message.role === 'user' && (
                   <p
                     className={`text-[11px] sm:text-xs mt-2 sm:mt-1.5 ${
                       message.role === 'user'
@@ -1226,7 +1437,7 @@ export default function ChatInterface() {
             </div>
           ))}
 
-          {isLoading && (
+          {isLoading && showLoadingBubble && !isStreamingResponse && (
             <div className="flex justify-start animate-in fade-in slide-in-from-bottom-2 duration-200">
               <div className="bg-white rounded-2xl sm:rounded-xl rounded-bl-sm px-4 py-3 sm:px-4 sm:py-2.5 border border-gray-200 shadow-sm">
                 <div className="flex items-center gap-2.5">
@@ -1415,6 +1626,17 @@ export default function ChatInterface() {
                   </button>
                 )}
 
+                {isLoading && (
+                  <button
+                    onClick={() => cancelStreaming()}
+                    className="p-3 sm:p-2.5 rounded-xl sm:rounded-lg bg-red-50 text-red-600 active:bg-red-100 transition-all duration-150 touch-manipulation active:scale-95 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center"
+                    title="Anfrage abbrechen"
+                    aria-label="Anfrage abbrechen"
+                  >
+                    <X className="h-5 w-5 sm:h-5 sm:w-5" />
+                  </button>
+                )}
+
                 <button
                   onClick={sendMessage}
                   disabled={!input.trim() || isLoading}
@@ -1436,5 +1658,3 @@ export default function ChatInterface() {
     </div>
   )
 }
-
-
