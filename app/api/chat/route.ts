@@ -148,7 +148,7 @@ Rules:
    - Allowed: SELECT, WITH, JOIN, WHERE, GROUP BY, ORDER BY, LIMIT.
    - For inserts: only when user explicitly requests creation, confirms the insert, and the tool supports it.
    - Absolutely forbidden: UPDATE, DELETE, DROP, ALTER, TRUNCATE or any schema-changing statement.
-   - If you ask for confirmation before inserting, include an `INSERT_PAYLOAD` JSON code block so the system can execute on confirmation.
+   - If you ask for confirmation before inserting, include an "INSERT_PAYLOAD" JSON code block so the system can execute on confirmation.
 
 2. Respect the schema:
    - Join using the defined foreign keys, e.g.:
