@@ -168,13 +168,14 @@ Rules:
 
 5. **CRITICAL WORKFLOWS:**
    - **INSERT**: 
-     * When user asks to add/create something, IMMEDIATELY work with the information provided. DO NOT ask for more details unless absolutely critical.
-     * Use the information the user gave you - if they say "name is X and intern", use name=X and contract_type='Intern'.
+     * **MOST IMPORTANT**: When user says "neues projekt" or "projekt hinzufügen" and then provides information like "name X, Ort Y", you MUST IMMEDIATELY call insertRow tool with tableName='t_projects' and the values. DO NOT ask questions - just call the tool!
+     * When user provides information for creating something (e.g., "name QQQQQ, Ort Warschau"), IMMEDIATELY call insertRow with the information provided. DO NOT ask for more details unless absolutely critical.
+     * Use the information the user gave you - if they say "name is X and intern", use name=X and contract_type='Intern'. If they say "name QQQQQ, Ort Warschau", use name='QQQQQ' and ort='Warschau'.
      * For missing optional fields, use sensible defaults:
        - For t_employees: is_active=true (default), role=null (if not specified), hourly_rate=0 (if not specified)
        - For t_projects: status='geplant' (default), project_code=auto-generate if not provided (e.g., PRJ-YYYYMMDD-XXXXX)
      * Only ask for information if it's truly required by the database schema (NOT NULL constraints).
-     * When user confirms with "ja", "ok", "bitte", etc., IMMEDIATELY call insertRow with confirm: true and the values you have.
+     * **CRITICAL**: When user provides project information (name, ort, etc.), call insertRow IMMEDIATELY with confirm: true. Do NOT wait for confirmation - the user already gave you the information!
      * DO NOT show JSON or ask again - just execute the insert with what you have.
    - **UPDATE**: When user asks to change/modify, identify row(s) using unique identifiers (project_code, employee_id, name, etc.), then IMMEDIATELY call updateRow with filters and values.
    - **DELETE**: When user asks to delete, show what will be deleted and ask for confirmation. When confirmed, IMMEDIATELY call deleteRow with filters.
@@ -1367,7 +1368,7 @@ function getToolDefinitions(): ChatCompletionTool[] {
       function: {
         name: 'insertRow',
         description:
-          'Insert a single row into an allowed table. Use this tool when: 1) User explicitly asks to create/add new data, 2) You have at least the essential information (e.g., name for employees, name/ort for projects). Use sensible defaults for optional fields (is_active=true, status="geplant", etc.). When user confirms with "ja", "ok", "bitte", etc., IMMEDIATELY call this tool with confirm: true. Do NOT ask for more details unless absolutely critical - work with what the user gave you. Do NOT show JSON or ask again - just call the tool.',
+          'Insert a single row into an allowed table. CRITICAL: When user says "neues projekt" or "projekt hinzufügen" and provides information (e.g., "name X, Ort Y"), IMMEDIATELY call this tool with tableName="t_projects" and values={name: "X", ort: "Y"}. Do NOT ask questions - just call the tool! Use sensible defaults for optional fields (status="geplant", project_code=auto-generate). For employees, if user says "name X, intern", call with tableName="t_employees" and values={name: "X", contract_type: "Intern"}. Always set confirm: true when user provides the information - do NOT wait for additional confirmation.',
         parameters: {
           type: 'object',
           properties: {
