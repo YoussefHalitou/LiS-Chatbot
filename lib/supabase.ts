@@ -28,6 +28,13 @@ export const supabaseAdmin = supabaseUrl && supabaseServiceKey
  */
 export async function getDatabaseSchema() {
   try {
+    if (!supabase) {
+      return {
+        tables: [],
+        error: 'Supabase client not initialized. Please check your environment variables.'
+      }
+    }
+
     // Query information_schema to get table and column information
     const { data, error } = await supabase.rpc('get_schema_info')
 

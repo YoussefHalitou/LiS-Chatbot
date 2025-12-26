@@ -31,7 +31,8 @@ Ein vollständiger Chatbot mit Text- und Sprach-Ein-/Ausgabe, verbunden mit Supa
    Erstelle eine `.env.local` Datei mit folgenden Variablen:
    ```env
    OPENAI_API_KEY=dein_openai_key
-   SUPABASE_URL=deine_supabase_url
+   NEXT_PUBLIC_SUPABASE_URL=deine_supabase_url
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=dein_supabase_anon_key
    SUPABASE_SERVICE_ROLE_KEY=dein_service_role_key
    DEEPGRAM_API_KEY=dein_deepgram_key
    ELEVENLABS_API_KEY=dein_elevenlabs_key
@@ -68,12 +69,13 @@ Ein vollständiger Chatbot mit Text- und Sprach-Ein-/Ausgabe, verbunden mit Supa
    Gehe zu [Vercel Dashboard](https://vercel.com/dashboard) → Dein Projekt → Settings → Environment Variables
    
    Füge alle Variablen aus `.env.local` hinzu:
-   - `OPENAI_API_KEY`
-   - `SUPABASE_URL`
-   - `SUPABASE_SERVICE_ROLE_KEY`
-   - `DEEPGRAM_API_KEY`
-   - `ELEVENLABS_API_KEY`
-   - `ELEVENLABS_VOICE_ID` (optional)
+   - `OPENAI_API_KEY` (erforderlich)
+   - `NEXT_PUBLIC_SUPABASE_URL` (erforderlich)
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY` (erforderlich)
+   - `SUPABASE_SERVICE_ROLE_KEY` (erforderlich)
+   - `DEEPGRAM_API_KEY` (optional, für Sprach-Eingabe)
+   - `ELEVENLABS_API_KEY` (optional, für Sprach-Ausgabe)
+   - `ELEVENLABS_VOICE_ID` (optional, Standard: Rachel)
 
 5. **Production Deploy:**
    ```bash

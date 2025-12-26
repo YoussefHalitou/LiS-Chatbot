@@ -1154,7 +1154,7 @@ export default function ChatInterface() {
 
     setInput('')
     await startChatRequest(userMessage)
-  }, [input, isLoading])
+  }, [input, isLoading, startChatRequest])
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
