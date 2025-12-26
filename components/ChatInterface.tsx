@@ -42,6 +42,7 @@ export default function ChatInterface() {
     process.env.NEXT_PUBLIC_DISABLE_STREAMING === 'true' ||
     process.env.CHAT_STREAMING_DISABLED === 'true'
   const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+  const TTS_FALLBACK_DELAY_MS = 2500
 
   // Load chat history from localStorage on mount
   useEffect(() => {
@@ -510,6 +511,39 @@ export default function ChatInterface() {
     }
 
     let audioUrl: string | null = null
+    let fallbackTimeout: number | null = null
+
+    const speakWithWebSpeech = (fallbackText: string) => {
+      if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+        throw new Error('Web Speech API not available')
+      }
+
+      window.speechSynthesis.cancel()
+      const utterance = new SpeechSynthesisUtterance(fallbackText)
+      utterance.lang = 'de-DE'
+      utterance.rate = 1
+      utterance.pitch = 1
+      utterance.volume = 1
+
+      setIsPlayingAudio(true)
+
+      utterance.onend = () => {
+        setIsPlayingAudio(false)
+        if (voiceOnlyModeRef.current && !isRecording && !isLoading) {
+          setTimeout(() => {
+            if (voiceOnlyModeRef.current && !isRecording && !isLoading) {
+              startRecording()
+            }
+          }, 500)
+        }
+      }
+
+      utterance.onerror = () => {
+        setIsPlayingAudio(false)
+      }
+
+      window.speechSynthesis.speak(utterance)
+    }
 
     try {
       const preparedText = formatTextForSpeech(text)
@@ -569,6 +603,10 @@ export default function ChatInterface() {
       // Set up event handlers before setting source
       audio.onplay = () => {
         console.log('[TTS] Audio onplay event fired')
+        if (fallbackTimeout) {
+          window.clearTimeout(fallbackTimeout)
+          fallbackTimeout = null
+        }
         setIsPlayingAudio(true) // Ensure it's still true
       }
       
@@ -578,6 +616,10 @@ export default function ChatInterface() {
         audioRef.current = null
         if (urlToCleanup) {
           URL.revokeObjectURL(urlToCleanup)
+        }
+        if (fallbackTimeout) {
+          window.clearTimeout(fallbackTimeout)
+          fallbackTimeout = null
         }
         
         // In voice-only mode, restart recording after audio finishes
@@ -603,6 +645,10 @@ export default function ChatInterface() {
         audioRef.current = null
         if (urlToCleanup) {
           URL.revokeObjectURL(urlToCleanup)
+        }
+        if (fallbackTimeout) {
+          window.clearTimeout(fallbackTimeout)
+          fallbackTimeout = null
         }
         // Don't show alert in voice-only mode to avoid interrupting flow
         if (!voiceOnlyMode) {
@@ -647,6 +693,15 @@ export default function ChatInterface() {
             if (urlToCleanup) {
               URL.revokeObjectURL(urlToCleanup)
             }
+            if (fallbackTimeout) {
+              window.clearTimeout(fallbackTimeout)
+              fallbackTimeout = null
+            }
+            try {
+              speakWithWebSpeech(preparedText)
+            } catch (fallbackError) {
+              console.error('[TTS] Web Speech fallback failed:', fallbackError)
+            }
             if (!voiceOnlyMode) {
               alert('Die Audiowiedergabe wurde vom Browser blockiert. Bitte interagiere zuerst mit der Seite (z.B. ein Klick).')
             }
@@ -681,14 +736,39 @@ export default function ChatInterface() {
         // Wait for canplay event (HAVE_FUTURE_DATA)
         audio.addEventListener('canplay', attemptPlay, { once: true })
       }
+
+      fallbackTimeout = window.setTimeout(() => {
+        console.warn('[TTS] Playback delay exceeded, falling back to Web Speech API')
+        try {
+          if (audioRef.current) {
+            audioRef.current.pause()
+            audioRef.current.currentTime = 0
+            audioRef.current = null
+          }
+          if (urlToCleanup) {
+            URL.revokeObjectURL(urlToCleanup)
+          }
+          speakWithWebSpeech(preparedText)
+        } catch (fallbackError) {
+          console.error('[TTS] Web Speech fallback failed:', fallbackError)
+        }
+      }, TTS_FALLBACK_DELAY_MS)
     } catch (error) {
       console.error('TTS error:', error)
       setIsPlayingAudio(false)
+      if (fallbackTimeout) {
+        window.clearTimeout(fallbackTimeout)
+      }
       if (audioUrl) {
         URL.revokeObjectURL(audioUrl)
       }
       if (audioRef.current) {
         audioRef.current = null
+      }
+      try {
+        speakWithWebSpeech(formatTextForSpeech(text))
+      } catch (fallbackError) {
+        console.error('[TTS] Web Speech fallback failed:', fallbackError)
       }
       // Don't show alert in voice-only mode
       if (!voiceOnlyMode) {
