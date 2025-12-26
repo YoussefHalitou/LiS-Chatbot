@@ -167,7 +167,15 @@ Rules:
    - Be precise, deterministic, and concise.
 
 5. **CRITICAL WORKFLOWS:**
-   - **INSERT**: When user asks to add/create, show preview (optional), then when confirmed, IMMEDIATELY call insertRow with confirm: true. Use unique identifiers to identify rows.
+   - **INSERT**: 
+     * When user asks to add/create something, IMMEDIATELY work with the information provided. DO NOT ask for more details unless absolutely critical.
+     * Use the information the user gave you - if they say "name is X and intern", use name=X and contract_type='Intern'.
+     * For missing optional fields, use sensible defaults:
+       - For t_employees: is_active=true (default), role=null (if not specified), hourly_rate=0 (if not specified)
+       - For t_projects: status='geplant' (default), project_code=auto-generate if not provided (e.g., PRJ-YYYYMMDD-XXXXX)
+     * Only ask for information if it's truly required by the database schema (NOT NULL constraints).
+     * When user confirms with "ja", "ok", "bitte", etc., IMMEDIATELY call insertRow with confirm: true and the values you have.
+     * DO NOT show JSON or ask again - just execute the insert with what you have.
    - **UPDATE**: When user asks to change/modify, identify row(s) using unique identifiers (project_code, employee_id, name, etc.), then IMMEDIATELY call updateRow with filters and values.
    - **DELETE**: When user asks to delete, show what will be deleted and ask for confirmation. When confirmed, IMMEDIATELY call deleteRow with filters.
    - **DELETE FIELD**: When user asks to remove a field value (e.g., "lösche die Straße"), use updateRow with the field set to null.
@@ -1359,7 +1367,7 @@ function getToolDefinitions(): ChatCompletionTool[] {
       function: {
         name: 'insertRow',
         description:
-          'Insert a single row into an allowed table. Use ONLY when: 1) User explicitly asks to create/add new data, 2) User confirms with "ja", "ok", "bitte", etc., AND 3) You have all required data. When user confirms, IMMEDIATELY call this tool with confirm: true. Do NOT ask again or show JSON - just call the tool.',
+          'Insert a single row into an allowed table. Use this tool when: 1) User explicitly asks to create/add new data, 2) You have at least the essential information (e.g., name for employees, name/ort for projects). Use sensible defaults for optional fields (is_active=true, status="geplant", etc.). When user confirms with "ja", "ok", "bitte", etc., IMMEDIATELY call this tool with confirm: true. Do NOT ask for more details unless absolutely critical - work with what the user gave you. Do NOT show JSON or ask again - just call the tool.',
         parameters: {
           type: 'object',
           properties: {
@@ -1370,7 +1378,7 @@ function getToolDefinitions(): ChatCompletionTool[] {
             },
             values: {
               type: 'object',
-              description: 'Column/value pairs for the new row. For t_projects, include: project_code, name, ort, dienstleistungen, status, project_date, project_time (optional).',
+              description: 'Column/value pairs for the new row. Include only the fields the user provided. Use defaults for missing optional fields: t_employees (is_active=true, role=null if not specified), t_projects (status="geplant", project_code=auto-generate if missing). Only include fields that the user mentioned or that have sensible defaults.',
               additionalProperties: true,
             },
             confirm: {
@@ -1555,17 +1563,55 @@ async function handleToolCalls(
         }
       } else if (!functionArgs.values || typeof functionArgs.values !== 'object') {
         functionResult = { error: 'Missing values for insertRow.' }
-      } else if (!functionArgs.confirm) {
-        // Preview mode - return the data that would be inserted without actually inserting
-        functionResult = {
-          preview: true,
-          tableName: functionArgs.tableName,
-          values: functionArgs.values,
-          message: 'Bitte bestätige, dass dieser Eintrag erstellt werden soll.',
-        }
       } else {
-        const result = await insertRow(functionArgs.tableName, functionArgs.values)
-        functionResult = result
+        // Apply sensible defaults for missing optional fields
+        const valuesWithDefaults = { ...functionArgs.values }
+        
+        if (functionArgs.tableName === 't_employees') {
+          // Defaults for employees
+          if (valuesWithDefaults.is_active === undefined) {
+            valuesWithDefaults.is_active = true
+          }
+          if (valuesWithDefaults.role === undefined && !valuesWithDefaults.role) {
+            valuesWithDefaults.role = null
+          }
+          if (valuesWithDefaults.hourly_rate === undefined) {
+            valuesWithDefaults.hourly_rate = 0
+          }
+          if (valuesWithDefaults.contract_type === undefined && valuesWithDefaults.contract_type !== 'Intern' && valuesWithDefaults.contract_type !== 'Extern') {
+            // Try to infer from user input - if they said "intern", use "Intern"
+            if (functionArgs.values.contract_type?.toLowerCase().includes('intern')) {
+              valuesWithDefaults.contract_type = 'Intern'
+            } else if (functionArgs.values.contract_type?.toLowerCase().includes('extern')) {
+              valuesWithDefaults.contract_type = 'Extern'
+            }
+          }
+        } else if (functionArgs.tableName === 't_projects') {
+          // Defaults for projects
+          if (valuesWithDefaults.status === undefined) {
+            valuesWithDefaults.status = 'geplant'
+          }
+          // Auto-generate project_code if missing
+          if (!valuesWithDefaults.project_code) {
+            const now = new Date()
+            const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '')
+            const randomStr = Math.random().toString(36).substring(2, 7).toUpperCase()
+            valuesWithDefaults.project_code = `PRJ-${dateStr}-${randomStr}`
+          }
+        }
+        
+        if (!functionArgs.confirm) {
+          // Preview mode - return the data that would be inserted without actually inserting
+          functionResult = {
+            preview: true,
+            tableName: functionArgs.tableName,
+            values: valuesWithDefaults,
+            message: 'Bitte bestätige, dass dieser Eintrag erstellt werden soll.',
+          }
+        } else {
+          const result = await insertRow(functionArgs.tableName, valuesWithDefaults)
+          functionResult = result
+        }
       }
     } else if (functionName === 'updateRow') {
       if (!INSERT_ALLOWED_TABLES.has(functionArgs.tableName)) {
