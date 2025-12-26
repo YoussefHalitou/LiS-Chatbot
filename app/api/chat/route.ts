@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
+import type { ChatCompletionTool } from 'openai/resources/chat/completions'
 import { queryTable, getTableNames, getTableStructure, queryTableWithJoin } from '@/lib/supabase-query'
 
 const openai = new OpenAI({
@@ -481,7 +482,7 @@ async function handleNonStreamingCompletion(openaiMessages: any[]) {
   )
 }
 
-function getToolDefinitions() {
+function getToolDefinitions(): ChatCompletionTool[] {
   return [
     {
       type: 'function',
@@ -788,4 +789,3 @@ async function handleStreamingCompletion(openaiMessages: any[]) {
 
   return buildSseResponse(stream)
 }
-
