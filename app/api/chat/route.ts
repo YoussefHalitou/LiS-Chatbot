@@ -380,6 +380,20 @@ const isConfirmationMessage = (text: string) => {
   ])
 }
 
+const normalizeInsertPayload = (payload: Record<string, any>) => {
+  if (payload.tableName && payload.values && typeof payload.values === 'object') {
+    return {
+      tableName: payload.tableName,
+      values: payload.values,
+    }
+  }
+
+  return {
+    tableName: payload.tableName,
+    values: payload,
+  }
+}
+
 const extractInsertPayload = (content: string) => {
   const codeBlockMatch = content.match(/```json\s*INSERT_PAYLOAD\s*([\s\S]*?)```/i)
   const inlineMatch = content.match(/INSERT_PAYLOAD:\s*({[\s\S]*})/i)
@@ -391,7 +405,7 @@ const extractInsertPayload = (content: string) => {
       if (!payload || typeof payload !== 'object') {
         return null
       }
-      return payload
+      return normalizeInsertPayload(payload)
     } catch (error) {
       console.error('Failed to parse INSERT_PAYLOAD JSON:', error)
       return null
@@ -421,7 +435,7 @@ const extractInsertPayload = (content: string) => {
     try {
       const payload = JSON.parse(candidate.trim())
       if (payload && typeof payload === 'object') {
-        return payload
+        return normalizeInsertPayload(payload)
       }
     } catch (error) {
       continue
@@ -667,7 +681,8 @@ export async function POST(req: NextRequest) {
         inferInsertTable(lastAssistantMessage) ||
         inferInsertTable(lastUserMessage)
 
-      if (inferredTable && insertPayload?.values) {
+      const insertValues = insertPayload?.values
+      if (inferredTable && insertValues) {
         if (!INSERT_ALLOWED_TABLES.has(inferredTable)) {
           return NextResponse.json(
             {
@@ -680,7 +695,7 @@ export async function POST(req: NextRequest) {
           )
         }
 
-        const insertResult = await insertRow(inferredTable, insertPayload.values)
+        const insertResult = await insertRow(inferredTable, insertValues)
 
         if (insertResult.error) {
           return NextResponse.json(
@@ -704,7 +719,7 @@ export async function POST(req: NextRequest) {
           { headers: NO_CACHE_HEADERS }
         )
       }
-      if (insertPayload && !insertPayload.values) {
+      if (insertPayload && !insertValues) {
         return NextResponse.json(
           {
             message: {
