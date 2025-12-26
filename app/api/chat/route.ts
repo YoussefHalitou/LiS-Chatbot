@@ -148,6 +148,7 @@ Rules:
    - Allowed: SELECT, WITH, JOIN, WHERE, GROUP BY, ORDER BY, LIMIT.
    - For inserts: only when user explicitly requests creation, confirms the insert, and the tool supports it.
    - Absolutely forbidden: UPDATE, DELETE, DROP, ALTER, TRUNCATE or any schema-changing statement.
+   - If you ask for confirmation before inserting, include an `INSERT_PAYLOAD` JSON code block so the system can execute on confirmation.
 
 2. Respect the schema:
    - Join using the defined foreign keys, e.g.:
@@ -356,6 +357,49 @@ const normalizeText = (text: string) =>
     .replace(/[.,!?/\\]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+
+const isConfirmationMessage = (text: string) => {
+  const normalized = normalizeText(text)
+  if (!normalized) {
+    return false
+  }
+
+  return includesAny(normalized, [
+    'ja',
+    'jap',
+    'jo',
+    'yes',
+    'ok',
+    'okay',
+    'klar',
+    'bitte',
+    'mach',
+    'machs',
+    'machs bitte',
+    'bitte eintragen',
+  ])
+}
+
+const extractInsertPayload = (content: string) => {
+  const codeBlockMatch = content.match(/```json\s*INSERT_PAYLOAD\s*([\s\S]*?)```/i)
+  const inlineMatch = content.match(/INSERT_PAYLOAD:\s*({[\s\S]*})/i)
+  const rawJson = codeBlockMatch?.[1] ?? inlineMatch?.[1]
+
+  if (!rawJson) {
+    return null
+  }
+
+  try {
+    const payload = JSON.parse(rawJson.trim())
+    if (!payload || typeof payload !== 'object') {
+      return null
+    }
+    return payload
+  } catch (error) {
+    console.error('Failed to parse INSERT_PAYLOAD JSON:', error)
+    return null
+  }
+}
 
 const inferProjectName = (userText: string) => {
   const normalized = normalizeText(userText)
@@ -571,6 +615,52 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    const lastUserMessage =
+      [...messages].reverse().find((message) => message.role === 'user')?.content || ''
+    const lastAssistantMessage =
+      [...messages].reverse().find((message) => message.role === 'assistant')?.content || ''
+
+    if (isConfirmationMessage(lastUserMessage) && lastAssistantMessage) {
+      const insertPayload = extractInsertPayload(lastAssistantMessage)
+      if (insertPayload?.tableName && insertPayload?.values) {
+        if (!INSERT_ALLOWED_TABLES.has(insertPayload.tableName)) {
+          return NextResponse.json(
+            {
+              message: {
+                role: 'assistant',
+                content: `Eintrag nicht möglich: Tabelle "${insertPayload.tableName}" ist nicht erlaubt.`,
+              },
+            },
+            { headers: NO_CACHE_HEADERS }
+          )
+        }
+
+        const insertResult = await insertRow(insertPayload.tableName, insertPayload.values)
+
+        if (insertResult.error) {
+          return NextResponse.json(
+            {
+              message: {
+                role: 'assistant',
+                content: `Der Eintrag konnte nicht erstellt werden: ${insertResult.error}`,
+              },
+            },
+            { headers: NO_CACHE_HEADERS }
+          )
+        }
+
+        return NextResponse.json(
+          {
+            message: {
+              role: 'assistant',
+              content: 'Der Eintrag wurde erstellt. Soll ich dir die Details anzeigen?',
+            },
+          },
+          { headers: NO_CACHE_HEADERS }
+        )
+      }
+    }
+
     const now = new Date()
     const berlinTime = new Intl.DateTimeFormat('de-DE', {
       timeZone: 'Europe/Berlin',
@@ -670,8 +760,6 @@ export async function POST(req: NextRequest) {
     const streamingDisabledRequest =
       req.headers.get('x-disable-streaming') === 'true'
 
-    const lastUserMessage =
-      [...messages].reverse().find((message) => message.role === 'user')?.content || ''
     const requestedDateRange = inferDateRange({
       userText: lastUserMessage,
       weekStart,
