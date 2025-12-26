@@ -318,10 +318,14 @@ const DATE_RANGE_TABLE_FIELDS: Record<string, string> = {
   t_projects: 'project_date',
 }
 
-const PROJECT_NAME_TABLE_FIELDS: Record<string, string> = {
-  v_morningplan_full: 'project_name',
-  v_project_full: 'project_name',
-  t_projects: 'name',
+const PROJECT_FILTER_FIELDS: Record<
+  string,
+  { name?: string; code?: string; id?: string }
+> = {
+  v_morningplan_full: { name: 'project_name', code: 'project_code', id: 'project_id' },
+  v_project_full: { name: 'project_name', code: 'project_code', id: 'project_id' },
+  t_projects: { name: 'name', code: 'project_code', id: 'project_id' },
+  t_morningplan: { id: 'project_id' },
 }
 
 const includesAny = (text: string, values: string[]) =>
@@ -385,6 +389,28 @@ const inferProjectName = (userText: string) => {
   }
 
   return null
+}
+
+const inferProjectIdentifier = (userText: string) => {
+  const normalized = normalizeText(userText)
+  if (!normalized) return null
+
+  const uuidMatch = normalized.match(
+    /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i
+  )
+  const codeMatch = normalized.match(/\bprj-[0-9]{8}-[a-z0-9]{4,}\b/i)
+
+  const name = inferProjectName(normalized)
+
+  if (!uuidMatch && !codeMatch && !name) {
+    return null
+  }
+
+  return {
+    projectId: uuidMatch ? uuidMatch[0] : null,
+    projectCode: codeMatch ? codeMatch[0].toUpperCase() : null,
+    projectName: name,
+  }
 }
 
 const inferDateRange = ({
@@ -476,27 +502,44 @@ const applyDateRangeFilters = (
   }
 }
 
-const applyProjectNameFilter = (
+const applyProjectFilters = (
   tableName: string,
   filters: Record<string, any>,
-  projectName: string | null
+  projectIdentifiers: { projectId: string | null; projectCode: string | null; projectName: string | null } | null
 ) => {
-  const nameField = PROJECT_NAME_TABLE_FIELDS[tableName]
-  if (!nameField || !projectName) {
+  if (!projectIdentifiers) {
     return filters
   }
 
-  if (filters[nameField]) {
+  const fields = PROJECT_FILTER_FIELDS[tableName]
+  if (!fields) {
     return filters
   }
 
-  return {
-    ...filters,
-    [nameField]: {
-      type: 'ilike',
-      value: projectName,
-    },
+  let nextFilters = { ...filters }
+
+  if (projectIdentifiers.projectId && fields.id && !nextFilters[fields.id]) {
+    nextFilters = {
+      ...nextFilters,
+      [fields.id]: { type: 'eq', value: projectIdentifiers.projectId },
+    }
   }
+
+  if (projectIdentifiers.projectCode && fields.code && !nextFilters[fields.code]) {
+    nextFilters = {
+      ...nextFilters,
+      [fields.code]: { type: 'eq', value: projectIdentifiers.projectCode },
+    }
+  }
+
+  if (projectIdentifiers.projectName && fields.name && !nextFilters[fields.name]) {
+    nextFilters = {
+      ...nextFilters,
+      [fields.name]: { type: 'ilike', value: projectIdentifiers.projectName },
+    }
+  }
+
+  return nextFilters
 }
 
 export async function POST(req: NextRequest) {
@@ -618,20 +661,20 @@ export async function POST(req: NextRequest) {
       weekEnd,
       berlinDateUtc,
     })
-    const requestedProjectName = inferProjectName(lastUserMessage)
+    const requestedProjectIdentifiers = inferProjectIdentifier(lastUserMessage)
 
     if (streamingDisabledEnv || streamingDisabledRequest) {
       return await handleNonStreamingCompletion(
         openaiMessages,
         requestedDateRange,
-        requestedProjectName
+        requestedProjectIdentifiers
       )
     }
 
     return handleStreamingCompletion(
       openaiMessages,
       requestedDateRange,
-      requestedProjectName
+      requestedProjectIdentifiers
     )
   } catch (error) {
     console.error('Chat API error:', error)
@@ -647,7 +690,11 @@ export async function POST(req: NextRequest) {
 async function handleNonStreamingCompletion(
   openaiMessages: any[],
   requestedDateRange: DateRange | null,
-  requestedProjectName: string | null
+  requestedProjectIdentifiers: {
+    projectId: string | null
+    projectCode: string | null
+    projectName: string | null
+  } | null
 ) {
   // Create a completion with tools (function calling) for database queries
   const completion = await openai.chat.completions.create({
@@ -666,7 +713,7 @@ async function handleNonStreamingCompletion(
       responseMessage,
       openaiMessages,
       requestedDateRange,
-      requestedProjectName
+      requestedProjectIdentifiers
     )
 
     // Get the final response from OpenAI after tool execution
@@ -814,7 +861,11 @@ async function handleToolCalls(
   responseMessage: any,
   openaiMessages: any[],
   requestedDateRange: DateRange | null,
-  requestedProjectName: string | null
+  requestedProjectIdentifiers: {
+    projectId: string | null
+    projectCode: string | null
+    projectName: string | null
+  } | null
 ) {
   const content = responseMessage.content
   const lowerContent = content?.toLowerCase() || ''
@@ -866,10 +917,10 @@ async function handleToolCalls(
         functionArgs.filters || {},
         requestedDateRange
       )
-      filtersWithRange = applyProjectNameFilter(
+      filtersWithRange = applyProjectFilters(
         functionArgs.tableName,
         filtersWithRange,
-        requestedProjectName
+        requestedProjectIdentifiers
       )
       const result = await queryTable(
         functionArgs.tableName,
@@ -884,10 +935,10 @@ async function handleToolCalls(
         functionArgs.filters || {},
         requestedDateRange
       )
-      filtersWithRange = applyProjectNameFilter(
+      filtersWithRange = applyProjectFilters(
         functionArgs.tableName,
         filtersWithRange,
-        requestedProjectName
+        requestedProjectIdentifiers
       )
       const result = await queryTableWithJoin(
         functionArgs.tableName,
@@ -938,7 +989,11 @@ function encodeSse(data: object) {
 async function handleStreamingCompletion(
   openaiMessages: any[],
   requestedDateRange: DateRange | null,
-  requestedProjectName: string | null
+  requestedProjectIdentifiers: {
+    projectId: string | null
+    projectCode: string | null
+    projectName: string | null
+  } | null
 ) {
   const stream = new ReadableStream<Uint8Array>({
     start: async (controller) => {
@@ -1006,7 +1061,7 @@ async function handleStreamingCompletion(
             { tool_calls, content: null },
             openaiMessages,
             requestedDateRange,
-            requestedProjectName
+            requestedProjectIdentifiers
           )
 
           const finalStream = await openai.chat.completions.create({
