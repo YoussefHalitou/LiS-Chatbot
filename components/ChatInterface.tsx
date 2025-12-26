@@ -15,6 +15,7 @@ export default function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [isStreamingResponse, setIsStreamingResponse] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [isPlayingAudio, setIsPlayingAudio] = useState(false)
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
@@ -976,6 +977,7 @@ export default function ChatInterface() {
   ) => {
     setMessages((prev) => [...prev, userMessage])
     setIsLoading(true)
+    setIsStreamingResponse(false)
 
     const controller = new AbortController()
     abortControllerRef.current = controller
@@ -1023,6 +1025,7 @@ export default function ChatInterface() {
       const contentType = response.headers.get('content-type') || ''
 
       if (!streamingDisabled && contentType.includes('text/event-stream')) {
+        setIsStreamingResponse(true)
         await readSseStream(response, assistantIndex, { speakResponse })
       } else {
         const data = await response.json()
@@ -1060,6 +1063,7 @@ export default function ChatInterface() {
     } finally {
       clearStreamTimeout()
       abortControllerRef.current = null
+      setIsStreamingResponse(false)
       setIsLoading(false)
     }
   }
@@ -1325,7 +1329,7 @@ export default function ChatInterface() {
             </div>
           ))}
 
-          {isLoading && (
+          {isLoading && !isStreamingResponse && (
             <div className="flex justify-start animate-in fade-in slide-in-from-bottom-2 duration-200">
               <div className="bg-white rounded-2xl sm:rounded-xl rounded-bl-sm px-4 py-3 sm:px-4 sm:py-2.5 border border-gray-200 shadow-sm">
                 <div className="flex items-center gap-2.5">
@@ -1546,4 +1550,3 @@ export default function ChatInterface() {
     </div>
   )
 }
-
