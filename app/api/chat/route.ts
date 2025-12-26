@@ -318,10 +318,74 @@ const DATE_RANGE_TABLE_FIELDS: Record<string, string> = {
   t_projects: 'project_date',
 }
 
+const PROJECT_NAME_TABLE_FIELDS: Record<string, string> = {
+  v_morningplan_full: 'project_name',
+  v_project_full: 'project_name',
+  t_projects: 'name',
+}
+
 const includesAny = (text: string, values: string[]) =>
   values.some((value) => text.includes(value))
 
 const formatIsoDate = (date: Date) => date.toISOString().slice(0, 10)
+
+const normalizeText = (text: string) =>
+  text
+    .toLowerCase()
+    .replace(/[.,!?/\\]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+const inferProjectName = (userText: string) => {
+  const normalized = normalizeText(userText)
+  if (!normalized) return null
+
+  const stopWords = new Set([
+    'heute',
+    'morgen',
+    'gestern',
+    'woche',
+    'monat',
+    'jetzt',
+    'now',
+    'diese',
+    'dieser',
+    'dieses',
+    'nächste',
+    'naechste',
+    'nächsten',
+    'naechsten',
+    'letzte',
+    'letzten',
+    'letzter',
+    'aktuelle',
+    'aktuellen',
+    'aktuell',
+    'kommende',
+    'kommenden',
+  ])
+
+  if (normalized.includes('projekt ')) {
+    const afterProject = normalized.split('projekt ')[1]
+    if (!afterProject) return null
+    const tokens = afterProject.split(' ')
+    const collected: string[] = []
+    for (const token of tokens) {
+      if (stopWords.has(token) || ['am', 'im', 'in', 'für', 'mit', 'vom', 'von', 'der', 'die', 'das'].includes(token)) {
+        break
+      }
+      collected.push(token)
+    }
+    return collected.length ? collected.join(' ') : null
+  }
+
+  const tokens = normalized.split(' ').filter(Boolean)
+  if (tokens.length <= 2 && tokens.every((token) => !stopWords.has(token))) {
+    return tokens.join(' ')
+  }
+
+  return null
+}
 
 const inferDateRange = ({
   userText,
@@ -408,6 +472,29 @@ const applyDateRangeFilters = (
     [dateField]: {
       type: 'between',
       value: [dateRange.start, dateRange.end],
+    },
+  }
+}
+
+const applyProjectNameFilter = (
+  tableName: string,
+  filters: Record<string, any>,
+  projectName: string | null
+) => {
+  const nameField = PROJECT_NAME_TABLE_FIELDS[tableName]
+  if (!nameField || !projectName) {
+    return filters
+  }
+
+  if (filters[nameField]) {
+    return filters
+  }
+
+  return {
+    ...filters,
+    [nameField]: {
+      type: 'ilike',
+      value: projectName,
     },
   }
 }
@@ -531,12 +618,21 @@ export async function POST(req: NextRequest) {
       weekEnd,
       berlinDateUtc,
     })
+    const requestedProjectName = inferProjectName(lastUserMessage)
 
     if (streamingDisabledEnv || streamingDisabledRequest) {
-      return await handleNonStreamingCompletion(openaiMessages, requestedDateRange)
+      return await handleNonStreamingCompletion(
+        openaiMessages,
+        requestedDateRange,
+        requestedProjectName
+      )
     }
 
-    return handleStreamingCompletion(openaiMessages, requestedDateRange)
+    return handleStreamingCompletion(
+      openaiMessages,
+      requestedDateRange,
+      requestedProjectName
+    )
   } catch (error) {
     console.error('Chat API error:', error)
     return NextResponse.json(
@@ -550,7 +646,8 @@ export async function POST(req: NextRequest) {
 
 async function handleNonStreamingCompletion(
   openaiMessages: any[],
-  requestedDateRange: DateRange | null
+  requestedDateRange: DateRange | null,
+  requestedProjectName: string | null
 ) {
   // Create a completion with tools (function calling) for database queries
   const completion = await openai.chat.completions.create({
@@ -565,7 +662,12 @@ async function handleNonStreamingCompletion(
 
   // Check if the model wants to call a tool
   if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
-    await handleToolCalls(responseMessage, openaiMessages, requestedDateRange)
+    await handleToolCalls(
+      responseMessage,
+      openaiMessages,
+      requestedDateRange,
+      requestedProjectName
+    )
 
     // Get the final response from OpenAI after tool execution
     const finalCompletion = await openai.chat.completions.create({
@@ -711,7 +813,8 @@ function getToolDefinitions(): ChatCompletionTool[] {
 async function handleToolCalls(
   responseMessage: any,
   openaiMessages: any[],
-  requestedDateRange: DateRange | null
+  requestedDateRange: DateRange | null,
+  requestedProjectName: string | null
 ) {
   const content = responseMessage.content
   const lowerContent = content?.toLowerCase() || ''
@@ -758,10 +861,15 @@ async function handleToolCalls(
     let functionResult: any
 
     if (functionName === 'queryTable') {
-      const filtersWithRange = applyDateRangeFilters(
+      let filtersWithRange = applyDateRangeFilters(
         functionArgs.tableName,
         functionArgs.filters || {},
         requestedDateRange
+      )
+      filtersWithRange = applyProjectNameFilter(
+        functionArgs.tableName,
+        filtersWithRange,
+        requestedProjectName
       )
       const result = await queryTable(
         functionArgs.tableName,
@@ -771,10 +879,15 @@ async function handleToolCalls(
       )
       functionResult = result
     } else if (functionName === 'queryTableWithJoin') {
-      const filtersWithRange = applyDateRangeFilters(
+      let filtersWithRange = applyDateRangeFilters(
         functionArgs.tableName,
         functionArgs.filters || {},
         requestedDateRange
+      )
+      filtersWithRange = applyProjectNameFilter(
+        functionArgs.tableName,
+        filtersWithRange,
+        requestedProjectName
       )
       const result = await queryTableWithJoin(
         functionArgs.tableName,
@@ -824,7 +937,8 @@ function encodeSse(data: object) {
 
 async function handleStreamingCompletion(
   openaiMessages: any[],
-  requestedDateRange: DateRange | null
+  requestedDateRange: DateRange | null,
+  requestedProjectName: string | null
 ) {
   const stream = new ReadableStream<Uint8Array>({
     start: async (controller) => {
@@ -888,7 +1002,12 @@ async function handleStreamingCompletion(
               function: value.function,
             }))
 
-          await handleToolCalls({ tool_calls, content: null }, openaiMessages, requestedDateRange)
+          await handleToolCalls(
+            { tool_calls, content: null },
+            openaiMessages,
+            requestedDateRange,
+            requestedProjectName
+          )
 
           const finalStream = await openai.chat.completions.create({
             model: 'gpt-4o',
