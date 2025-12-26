@@ -428,7 +428,7 @@ export async function POST(req: NextRequest) {
       {
         error: error instanceof Error ? error.message : 'An error occurred',
       },
-      { status: 500 }
+      { status: 500, headers: NO_CACHE_HEADERS }
     )
   }
 }
@@ -458,21 +458,27 @@ async function handleNonStreamingCompletion(openaiMessages: any[]) {
 
     const finalMessage = finalCompletion.choices[0].message
 
-    return NextResponse.json({
-      message: {
-        role: 'assistant',
-        content: finalMessage.content || 'I processed your request, but got no response.',
+    return NextResponse.json(
+      {
+        message: {
+          role: 'assistant',
+          content: finalMessage.content || 'I processed your request, but got no response.',
+        },
       },
-    })
+      { headers: NO_CACHE_HEADERS }
+    )
   }
 
   // Return the assistant's response
-  return NextResponse.json({
-    message: {
-      role: 'assistant',
-      content: responseMessage.content,
+  return NextResponse.json(
+    {
+      message: {
+        role: 'assistant',
+        content: responseMessage.content,
+      },
     },
-  })
+    { headers: NO_CACHE_HEADERS }
+  )
 }
 
 function getToolDefinitions() {
@@ -664,12 +670,17 @@ async function handleToolCalls(responseMessage: any, openaiMessages: any[]) {
   }
 }
 
+const NO_CACHE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+}
+
 function buildSseResponse(stream: ReadableStream<Uint8Array>) {
   return new Response(stream, {
     headers: {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
       Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
     },
   })
 }
