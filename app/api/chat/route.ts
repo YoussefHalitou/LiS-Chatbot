@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import type { ChatCompletionTool } from 'openai/resources/chat/completions'
-import { queryTable, getTableNames, getTableStructure, queryTableWithJoin } from '@/lib/supabase-query'
+import {
+  queryTable,
+  getTableNames,
+  getTableStructure,
+  queryTableWithJoin,
+  insertRow
+} from '@/lib/supabase-query'
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -138,9 +144,10 @@ Your primary technical task is to:
 
 Rules:
 
-1. **SELECT only.**
+1. **SELECT only, unless the user explicitly asks to create/insert new data.**
    - Allowed: SELECT, WITH, JOIN, WHERE, GROUP BY, ORDER BY, LIMIT.
-   - Absolutely forbidden: INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE or any schema-changing statement.
+   - For inserts: only when user explicitly requests creation and the tool supports it.
+   - Absolutely forbidden: UPDATE, DELETE, DROP, ALTER, TRUNCATE or any schema-changing statement.
 
 2. Respect the schema:
    - Join using the defined foreign keys, e.g.:
@@ -317,6 +324,16 @@ const DATE_RANGE_TABLE_FIELDS: Record<string, string> = {
   v_project_full: 'project_date',
   t_projects: 'project_date',
 }
+
+const INSERT_ALLOWED_TABLES = new Set([
+  't_projects',
+  't_morningplan',
+  't_morningplan_staff',
+  't_vehicles',
+  't_employees',
+  't_services',
+  't_materials',
+])
 
 const PROJECT_FILTER_FIELDS: Record<
   string,
@@ -854,6 +871,30 @@ function getToolDefinitions(): ChatCompletionTool[] {
         },
       },
     },
+    {
+      type: 'function',
+      function: {
+        name: 'insertRow',
+        description:
+          'Insert a single row into an allowed table. Use only when the user explicitly asks to create or add new data. Return the created row.',
+        parameters: {
+          type: 'object',
+          properties: {
+            tableName: {
+              type: 'string',
+              description:
+                'Target table name (must be one of the allowed tables).',
+            },
+            values: {
+              type: 'object',
+              description: 'Column/value pairs for the new row.',
+              additionalProperties: true,
+            },
+          },
+          required: ['tableName', 'values'],
+        },
+      },
+    },
   ]
 }
 
@@ -954,6 +995,17 @@ async function handleToolCalls(
     } else if (functionName === 'getTableStructure') {
       const result = await getTableStructure(functionArgs.tableName)
       functionResult = result
+    } else if (functionName === 'insertRow') {
+      if (!INSERT_ALLOWED_TABLES.has(functionArgs.tableName)) {
+        functionResult = {
+          error: `Insert not allowed for table: ${functionArgs.tableName}`,
+        }
+      } else if (!functionArgs.values || typeof functionArgs.values !== 'object') {
+        functionResult = { error: 'Missing values for insertRow.' }
+      } else {
+        const result = await insertRow(functionArgs.tableName, functionArgs.values)
+        functionResult = result
+      }
     } else {
       functionResult = { error: `Unknown function: ${functionName}` }
     }

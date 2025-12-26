@@ -306,6 +306,37 @@ export async function queryTable(
   }
 }
 
+export async function insertRow(
+  tableName: string,
+  values: Record<string, any>
+) {
+  try {
+    if (!supabaseAdmin) {
+      return {
+        data: null,
+        error: 'Service role key not configured'
+      }
+    }
+
+    const { data, error } = await supabaseAdmin
+      .from(tableName)
+      .insert(values)
+      .select()
+      .single()
+
+    if (error) {
+      return { data: null, error: error.message }
+    }
+
+    return { data, error: null }
+  } catch (err) {
+    return {
+      data: null,
+      error: err instanceof Error ? err.message : 'Unknown error'
+    }
+  }
+}
+
 /**
  * Query a table with a join to a related table
  * This is useful when data is spread across multiple related tables
