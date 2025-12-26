@@ -306,6 +306,112 @@ interface ChatRequest {
   messages: Message[]
 }
 
+type DateRange = {
+  start: string
+  end: string
+}
+
+const DATE_RANGE_TABLE_FIELDS: Record<string, string> = {
+  v_morningplan_full: 'plan_date',
+  t_morningplan: 'plan_date',
+  v_project_full: 'project_date',
+  t_projects: 'project_date',
+}
+
+const includesAny = (text: string, values: string[]) =>
+  values.some((value) => text.includes(value))
+
+const formatIsoDate = (date: Date) => date.toISOString().slice(0, 10)
+
+const inferDateRange = ({
+  userText,
+  weekStart,
+  weekEnd,
+  berlinDateUtc,
+}: {
+  userText: string
+  weekStart: Date
+  weekEnd: Date
+  berlinDateUtc: Date
+}): DateRange | null => {
+  const text = userText.toLowerCase()
+  const hasWeek = text.includes('woche') || text.includes('week')
+  const hasMonth = text.includes('monat') || text.includes('month')
+
+  if (!hasWeek && !hasMonth) {
+    return null
+  }
+
+  if (hasMonth) {
+    const year = berlinDateUtc.getUTCFullYear()
+    const month = berlinDateUtc.getUTCMonth()
+    const currentStart = new Date(Date.UTC(year, month, 1))
+    const currentEnd = new Date(Date.UTC(year, month + 1, 0))
+    const nextStart = new Date(Date.UTC(year, month + 1, 1))
+    const nextEnd = new Date(Date.UTC(year, month + 2, 0))
+    const previousStart = new Date(Date.UTC(year, month - 1, 1))
+    const previousEnd = new Date(Date.UTC(year, month, 0))
+
+    if (includesAny(text, ['nächsten monat', 'naechsten monat', 'kommenden monat'])) {
+      return { start: formatIsoDate(nextStart), end: formatIsoDate(nextEnd) }
+    }
+
+    if (includesAny(text, ['letzten monat', 'vorigen monat', 'vergangenen monat'])) {
+      return { start: formatIsoDate(previousStart), end: formatIsoDate(previousEnd) }
+    }
+
+    if (includesAny(text, ['diesen monat', 'aktuellen monat', 'aktuell', 'jetzt', 'now'])) {
+      return { start: formatIsoDate(currentStart), end: formatIsoDate(currentEnd) }
+    }
+  }
+
+  if (hasWeek) {
+    const currentStart = weekStart
+    const currentEnd = weekEnd
+    const previousStart = new Date(weekStart)
+    previousStart.setUTCDate(previousStart.getUTCDate() - 7)
+    const previousEnd = new Date(weekEnd)
+    previousEnd.setUTCDate(previousEnd.getUTCDate() - 7)
+    const nextStart = new Date(weekStart)
+    nextStart.setUTCDate(nextStart.getUTCDate() + 7)
+    const nextEnd = new Date(weekEnd)
+    nextEnd.setUTCDate(nextEnd.getUTCDate() + 7)
+
+    if (includesAny(text, ['nächste woche', 'naechste woche', 'kommende woche'])) {
+      return { start: formatIsoDate(nextStart), end: formatIsoDate(nextEnd) }
+    }
+
+    if (includesAny(text, ['letzte woche', 'vorige woche', 'vergangene woche'])) {
+      return { start: formatIsoDate(previousStart), end: formatIsoDate(previousEnd) }
+    }
+
+    if (includesAny(text, ['diese woche', 'aktuelle woche', 'kalenderwoche', 'jetzt', 'now'])) {
+      return { start: formatIsoDate(currentStart), end: formatIsoDate(currentEnd) }
+    }
+  }
+
+  return null
+}
+
+const applyDateRangeFilters = (
+  tableName: string,
+  filters: Record<string, any>,
+  dateRange: DateRange | null
+) => {
+  const dateField = DATE_RANGE_TABLE_FIELDS[tableName]
+  if (!dateField || !dateRange) {
+    return filters
+  }
+
+  return {
+    ...filters,
+    [dateField]: {
+      type: 'between',
+      value: [dateRange.start, dateRange.end],
+    },
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body: ChatRequest = await req.json()
@@ -348,7 +454,6 @@ export async function POST(req: NextRequest) {
     const weekEnd = new Date(weekStart)
     weekEnd.setUTCDate(weekStart.getUTCDate() + 6)
 
-    const formatIsoDate = (date: Date) => date.toISOString().slice(0, 10)
     const berlinWeekRange = `${formatIsoDate(weekStart)} bis ${formatIsoDate(weekEnd)}`
 
     const berlinIsoDate = new Intl.DateTimeFormat('sv-SE', {
@@ -418,11 +523,20 @@ export async function POST(req: NextRequest) {
     const streamingDisabledRequest =
       req.headers.get('x-disable-streaming') === 'true'
 
+    const lastUserMessage =
+      [...messages].reverse().find((message) => message.role === 'user')?.content || ''
+    const requestedDateRange = inferDateRange({
+      userText: lastUserMessage,
+      weekStart,
+      weekEnd,
+      berlinDateUtc,
+    })
+
     if (streamingDisabledEnv || streamingDisabledRequest) {
-      return await handleNonStreamingCompletion(openaiMessages)
+      return await handleNonStreamingCompletion(openaiMessages, requestedDateRange)
     }
 
-    return handleStreamingCompletion(openaiMessages)
+    return handleStreamingCompletion(openaiMessages, requestedDateRange)
   } catch (error) {
     console.error('Chat API error:', error)
     return NextResponse.json(
@@ -434,7 +548,10 @@ export async function POST(req: NextRequest) {
   }
 }
 
-async function handleNonStreamingCompletion(openaiMessages: any[]) {
+async function handleNonStreamingCompletion(
+  openaiMessages: any[],
+  requestedDateRange: DateRange | null
+) {
   // Create a completion with tools (function calling) for database queries
   const completion = await openai.chat.completions.create({
     model: 'gpt-4o',
@@ -448,7 +565,7 @@ async function handleNonStreamingCompletion(openaiMessages: any[]) {
 
   // Check if the model wants to call a tool
   if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
-    await handleToolCalls(responseMessage, openaiMessages)
+    await handleToolCalls(responseMessage, openaiMessages, requestedDateRange)
 
     // Get the final response from OpenAI after tool execution
     const finalCompletion = await openai.chat.completions.create({
@@ -591,7 +708,11 @@ function getToolDefinitions(): ChatCompletionTool[] {
   ]
 }
 
-async function handleToolCalls(responseMessage: any, openaiMessages: any[]) {
+async function handleToolCalls(
+  responseMessage: any,
+  openaiMessages: any[],
+  requestedDateRange: DateRange | null
+) {
   const content = responseMessage.content
   const lowerContent = content?.toLowerCase() || ''
   const isAnnouncement =
@@ -637,19 +758,29 @@ async function handleToolCalls(responseMessage: any, openaiMessages: any[]) {
     let functionResult: any
 
     if (functionName === 'queryTable') {
-      const result = await queryTable(
+      const filtersWithRange = applyDateRangeFilters(
         functionArgs.tableName,
         functionArgs.filters || {},
+        requestedDateRange
+      )
+      const result = await queryTable(
+        functionArgs.tableName,
+        filtersWithRange,
         functionArgs.limit || 100,
         functionArgs.joins
       )
       functionResult = result
     } else if (functionName === 'queryTableWithJoin') {
+      const filtersWithRange = applyDateRangeFilters(
+        functionArgs.tableName,
+        functionArgs.filters || {},
+        requestedDateRange
+      )
       const result = await queryTableWithJoin(
         functionArgs.tableName,
         functionArgs.joinTable,
         functionArgs.joinColumn,
-        functionArgs.filters || {},
+        filtersWithRange,
         functionArgs.limit || 100
       )
       functionResult = result
@@ -691,7 +822,10 @@ function encodeSse(data: object) {
   return encoder.encode(`data: ${JSON.stringify(data)}\n\n`)
 }
 
-async function handleStreamingCompletion(openaiMessages: any[]) {
+async function handleStreamingCompletion(
+  openaiMessages: any[],
+  requestedDateRange: DateRange | null
+) {
   const stream = new ReadableStream<Uint8Array>({
     start: async (controller) => {
       try {
@@ -754,7 +888,7 @@ async function handleStreamingCompletion(openaiMessages: any[]) {
               function: value.function,
             }))
 
-          await handleToolCalls({ tool_calls, content: null }, openaiMessages)
+          await handleToolCalls({ tool_calls, content: null }, openaiMessages, requestedDateRange)
 
           const finalStream = await openai.chat.completions.create({
             model: 'gpt-4o',
