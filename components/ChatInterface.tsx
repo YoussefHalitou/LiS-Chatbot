@@ -1310,7 +1310,7 @@ export default function ChatInterface() {
                     )}
                   </button>
                 </div>
-                {message.timestamp && (
+                {message.timestamp && message.role === 'user' && (
                   <p
                     className={`text-[11px] sm:text-xs mt-2 sm:mt-1.5 ${
                       message.role === 'user'
@@ -1546,5 +1546,4 @@ export default function ChatInterface() {
     </div>
   )
 }
-
 
