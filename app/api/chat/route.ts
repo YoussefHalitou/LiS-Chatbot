@@ -385,20 +385,60 @@ const extractInsertPayload = (content: string) => {
   const inlineMatch = content.match(/INSERT_PAYLOAD:\s*({[\s\S]*})/i)
   const rawJson = codeBlockMatch?.[1] ?? inlineMatch?.[1]
 
-  if (!rawJson) {
+  if (rawJson) {
+    try {
+      const payload = JSON.parse(rawJson.trim())
+      if (!payload || typeof payload !== 'object') {
+        return null
+      }
+      return payload
+    } catch (error) {
+      console.error('Failed to parse INSERT_PAYLOAD JSON:', error)
+      return null
+    }
+  }
+
+  const candidates: string[] = []
+  let depth = 0
+  let startIndex = -1
+  for (let i = 0; i < content.length; i++) {
+    const char = content[i]
+    if (char === '{') {
+      if (depth === 0) {
+        startIndex = i
+      }
+      depth += 1
+    } else if (char === '}') {
+      depth -= 1
+      if (depth === 0 && startIndex !== -1) {
+        candidates.push(content.slice(startIndex, i + 1))
+        startIndex = -1
+      }
+    }
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const payload = JSON.parse(candidate.trim())
+      if (payload && typeof payload === 'object') {
+        return payload
+      }
+    } catch (error) {
+      continue
+    }
+  }
+
+  return null
+}
+
+const inferInsertTable = (text: string) => {
+  const match = text.match(/\bt_[a-z0-9_]+\b/i)
+  if (!match) {
     return null
   }
 
-  try {
-    const payload = JSON.parse(rawJson.trim())
-    if (!payload || typeof payload !== 'object') {
-      return null
-    }
-    return payload
-  } catch (error) {
-    console.error('Failed to parse INSERT_PAYLOAD JSON:', error)
-    return null
-  }
+  const table = match[0]
+  return INSERT_ALLOWED_TABLES.has(table) ? table : null
 }
 
 const inferProjectName = (userText: string) => {
@@ -622,20 +662,25 @@ export async function POST(req: NextRequest) {
 
     if (isConfirmationMessage(lastUserMessage) && lastAssistantMessage) {
       const insertPayload = extractInsertPayload(lastAssistantMessage)
-      if (insertPayload?.tableName && insertPayload?.values) {
-        if (!INSERT_ALLOWED_TABLES.has(insertPayload.tableName)) {
+      const inferredTable =
+        insertPayload?.tableName ||
+        inferInsertTable(lastAssistantMessage) ||
+        inferInsertTable(lastUserMessage)
+
+      if (inferredTable && insertPayload?.values) {
+        if (!INSERT_ALLOWED_TABLES.has(inferredTable)) {
           return NextResponse.json(
             {
               message: {
                 role: 'assistant',
-                content: `Eintrag nicht möglich: Tabelle "${insertPayload.tableName}" ist nicht erlaubt.`,
+                content: `Eintrag nicht möglich: Tabelle "${inferredTable}" ist nicht erlaubt.`,
               },
             },
             { headers: NO_CACHE_HEADERS }
           )
         }
 
-        const insertResult = await insertRow(insertPayload.tableName, insertPayload.values)
+        const insertResult = await insertRow(inferredTable, insertPayload.values)
 
         if (insertResult.error) {
           return NextResponse.json(
@@ -654,6 +699,18 @@ export async function POST(req: NextRequest) {
             message: {
               role: 'assistant',
               content: 'Der Eintrag wurde erstellt. Soll ich dir die Details anzeigen?',
+            },
+          },
+          { headers: NO_CACHE_HEADERS }
+        )
+      }
+      if (insertPayload && !insertPayload.values) {
+        return NextResponse.json(
+          {
+            message: {
+              role: 'assistant',
+              content:
+                'Ich habe eine Bestätigung erhalten, aber keine vollständigen Eintragsdaten erkannt. Bitte sende die Details als JSON.',
             },
           },
           { headers: NO_CACHE_HEADERS }
