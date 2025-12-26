@@ -144,9 +144,9 @@ Your primary technical task is to:
 
 Rules:
 
-1. **SELECT only, unless the user explicitly asks to create/insert new data.**
+1. **SELECT only, unless the user explicitly asks to create/insert new data AND confirms the insert.**
    - Allowed: SELECT, WITH, JOIN, WHERE, GROUP BY, ORDER BY, LIMIT.
-   - For inserts: only when user explicitly requests creation and the tool supports it.
+   - For inserts: only when user explicitly requests creation, confirms the insert, and the tool supports it.
    - Absolutely forbidden: UPDATE, DELETE, DROP, ALTER, TRUNCATE or any schema-changing statement.
 
 2. Respect the schema:
@@ -876,7 +876,7 @@ function getToolDefinitions(): ChatCompletionTool[] {
       function: {
         name: 'insertRow',
         description:
-          'Insert a single row into an allowed table. Use only when the user explicitly asks to create or add new data. Return the created row.',
+          'Insert a single row into an allowed table. Use only when the user explicitly asks to create or add new data AND confirms the insert. Return the created row.',
         parameters: {
           type: 'object',
           properties: {
@@ -890,8 +890,12 @@ function getToolDefinitions(): ChatCompletionTool[] {
               description: 'Column/value pairs for the new row.',
               additionalProperties: true,
             },
+            confirm: {
+              type: 'boolean',
+              description: 'Must be true after the user explicitly confirms the insert.',
+            },
           },
-          required: ['tableName', 'values'],
+          required: ['tableName', 'values', 'confirm'],
         },
       },
     },
@@ -1000,6 +1004,8 @@ async function handleToolCalls(
         functionResult = {
           error: `Insert not allowed for table: ${functionArgs.tableName}`,
         }
+      } else if (!functionArgs.confirm) {
+        functionResult = { error: 'Insert requires explicit confirmation.' }
       } else if (!functionArgs.values || typeof functionArgs.values !== 'object') {
         functionResult = { error: 'Missing values for insertRow.' }
       } else {
