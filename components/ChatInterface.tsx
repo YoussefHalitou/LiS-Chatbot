@@ -43,6 +43,7 @@ export default function ChatInterface() {
     process.env.CHAT_STREAMING_DISABLED === 'true'
   const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
   const TTS_FALLBACK_DELAY_MS = 2500
+  const TTS_SLOW_RATE = 0.95
 
   // Load chat history from localStorage on mount
   useEffect(() => {
@@ -521,7 +522,7 @@ export default function ChatInterface() {
       window.speechSynthesis.cancel()
       const utterance = new SpeechSynthesisUtterance(fallbackText)
       utterance.lang = 'de-DE'
-      utterance.rate = 1
+      utterance.rate = TTS_SLOW_RATE
       utterance.pitch = 1
       utterance.volume = 1
 
@@ -547,6 +548,7 @@ export default function ChatInterface() {
 
     try {
       const preparedText = formatTextForSpeech(text)
+      const ttsStartTime = Date.now()
       
       console.log('[TTS] Starting TTS for text length:', preparedText.length)
 
@@ -606,6 +608,10 @@ export default function ChatInterface() {
         if (fallbackTimeout) {
           window.clearTimeout(fallbackTimeout)
           fallbackTimeout = null
+        }
+        const playbackDelayMs = Date.now() - ttsStartTime
+        if (playbackDelayMs > TTS_FALLBACK_DELAY_MS) {
+          audio.playbackRate = TTS_SLOW_RATE
         }
         setIsPlayingAudio(true) // Ensure it's still true
       }
