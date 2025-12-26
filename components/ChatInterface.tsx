@@ -16,6 +16,7 @@ export default function ChatInterface() {
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [isStreamingResponse, setIsStreamingResponse] = useState(false)
+  const [showLoadingBubble, setShowLoadingBubble] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [isPlayingAudio, setIsPlayingAudio] = useState(false)
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
@@ -25,6 +26,7 @@ export default function ChatInterface() {
   const [silenceStartTime, setSilenceStartTime] = useState<number | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
   const streamTimeoutRef = useRef<number | null>(null)
+  const loadingBubbleTimeoutRef = useRef<number | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -892,6 +894,13 @@ export default function ChatInterface() {
     }
   }
 
+  const clearLoadingBubbleTimeout = () => {
+    if (loadingBubbleTimeoutRef.current) {
+      clearTimeout(loadingBubbleTimeoutRef.current)
+      loadingBubbleTimeoutRef.current = null
+    }
+  }
+
   const cancelStreaming = (message?: string) => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
@@ -899,6 +908,8 @@ export default function ChatInterface() {
     }
 
     clearStreamTimeout()
+    clearLoadingBubbleTimeout()
+    setShowLoadingBubble(false)
 
     if (message) {
       const timestamp = new Date()
@@ -946,6 +957,8 @@ export default function ChatInterface() {
         try {
           const payload = JSON.parse(dataLine.replace(/^data:\s*/, ''))
           if (payload.type === 'token' && payload.content) {
+            setIsStreamingResponse(true)
+            setShowLoadingBubble(false)
             assembledContent += payload.content
             setMessages((prev) =>
               prev.map((msg, idx) =>
@@ -978,6 +991,12 @@ export default function ChatInterface() {
     setMessages((prev) => [...prev, userMessage])
     setIsLoading(true)
     setIsStreamingResponse(false)
+    setShowLoadingBubble(false)
+
+    clearLoadingBubbleTimeout()
+    loadingBubbleTimeoutRef.current = window.setTimeout(() => {
+      setShowLoadingBubble(true)
+    }, 300)
 
     const controller = new AbortController()
     abortControllerRef.current = controller
@@ -1025,7 +1044,6 @@ export default function ChatInterface() {
       const contentType = response.headers.get('content-type') || ''
 
       if (!streamingDisabled && contentType.includes('text/event-stream')) {
-        setIsStreamingResponse(true)
         await readSseStream(response, assistantIndex, { speakResponse })
       } else {
         const data = await response.json()
@@ -1046,9 +1064,11 @@ export default function ChatInterface() {
             console.error('TTS error in fallback:', error)
           })
         }
+        setShowLoadingBubble(false)
       }
     } catch (error) {
       console.error('Error sending message:', error)
+      setShowLoadingBubble(false)
       const isAbort = error instanceof DOMException && error.name === 'AbortError'
       const assistantMessage: Message = {
         role: 'assistant',
@@ -1062,7 +1082,9 @@ export default function ChatInterface() {
       )
     } finally {
       clearStreamTimeout()
+      clearLoadingBubbleTimeout()
       abortControllerRef.current = null
+      setShowLoadingBubble(false)
       setIsStreamingResponse(false)
       setIsLoading(false)
     }
@@ -1329,7 +1351,7 @@ export default function ChatInterface() {
             </div>
           ))}
 
-          {isLoading && !isStreamingResponse && (
+          {isLoading && showLoadingBubble && !isStreamingResponse && (
             <div className="flex justify-start animate-in fade-in slide-in-from-bottom-2 duration-200">
               <div className="bg-white rounded-2xl sm:rounded-xl rounded-bl-sm px-4 py-3 sm:px-4 sm:py-2.5 border border-gray-200 shadow-sm">
                 <div className="flex items-center gap-2.5">
