@@ -1,5 +1,7 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { ToastContainer } from '@/lib/toast'
 
 export const metadata: Metadata = {
   title: 'LiS Chatbot',
@@ -23,7 +25,12 @@ export default function RootLayout({
 }) {
   return (
     <html lang="de">
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        <ErrorBoundary>
+          {children}
+          <ToastContainer />
+        </ErrorBoundary>
+      </body>
     </html>
   )
 }

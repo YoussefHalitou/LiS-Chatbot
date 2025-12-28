@@ -15,6 +15,8 @@ import {
   getMicrophoneErrorMessage,
   sanitizeInput,
 } from '@/lib/utils'
+import ConnectionStatus from '@/components/ConnectionStatus'
+import { showToast } from '@/lib/toast'
 
 export default function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([])
@@ -22,6 +24,9 @@ export default function ChatInterface() {
   const [isLoading, setIsLoading] = useState(false)
   const [isStreamingResponse, setIsStreamingResponse] = useState(false)
   const [showLoadingBubble, setShowLoadingBubble] = useState(false)
+  const [isQueryingDatabase, setIsQueryingDatabase] = useState(false)
+  const [isProcessingSTT, setIsProcessingSTT] = useState(false)
+  const [isGeneratingTTS, setIsGeneratingTTS] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [isPlayingAudio, setIsPlayingAudio] = useState(false)
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
@@ -102,7 +107,7 @@ export default function ChatInterface() {
     try {
       // Check if we're in the browser (not SSR)
       if (typeof window === 'undefined' || typeof navigator === 'undefined') {
-        alert('Diese Funktion benötigt eine Browser-Umgebung. Bitte lade die Seite neu.')
+        showToast('Diese Funktion benötigt eine Browser-Umgebung. Bitte lade die Seite neu.', 'error', 5000)
         return
       }
 
@@ -191,14 +196,14 @@ export default function ChatInterface() {
           errorMsg += 'Falls du Safari verwendest:\n- Stelle sicher, dass du Safari 11+ nutzt\n- Aktiviere die Mikrofonberechtigung in den Safari-Einstellungen'
         }
         errorMsg += `\n\nBrowser: ${userAgent}\nProtokoll: ${protocol}\nHostname: ${hostname}`
-        alert(errorMsg)
+        showToast(errorMsg, 'error', 6000)
         return
       }
 
       // Check if MediaRecorder is available
       if (!window.MediaRecorder) {
         const userAgent = navigator.userAgent
-        alert(`Der MediaRecorder wird von deinem Browser nicht unterstützt.\n\nNutze bitte:\n- Chrome (Desktop/Mobil)\n- Firefox (Desktop/Mobil)\n- Safari (iOS 14.3+)\n\nAktueller Browser: ${userAgent}`)
+        showToast(`Der MediaRecorder wird von deinem Browser nicht unterstützt. Nutze bitte Chrome, Firefox oder Safari (iOS 14.3+). Aktueller Browser: ${userAgent}`, 'error', 8000)
         return
       }
 
@@ -283,7 +288,7 @@ export default function ChatInterface() {
         console.error('MediaRecorder error:', event.error)
         setIsRecording(false)
         stream.getTracks().forEach((track) => track.stop())
-        alert('Bei der Aufnahme ist ein Fehler aufgetreten. Bitte versuch es erneut.')
+        showToast('Bei der Aufnahme ist ein Fehler aufgetreten. Bitte versuch es erneut.', 'error', 4000)
       }
 
       mediaRecorder.onstop = async () => {
@@ -298,7 +303,7 @@ export default function ChatInterface() {
           console.warn('[STT] No audio chunks recorded')
           setIsRecording(false)
           if (!voiceOnlyModeRef.current) {
-            alert('Es wurde kein Audio aufgezeichnet. Bitte versuch es erneut.')
+            showToast('Es wurde kein Audio aufgezeichnet. Bitte versuch es erneut.', 'warning', 4000)
           }
           // In voice-only mode, restart recording if no audio was captured
           if (voiceOnlyModeRef.current) {
@@ -328,7 +333,7 @@ export default function ChatInterface() {
           console.warn('[STT] Audio blob too small, likely no audio captured')
           setIsRecording(false)
           if (!voiceOnlyModeRef.current) {
-            alert('Die Aufnahme war zu kurz. Bitte versuch es erneut.')
+            showToast('Die Aufnahme war zu kurz. Bitte versuch es erneut.', 'warning', 4000)
           }
           if (voiceOnlyModeRef.current) {
             setTimeout(() => {
@@ -345,6 +350,7 @@ export default function ChatInterface() {
 
         try {
           setIsProcessingVoice(true)
+          setIsProcessingSTT(true)
           const formData = new FormData()
           formData.append('audio', audioBlob, `recording.${fileExtension}`)
 
@@ -389,7 +395,7 @@ export default function ChatInterface() {
             }
           } else {
             if (!voiceOnlyModeRef.current) {
-              alert('Es wurde keine Sprache erkannt. Bitte sprich noch einmal.')
+              showToast('Es wurde keine Sprache erkannt. Bitte sprich noch einmal.', 'warning', 4000)
             }
             // In voice-only mode, restart recording
             if (voiceOnlyModeRef.current) {
@@ -416,9 +422,7 @@ export default function ChatInterface() {
             errorMsg += '\n\nAuf mobilen Geräten gilt:\n- Stelle eine stabile Internetverbindung sicher\n- Die Aufnahme sollte klar und nicht zu kurz sein\n- Sprich lauter oder näher am Mikrofon'
           }
           
-          if (!voiceOnlyModeRef.current) {
-            alert(errorMsg)
-          }
+          showToast(errorMsg, 'error', 6000)
           
           // In voice-only mode, restart recording after error
           if (voiceOnlyModeRef.current) {
@@ -431,6 +435,7 @@ export default function ChatInterface() {
         } finally {
           setIsRecording(false)
           setIsProcessingVoice(false)
+          setIsProcessingSTT(false)
         }
       }
 
@@ -451,7 +456,7 @@ export default function ChatInterface() {
         ? getMicrophoneErrorMessage(error)
         : ERROR_MESSAGES.MICROPHONE_ACCESS_DENIED
       
-      alert(errorMessage)
+      showToast(errorMessage, 'error', 6000)
     }
   }
 
@@ -490,6 +495,7 @@ export default function ChatInterface() {
 
       utterance.onend = () => {
         setIsPlayingAudio(false)
+        setIsGeneratingTTS(false)
         if (voiceOnlyModeRef.current && !isRecording && !isLoading) {
           setTimeout(() => {
             if (voiceOnlyModeRef.current && !isRecording && !isLoading) {
@@ -501,12 +507,14 @@ export default function ChatInterface() {
 
       utterance.onerror = () => {
         setIsPlayingAudio(false)
+        setIsGeneratingTTS(false)
       }
 
       window.speechSynthesis.speak(utterance)
     }
 
     try {
+      setIsGeneratingTTS(true)
       const preparedText = formatTextForSpeech(text)
       const ttsStartTime = Date.now()
       
@@ -542,6 +550,7 @@ export default function ChatInterface() {
       }
 
       if (!ttsResponse) {
+        setIsGeneratingTTS(false)
         throw (ttsError || new Error('Die Audioausgabe konnte nicht erzeugt werden.'))
       }
 
@@ -560,6 +569,7 @@ export default function ChatInterface() {
       
       // Set state BEFORE setting up handlers to ensure button is visible immediately
       setIsPlayingAudio(true)
+      setIsGeneratingTTS(false) // TTS generation is complete, now playing
       
       // Set up event handlers before setting source
       audio.onplay = () => {
@@ -607,6 +617,7 @@ export default function ChatInterface() {
           src: audio.src
         })
         setIsPlayingAudio(false)
+        setIsGeneratingTTS(false)
         audioRef.current = null
         if (urlToCleanup) {
           URL.revokeObjectURL(urlToCleanup)
@@ -617,7 +628,7 @@ export default function ChatInterface() {
         }
         // Don't show alert in voice-only mode to avoid interrupting flow
         if (!voiceOnlyMode) {
-          alert('Audio konnte nicht abgespielt werden. Bitte versuch es erneut.')
+          showToast('Audio konnte nicht abgespielt werden. Bitte versuch es erneut.', 'error', 4000)
         }
       }
       
@@ -667,8 +678,9 @@ export default function ChatInterface() {
             } catch (fallbackError) {
               console.error('[TTS] Web Speech fallback failed:', fallbackError)
             }
+            setIsGeneratingTTS(false)
             if (!voiceOnlyMode) {
-              alert('Die Audiowiedergabe wurde vom Browser blockiert. Bitte interagiere zuerst mit der Seite (z.B. ein Klick).')
+              showToast('Die Audiowiedergabe wurde vom Browser blockiert. Bitte interagiere zuerst mit der Seite (z.B. ein Klick).', 'warning', 5000)
             }
           } else {
             // For other errors, wait a bit and try once more
@@ -685,7 +697,7 @@ export default function ChatInterface() {
                   URL.revokeObjectURL(urlToCleanup)
                 }
                 if (!voiceOnlyMode) {
-                  alert('Audio konnte nicht abgespielt werden. Bitte versuch es erneut.')
+                  showToast('Audio konnte nicht abgespielt werden. Bitte versuch es erneut.', 'error', 4000)
                 }
               }
             }, 200)
@@ -721,6 +733,7 @@ export default function ChatInterface() {
     } catch (error) {
       console.error('TTS error:', error)
       setIsPlayingAudio(false)
+      setIsGeneratingTTS(false)
       if (fallbackTimeout) {
         window.clearTimeout(fallbackTimeout)
       }
@@ -737,7 +750,7 @@ export default function ChatInterface() {
       }
       // Don't show alert in voice-only mode
       if (!voiceOnlyMode) {
-        alert('Audio konnte nicht erzeugt oder abgespielt werden. Bitte versuch es erneut.')
+        showToast('Audio konnte nicht erzeugt oder abgespielt werden. Bitte versuch es erneut.', 'error', 4000)
       }
     }
   }
@@ -912,6 +925,7 @@ export default function ChatInterface() {
       if (typeof window !== 'undefined') {
         localStorage.removeItem(APP_CONFIG.CHAT_HISTORY_KEY)
       }
+      showToast('Chatverlauf wurde gelöscht', 'success', 3000)
     }
   }, [])
 
@@ -1038,6 +1052,7 @@ export default function ChatInterface() {
   ) => {
     setMessages((prev) => [...prev, userMessage])
     setIsLoading(true)
+    setIsQueryingDatabase(true)
     setIsStreamingResponse(false)
     setShowLoadingBubble(false)
 
@@ -1090,7 +1105,10 @@ export default function ChatInterface() {
       })
 
       if (!response.ok) {
-        throw new Error('Antwort konnte nicht geladen werden.')
+        const errorData = await response.json().catch(() => ({}))
+        const errorMessage = errorData.error || 'Antwort konnte nicht geladen werden.'
+        showToast(errorMessage, 'error', 5000)
+        throw new Error(errorMessage)
       }
 
       const contentType = response.headers.get('content-type') || ''
@@ -1121,7 +1139,14 @@ export default function ChatInterface() {
     } catch (error) {
       console.error('Error sending message:', error)
       setShowLoadingBubble(false)
+      setIsQueryingDatabase(false)
       const isAbort = error instanceof DOMException && error.name === 'AbortError'
+      
+      if (!isAbort) {
+        const errorMessage = error instanceof Error ? error.message : 'Entschuldigung, es ist ein Fehler aufgetreten. Bitte versuch es noch einmal.'
+        showToast(errorMessage, 'error', 5000)
+      }
+      
       const assistantMessage: Message = {
         role: 'assistant',
         content: isAbort
@@ -1139,6 +1164,7 @@ export default function ChatInterface() {
       setShowLoadingBubble(false)
       setIsStreamingResponse(false)
       setIsLoading(false)
+      setIsQueryingDatabase(false)
     }
   }
 
@@ -1162,6 +1188,45 @@ export default function ChatInterface() {
       sendMessage()
     }
   }
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyboardShortcuts = (e: KeyboardEvent) => {
+      // Ctrl/Cmd + K: Focus input field
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault()
+        textareaRef.current?.focus()
+      }
+
+      // Esc: Cancel recording or exit voice-only mode
+      if (e.key === 'Escape') {
+        if (isRecording) {
+          stopRecording()
+          showToast('Aufnahme abgebrochen', 'info', 2000)
+        }
+        if (voiceOnlyMode) {
+          exitVoiceOnlyMode()
+        }
+        // Cancel ongoing request
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort()
+        }
+      }
+
+      // Ctrl/Cmd + Enter: Send message (alternative to Enter)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault()
+        if (!isLoading && input.trim()) {
+          sendMessage()
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyboardShortcuts)
+    return () => {
+      window.removeEventListener('keydown', handleKeyboardShortcuts)
+    }
+  }, [isRecording, voiceOnlyMode, isLoading, input, sendMessage])
 
   // Auto-resize textarea
   useEffect(() => {
@@ -1241,6 +1306,7 @@ export default function ChatInterface() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {!voiceOnlyMode && <ConnectionStatus className="hidden sm:flex" />}
               {voiceOnlyMode && (
                 <button
                   onClick={exitVoiceOnlyMode}
