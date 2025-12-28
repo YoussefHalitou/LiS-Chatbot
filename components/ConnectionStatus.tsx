@@ -11,7 +11,14 @@ interface ConnectionStatusProps {
 
 export default function ConnectionStatus({ className = '' }: ConnectionStatusProps) {
   const [status, setStatus] = useState<ConnectionStatus>('checking')
-  const [lastCheck, setLastCheck] = useState<Date>(new Date())
+  const [lastCheck, setLastCheck] = useState<Date | null>(null)
+  const [mounted, setMounted] = useState(false)
+
+  // Only render after mount to avoid SSR hydration mismatch
+  useEffect(() => {
+    setMounted(true)
+    setLastCheck(new Date())
+  }, [])
 
   useEffect(() => {
     const checkConnection = async () => {
@@ -113,10 +120,14 @@ export default function ConnectionStatus({ className = '' }: ConnectionStatusPro
   const config = getStatusConfig()
   const Icon = config.icon
 
+  if (!mounted) {
+    return null // Don't render on server to avoid hydration mismatch
+  }
+
   return (
     <div
       className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${config.bgColor} ${className}`}
-      title={`Status: ${config.label} (Letzte Prüfung: ${lastCheck.toLocaleTimeString('de-DE')})`}
+      title={`Status: ${config.label}${lastCheck ? ` (Letzte Prüfung: ${lastCheck.toLocaleTimeString('de-DE')})` : ''}`}
     >
       <Icon
         className={`w-4 h-4 ${config.color} ${status === 'checking' ? 'animate-spin' : ''}`}
