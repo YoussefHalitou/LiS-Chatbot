@@ -805,6 +805,15 @@ export async function POST(req: NextRequest) {
         )
       })
 
+    const recentUpdateToolCall = [...messages]
+      .reverse()
+      .find((message) => {
+        if (message.role !== 'assistant' || !message.tool_calls) return false
+        return message.tool_calls.some(
+          (tc: any) => tc.function?.name === 'updateRow'
+        )
+      })
+
     const recentDeleteToolCall = [...messages]
       .reverse()
       .find((message) => {
@@ -815,6 +824,7 @@ export async function POST(req: NextRequest) {
       })
 
     if (isConfirmationMessage(lastUserMessage)) {
+      // Priority: delete > update > insert
       // First, check for delete confirmation
       if (recentDeleteToolCall?.tool_calls) {
         const deleteToolCall = recentDeleteToolCall.tool_calls.find(
@@ -878,7 +888,72 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Then, try to use a recent insert tool call if available
+      // Then, check for update confirmation
+      if (recentUpdateToolCall?.tool_calls) {
+        const updateToolCall = recentUpdateToolCall.tool_calls.find(
+          (tc: any) => tc.function?.name === 'updateRow'
+        )
+        if (updateToolCall) {
+          try {
+            const functionArgs = JSON.parse(updateToolCall.function.arguments || '{}')
+            if (functionArgs.tableName && functionArgs.filters && functionArgs.values) {
+              if (!INSERT_ALLOWED_TABLES.has(functionArgs.tableName)) {
+                return NextResponse.json(
+                  {
+                    message: {
+                      role: 'assistant',
+                      content: `Update nicht möglich: Tabelle "${functionArgs.tableName}" ist nicht erlaubt.`,
+                    },
+                  },
+                  { headers: NO_CACHE_HEADERS }
+                )
+              }
+
+              console.log('Re-executing update from tool call:', { 
+                table: functionArgs.tableName, 
+                filters: functionArgs.filters,
+                values: functionArgs.values 
+              })
+              const clientId = getClientIdentifier(req)
+              const updateResult = await updateRow(
+                functionArgs.tableName, 
+                functionArgs.filters, 
+                functionArgs.values,
+                {
+                  requireSingleRow: true,
+                }
+              )
+
+              if (updateResult.error) {
+                console.error('Update error:', updateResult.error)
+                return NextResponse.json(
+                  {
+                    message: {
+                      role: 'assistant',
+                      content: `Der Eintrag konnte nicht aktualisiert werden: ${updateResult.error}`,
+                    },
+                  },
+                  { headers: NO_CACHE_HEADERS }
+                )
+              }
+
+              return NextResponse.json(
+                {
+                  message: {
+                    role: 'assistant',
+                    content: 'Der Eintrag wurde erfolgreich aktualisiert.',
+                  },
+                },
+                { headers: NO_CACHE_HEADERS }
+              )
+            }
+          } catch (error) {
+            console.error('Error parsing update tool call arguments:', error)
+          }
+        }
+      }
+
+      // Finally, try to use a recent insert tool call if available
       if (recentInsertToolCall?.tool_calls) {
         const insertToolCall = recentInsertToolCall.tool_calls.find(
           (tc: any) => tc.function?.name === 'insertRow'
