@@ -2,6 +2,8 @@ import { supabaseAdmin } from './supabase'
 import { sanitizeFilters, sanitizeValues, validateTableName, validateSingleRowFilters } from './validation'
 import { createAuditLog } from './audit-log'
 import { INSERT_ALLOWED_TABLES } from './constants'
+import { retrySupabaseOperation } from './retry'
+import { getUserFriendlyErrorMessage } from './error-messages'
 
 /**
  * Execute a read-only SQL query via Supabase REST API
@@ -300,30 +302,24 @@ export async function queryTable(
       }
     }
 
+    // Retry query with exponential backoff for transient failures
+    const result = await retrySupabaseOperation(async () => {
     const { data, error } = await query
-
     if (error) {
-      // Provide more helpful error messages with full error details
-      if (error.code === 'PGRST116') {
-        return {
-          data: null,
-          error: `Table "${tableName}" does not exist or is not accessible. Please check the table name. Full error: ${error.message || JSON.stringify(error)}`
-        }
+        throw error
       }
-      if (error.message?.includes('permission denied')) {
-        return {
-          data: null,
-          error: `Permission denied accessing table "${tableName}". Please check your Supabase RLS policies. Full error: ${error.message}`
-        }
-      }
-      // Return detailed error for debugging
+      return { data: data || [], error: null }
+    })
+
+    if (result.error) {
+      const errorMessage = getUserFriendlyErrorMessage(result.error, 'QUERY', tableName)
       return {
         data: null,
-        error: `Query failed: ${error.message || JSON.stringify(error)}. Code: ${error.code || 'unknown'}`
+        error: errorMessage
       }
     }
 
-    return { data: data || [], error: null }
+    return result
   } catch (err) {
     return {
       data: null,
@@ -380,21 +376,42 @@ export async function insertRow(
 
     const sanitizedValues = valuesValidation.sanitized!
 
-    // Perform insert
-    const { data, error } = await supabaseAdmin
-      .from(tableName)
-      .insert(sanitizedValues)
-      .select()
-      .single()
-
-    if (error) {
+    if (!supabaseAdmin) {
       createAuditLog('INSERT', tableName, 'FAILURE', {
         userId: options?.userId,
         ipAddress: options?.ipAddress,
         values: sanitizedValues,
-        error: error.message,
+        error: 'Service role key not configured',
       })
-      return { data: null, error: error.message }
+      return {
+        data: null,
+        error: 'Service role key not configured'
+      }
+    }
+
+    // Perform insert with retry logic
+    const insertResult = await retrySupabaseOperation(async () => {
+    const { data, error } = await supabaseAdmin
+      .from(tableName)
+        .insert(sanitizedValues)
+      .select()
+      .single()
+
+    if (error) {
+        throw error
+      }
+      return { data, error: null }
+    })
+
+    if (insertResult.error) {
+      const errorMessage = getUserFriendlyErrorMessage(insertResult.error, 'INSERT', tableName)
+      createAuditLog('INSERT', tableName, 'FAILURE', {
+        userId: options?.userId,
+        ipAddress: options?.ipAddress,
+        values: sanitizedValues,
+        error: errorMessage,
+      })
+      return { data: null, error: errorMessage }
     }
 
     // Log successful insert
@@ -404,7 +421,7 @@ export async function insertRow(
       values: sanitizedValues,
     })
 
-    return { data, error: null }
+    return { data: insertResult.data, error: null }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : 'Unknown error'
     createAuditLog('INSERT', tableName, 'FAILURE', {
@@ -507,6 +524,13 @@ export async function updateRow(
     const sanitizedFilters = filtersValidation.sanitized!
     const sanitizedValues = valuesValidation.sanitized!
 
+    if (!supabaseAdmin) {
+      return {
+        data: null,
+        error: 'Service role key not configured'
+      }
+    }
+
     // First, check how many rows would be affected
     let countQuery = supabaseAdmin.from(tableName).select('*', { count: 'exact', head: true })
     
@@ -603,17 +627,25 @@ export async function updateRow(
       }
     }
 
-    const { data, error } = await query.select().single()
+    // Perform update with retry logic
+    const updateResult = await retrySupabaseOperation(async () => {
+      const { data, error } = await query.select().single()
+      if (error) {
+        throw error
+      }
+      return { data, error: null }
+    })
 
-    if (error) {
+    if (updateResult.error) {
+      const errorMessage = getUserFriendlyErrorMessage(updateResult.error, 'UPDATE', tableName)
       createAuditLog('UPDATE', tableName, 'FAILURE', {
         userId: options?.userId,
         ipAddress: options?.ipAddress,
         filters: sanitizedFilters,
         values: sanitizedValues,
-        error: error.message,
+        error: errorMessage,
       })
-      return { data: null, error: error.message }
+      return { data: null, error: errorMessage }
     }
 
     // Log successful update
@@ -624,7 +656,7 @@ export async function updateRow(
       values: sanitizedValues,
     })
 
-    return { data, error: null }
+    return { data: updateResult.data, error: null }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : 'Unknown error'
     createAuditLog('UPDATE', tableName, 'FAILURE', {
@@ -801,19 +833,27 @@ export async function deleteRow(
       }
     }
 
-    const { data, error } = await query.select()
+    // Perform delete with retry logic
+    const deleteResult = await retrySupabaseOperation(async () => {
+      const { data, error } = await query.select()
+      if (error) {
+        throw error
+      }
+    return { data, error: null }
+    })
 
-    if (error) {
+    if (deleteResult.error) {
+      const errorMessage = getUserFriendlyErrorMessage(deleteResult.error, 'DELETE', tableName)
       createAuditLog('DELETE', tableName, 'FAILURE', {
         userId: options?.userId,
         ipAddress: options?.ipAddress,
         filters: sanitizedFilters,
-        error: error.message,
+        error: errorMessage,
       })
-      return { data: null, error: error.message }
+      return { data: null, error: errorMessage }
     }
 
-    const deletedCount = data?.length || 0
+    const deletedCount = deleteResult.data?.length || 0
 
     // Log successful delete
     createAuditLog('DELETE', tableName, 'SUCCESS', {
@@ -824,7 +864,7 @@ export async function deleteRow(
     })
 
     return { 
-      data: { deleted_count: deletedCount, deleted_rows: data || [] }, 
+      data: { deleted_count: deletedCount, deleted_rows: deleteResult.data || [] }, 
       error: null 
     }
   } catch (err) {
