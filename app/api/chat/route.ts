@@ -877,6 +877,7 @@ export async function POST(req: NextRequest) {
               }
 
               const deletedCount = deleteResult.data?.deleted_count || 0
+              // Return immediately - don't check for update/insert if delete was found
               return NextResponse.json(
                 {
                   message: {
@@ -892,6 +893,8 @@ export async function POST(req: NextRequest) {
           } catch (error) {
             console.error('Error parsing delete tool call arguments:', error)
           }
+          // Return here to prevent checking update/insert if delete was attempted
+          return
         }
       }
 
@@ -944,6 +947,7 @@ export async function POST(req: NextRequest) {
                 )
               }
 
+              // Return immediately - don't check for insert if update was found
               return NextResponse.json(
                 {
                   message: {
@@ -957,6 +961,8 @@ export async function POST(req: NextRequest) {
           } catch (error) {
             console.error('Error parsing update tool call arguments:', error)
           }
+          // Return here to prevent checking insert if update was attempted
+          return
         }
       }
 
