@@ -10,6 +10,8 @@ import {
   updateRow,
   deleteRow
 } from '@/lib/supabase-query'
+import { INSERT_ALLOWED_TABLES } from '@/lib/constants'
+import { rateLimitMiddleware, getClientIdentifier } from '@/lib/rate-limit'
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -360,15 +362,7 @@ const DATE_RANGE_TABLE_FIELDS: Record<string, string> = {
   t_projects: 'project_date',
 }
 
-const INSERT_ALLOWED_TABLES = new Set([
-  't_projects',
-  't_morningplan',
-  't_morningplan_staff',
-  't_vehicles',
-  't_employees',
-  't_services',
-  't_materials',
-])
+// INSERT_ALLOWED_TABLES is now imported from @/lib/constants
 
 const PROJECT_FILTER_FIELDS: Record<
   string,
@@ -755,6 +749,12 @@ const applyProjectFilters = (
 }
 
 export async function POST(req: NextRequest) {
+  // Apply rate limiting
+  const rateLimitResult = rateLimitMiddleware(req, '/api/chat')
+  if (!rateLimitResult.allowed) {
+    return rateLimitResult.response!
+  }
+
   try {
     const body: ChatRequest = await req.json()
     const { messages } = body
@@ -816,7 +816,11 @@ export async function POST(req: NextRequest) {
                 table: functionArgs.tableName, 
                 filters: functionArgs.filters 
               })
-              const deleteResult = await deleteRow(functionArgs.tableName, functionArgs.filters)
+              const clientId = getClientIdentifier(req)
+              const deleteResult = await deleteRow(functionArgs.tableName, functionArgs.filters, {
+                ipAddress: clientId,
+                requireSingleRow: true,
+              })
 
               if (deleteResult.error) {
                 console.error('Delete error:', deleteResult.error)
@@ -876,7 +880,10 @@ export async function POST(req: NextRequest) {
                 table: functionArgs.tableName, 
                 values: functionArgs.values 
               })
-              const insertResult = await insertRow(functionArgs.tableName, functionArgs.values)
+              const clientId = getClientIdentifier(req)
+              const insertResult = await insertRow(functionArgs.tableName, functionArgs.values, {
+                ipAddress: clientId,
+              })
 
               if (insertResult.error) {
                 console.error('Insert error:', insertResult.error)
@@ -948,7 +955,10 @@ export async function POST(req: NextRequest) {
           }
 
           console.log('Attempting insert:', { table: inferredTable, values: insertValues })
-          const insertResult = await insertRow(inferredTable, insertValues)
+          const clientId = getClientIdentifier(req)
+          const insertResult = await insertRow(inferredTable, insertValues, {
+            ipAddress: clientId,
+          })
 
           if (insertResult.error) {
             console.error('Insert error:', insertResult.error)
@@ -1610,6 +1620,8 @@ async function handleToolCalls(
             message: 'Bitte bestätige, dass dieser Eintrag erstellt werden soll.',
           }
         } else {
+          // Note: We don't have access to req here, so we'll pass undefined for ipAddress
+          // In production, you might want to pass this through the function chain
           const result = await insertRow(functionArgs.tableName, valuesWithDefaults)
           functionResult = result
         }
@@ -1624,7 +1636,11 @@ async function handleToolCalls(
       } else if (!functionArgs.values || typeof functionArgs.values !== 'object') {
         functionResult = { error: 'Missing values for updateRow.' }
       } else {
-        const result = await updateRow(functionArgs.tableName, functionArgs.filters, functionArgs.values)
+        // Note: We don't have access to req here, so we'll pass undefined for ipAddress
+        // In production, you might want to pass this through the function chain
+        const result = await updateRow(functionArgs.tableName, functionArgs.filters, functionArgs.values, {
+          requireSingleRow: true, // Require single row for safety
+        })
         functionResult = result
       }
     } else if (functionName === 'deleteRow') {
@@ -1635,7 +1651,11 @@ async function handleToolCalls(
       } else if (!functionArgs.filters || typeof functionArgs.filters !== 'object') {
         functionResult = { error: 'Missing filters for deleteRow. Filters are required to identify which row(s) to delete.' }
       } else {
-        const result = await deleteRow(functionArgs.tableName, functionArgs.filters)
+        // Note: We don't have access to req here, so we'll pass undefined for ipAddress
+        // In production, you might want to pass this through the function chain
+        const result = await deleteRow(functionArgs.tableName, functionArgs.filters, {
+          requireSingleRow: true, // Require single row for safety
+        })
         functionResult = result
       }
     } else {

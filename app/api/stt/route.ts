@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { rateLimitMiddleware } from '@/lib/rate-limit'
 
 const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY
 const MAX_AUDIO_SIZE = 10 * 1024 * 1024 // 10MB
@@ -55,6 +56,12 @@ function getDeepgramErrorMessage(status: number, errorText?: string): string {
 }
 
 export async function POST(req: NextRequest) {
+  // Apply rate limiting
+  const rateLimitResult = rateLimitMiddleware(req, '/api/stt')
+  if (!rateLimitResult.allowed) {
+    return rateLimitResult.response!
+  }
+
   try {
     const formData = await req.formData()
     const audioFile = formData.get('audio') as File | null

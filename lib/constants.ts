@@ -61,3 +61,16 @@ export const SUCCESS_MESSAGES = {
   CHAT_CLEARED: 'Chatverlauf gelöscht',
 } as const
 
+/**
+ * Tables allowed for write operations (insert, update, delete)
+ */
+export const INSERT_ALLOWED_TABLES = new Set([
+  't_projects',
+  't_morningplan',
+  't_morningplan_staff',
+  't_vehicles',
+  't_employees',
+  't_services',
+  't_materials',
+])
+

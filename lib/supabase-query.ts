@@ -1,4 +1,7 @@
 import { supabaseAdmin } from './supabase'
+import { sanitizeFilters, sanitizeValues, validateTableName, validateSingleRowFilters } from './validation'
+import { createAuditLog } from './audit-log'
+import { INSERT_ALLOWED_TABLES } from './constants'
 
 /**
  * Execute a read-only SQL query via Supabase REST API
@@ -210,17 +213,40 @@ export async function queryTable(
       }
     }
 
+    // Validate and sanitize filters
+    const filtersValidation = sanitizeFilters(filters)
+    if (!filtersValidation.valid) {
+      return {
+        data: null,
+        error: filtersValidation.error || 'Invalid filters'
+      }
+    }
+
+    const sanitizedFilters = filtersValidation.sanitized!
+
+    // Validate limit
+    if (limit < 1 || limit > 1000) {
+      return {
+        data: null,
+        error: 'Limit must be between 1 and 1000'
+      }
+    }
+
     // Build select statement with joins if provided
     let selectStatement = '*'
     if (joins && joins.length > 0) {
-      selectStatement = `*, ${joins.join(', ')}`
+      // Validate join syntax
+      const validJoins = joins.filter(join => /^[a-zA-Z_][a-zA-Z0-9_]*(\!?[a-zA-Z0-9_]*)?\([^)]*\)$/.test(join))
+      if (validJoins.length > 0) {
+        selectStatement = `*, ${validJoins.join(', ')}`
+      }
     }
 
     let query = supabaseAdmin.from(tableName).select(selectStatement).limit(limit)
 
-    // Apply filters
+    // Apply sanitized filters
     // Support both simple key-value (defaults to eq) and advanced filter objects
-    for (const [key, value] of Object.entries(filters)) {
+    for (const [key, value] of Object.entries(sanitizedFilters)) {
       if (value === undefined || value === null) {
         continue
       }
@@ -308,7 +334,11 @@ export async function queryTable(
 
 export async function insertRow(
   tableName: string,
-  values: Record<string, any>
+  values: Record<string, any>,
+  options?: {
+    userId?: string
+    ipAddress?: string
+  }
 ) {
   try {
     if (!supabaseAdmin) {
@@ -318,21 +348,74 @@ export async function insertRow(
       }
     }
 
+    // Validate table name
+    const tableValidation = validateTableName(tableName, INSERT_ALLOWED_TABLES)
+    if (!tableValidation.valid) {
+      createAuditLog('INSERT', tableName, 'FAILURE', {
+        userId: options?.userId,
+        ipAddress: options?.ipAddress,
+        values,
+        error: tableValidation.error,
+      })
+      return {
+        data: null,
+        error: tableValidation.error || 'Invalid table name'
+      }
+    }
+
+    // Sanitize values
+    const valuesValidation = sanitizeValues(values)
+    if (!valuesValidation.valid) {
+      createAuditLog('INSERT', tableName, 'FAILURE', {
+        userId: options?.userId,
+        ipAddress: options?.ipAddress,
+        values,
+        error: valuesValidation.error,
+      })
+      return {
+        data: null,
+        error: valuesValidation.error || 'Invalid values'
+      }
+    }
+
+    const sanitizedValues = valuesValidation.sanitized!
+
+    // Perform insert
     const { data, error } = await supabaseAdmin
       .from(tableName)
-      .insert(values)
+      .insert(sanitizedValues)
       .select()
       .single()
 
     if (error) {
+      createAuditLog('INSERT', tableName, 'FAILURE', {
+        userId: options?.userId,
+        ipAddress: options?.ipAddress,
+        values: sanitizedValues,
+        error: error.message,
+      })
       return { data: null, error: error.message }
     }
 
+    // Log successful insert
+    createAuditLog('INSERT', tableName, 'SUCCESS', {
+      userId: options?.userId,
+      ipAddress: options?.ipAddress,
+      values: sanitizedValues,
+    })
+
     return { data, error: null }
   } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : 'Unknown error'
+    createAuditLog('INSERT', tableName, 'FAILURE', {
+      userId: options?.userId,
+      ipAddress: options?.ipAddress,
+      values,
+      error: errorMessage,
+    })
     return {
       data: null,
-      error: err instanceof Error ? err.message : 'Unknown error'
+      error: errorMessage
     }
   }
 }
@@ -340,7 +423,12 @@ export async function insertRow(
 export async function updateRow(
   tableName: string,
   filters: Record<string, any>,
-  values: Record<string, any>
+  values: Record<string, any>,
+  options?: {
+    userId?: string
+    ipAddress?: string
+    requireSingleRow?: boolean
+  }
 ) {
   try {
     if (!supabaseAdmin) {
@@ -350,10 +438,141 @@ export async function updateRow(
       }
     }
 
-    let query = supabaseAdmin.from(tableName).update(values)
+    // Validate table name
+    const tableValidation = validateTableName(tableName, INSERT_ALLOWED_TABLES)
+    if (!tableValidation.valid) {
+      createAuditLog('UPDATE', tableName, 'FAILURE', {
+        userId: options?.userId,
+        ipAddress: options?.ipAddress,
+        filters,
+        values,
+        error: tableValidation.error,
+      })
+      return {
+        data: null,
+        error: tableValidation.error || 'Invalid table name'
+      }
+    }
 
-    // Apply filters to identify which row(s) to update
-    for (const [key, value] of Object.entries(filters)) {
+    // Sanitize filters
+    const filtersValidation = sanitizeFilters(filters)
+    if (!filtersValidation.valid) {
+      createAuditLog('UPDATE', tableName, 'FAILURE', {
+        userId: options?.userId,
+        ipAddress: options?.ipAddress,
+        filters,
+        values,
+        error: filtersValidation.error,
+      })
+      return {
+        data: null,
+        error: filtersValidation.error || 'Invalid filters'
+      }
+    }
+
+    // Validate single row requirement if specified
+    if (options?.requireSingleRow !== false) {
+      const singleRowValidation = validateSingleRowFilters(filtersValidation.sanitized!)
+      if (!singleRowValidation.valid) {
+        createAuditLog('UPDATE', tableName, 'FAILURE', {
+          userId: options?.userId,
+          ipAddress: options?.ipAddress,
+          filters: filtersValidation.sanitized,
+          values,
+          error: singleRowValidation.error,
+        })
+        return {
+          data: null,
+          error: singleRowValidation.error || 'Filters must identify exactly one row'
+        }
+      }
+    }
+
+    // Sanitize values
+    const valuesValidation = sanitizeValues(values)
+    if (!valuesValidation.valid) {
+      createAuditLog('UPDATE', tableName, 'FAILURE', {
+        userId: options?.userId,
+        ipAddress: options?.ipAddress,
+        filters: filtersValidation.sanitized,
+        values,
+        error: valuesValidation.error,
+      })
+      return {
+        data: null,
+        error: valuesValidation.error || 'Invalid values'
+      }
+    }
+
+    const sanitizedFilters = filtersValidation.sanitized!
+    const sanitizedValues = valuesValidation.sanitized!
+
+    // First, check how many rows would be affected
+    let countQuery = supabaseAdmin.from(tableName).select('*', { count: 'exact', head: true })
+    
+    // Apply filters to count query
+    for (const [key, value] of Object.entries(sanitizedFilters)) {
+      if (value === undefined || value === null) {
+        continue
+      }
+      if (typeof value === 'object' && !Array.isArray(value) && value.type) {
+        const filterType = value.type
+        const filterValue = value.value
+        switch (filterType) {
+          case 'eq':
+            countQuery = countQuery.eq(key, filterValue)
+            break
+          case 'neq':
+            countQuery = countQuery.neq(key, filterValue)
+            break
+          case 'in':
+            if (Array.isArray(filterValue)) {
+              countQuery = countQuery.in(key, filterValue)
+            }
+            break
+          default:
+            countQuery = countQuery.eq(key, filterValue)
+        }
+      } else {
+        countQuery = countQuery.eq(key, value)
+      }
+    }
+    
+    const { count } = await countQuery
+
+    if (count === 0) {
+      createAuditLog('UPDATE', tableName, 'FAILURE', {
+        userId: options?.userId,
+        ipAddress: options?.ipAddress,
+        filters: sanitizedFilters,
+        values: sanitizedValues,
+        error: 'No rows found matching filters',
+      })
+      return {
+        data: null,
+        error: 'Keine Zeilen gefunden, die den Filtern entsprechen'
+      }
+    }
+
+    if (options?.requireSingleRow !== false && count !== 1) {
+      createAuditLog('UPDATE', tableName, 'FAILURE', {
+        userId: options?.userId,
+        ipAddress: options?.ipAddress,
+        filters: sanitizedFilters,
+        values: sanitizedValues,
+        error: `Expected 1 row, found ${count}`,
+      })
+      return {
+        data: null,
+        error: `Mehrere Zeilen gefunden (${count}). Bitte verwende spezifischere Filter, um genau eine Zeile zu identifizieren.`
+      }
+    }
+
+    // Build update query
+    let query = supabaseAdmin.from(tableName).update(sanitizedValues)
+
+    // Apply filters
+    for (const [key, value] of Object.entries(sanitizedFilters)) {
       if (value === undefined || value === null) {
         continue
       }
@@ -387,21 +606,49 @@ export async function updateRow(
     const { data, error } = await query.select().single()
 
     if (error) {
+      createAuditLog('UPDATE', tableName, 'FAILURE', {
+        userId: options?.userId,
+        ipAddress: options?.ipAddress,
+        filters: sanitizedFilters,
+        values: sanitizedValues,
+        error: error.message,
+      })
       return { data: null, error: error.message }
     }
 
+    // Log successful update
+    createAuditLog('UPDATE', tableName, 'SUCCESS', {
+      userId: options?.userId,
+      ipAddress: options?.ipAddress,
+      filters: sanitizedFilters,
+      values: sanitizedValues,
+    })
+
     return { data, error: null }
   } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : 'Unknown error'
+    createAuditLog('UPDATE', tableName, 'FAILURE', {
+      userId: options?.userId,
+      ipAddress: options?.ipAddress,
+      filters,
+      values,
+      error: errorMessage,
+    })
     return {
       data: null,
-      error: err instanceof Error ? err.message : 'Unknown error'
+      error: errorMessage
     }
   }
 }
 
 export async function deleteRow(
   tableName: string,
-  filters: Record<string, any>
+  filters: Record<string, any>,
+  options?: {
+    userId?: string
+    ipAddress?: string
+    requireSingleRow?: boolean
+  }
 ) {
   try {
     if (!supabaseAdmin) {
@@ -411,10 +658,119 @@ export async function deleteRow(
       }
     }
 
+    // Validate table name
+    const tableValidation = validateTableName(tableName, INSERT_ALLOWED_TABLES)
+    if (!tableValidation.valid) {
+      createAuditLog('DELETE', tableName, 'FAILURE', {
+        userId: options?.userId,
+        ipAddress: options?.ipAddress,
+        filters,
+        error: tableValidation.error,
+      })
+      return {
+        data: null,
+        error: tableValidation.error || 'Invalid table name'
+      }
+    }
+
+    // Sanitize filters
+    const filtersValidation = sanitizeFilters(filters)
+    if (!filtersValidation.valid) {
+      createAuditLog('DELETE', tableName, 'FAILURE', {
+        userId: options?.userId,
+        ipAddress: options?.ipAddress,
+        filters,
+        error: filtersValidation.error,
+      })
+      return {
+        data: null,
+        error: filtersValidation.error || 'Invalid filters'
+      }
+    }
+
+    // Validate single row requirement if specified
+    if (options?.requireSingleRow !== false) {
+      const singleRowValidation = validateSingleRowFilters(filtersValidation.sanitized!)
+      if (!singleRowValidation.valid) {
+        createAuditLog('DELETE', tableName, 'FAILURE', {
+          userId: options?.userId,
+          ipAddress: options?.ipAddress,
+          filters: filtersValidation.sanitized,
+          error: singleRowValidation.error,
+        })
+        return {
+          data: null,
+          error: singleRowValidation.error || 'Filters must identify exactly one row'
+        }
+      }
+    }
+
+    const sanitizedFilters = filtersValidation.sanitized!
+
+    // First, check how many rows would be affected
+    let countQuery = supabaseAdmin.from(tableName).select('*', { count: 'exact', head: true })
+    
+    // Apply filters to count query
+    for (const [key, value] of Object.entries(sanitizedFilters)) {
+      if (value === undefined || value === null) {
+        continue
+      }
+      if (typeof value === 'object' && !Array.isArray(value) && value.type) {
+        const filterType = value.type
+        const filterValue = value.value
+        switch (filterType) {
+          case 'eq':
+            countQuery = countQuery.eq(key, filterValue)
+            break
+          case 'neq':
+            countQuery = countQuery.neq(key, filterValue)
+            break
+          case 'in':
+            if (Array.isArray(filterValue)) {
+              countQuery = countQuery.in(key, filterValue)
+            }
+            break
+          default:
+            countQuery = countQuery.eq(key, filterValue)
+        }
+      } else {
+        countQuery = countQuery.eq(key, value)
+      }
+    }
+    
+    const { count } = await countQuery
+
+    if (count === 0) {
+      createAuditLog('DELETE', tableName, 'FAILURE', {
+        userId: options?.userId,
+        ipAddress: options?.ipAddress,
+        filters: sanitizedFilters,
+        error: 'No rows found matching filters',
+      })
+      return {
+        data: null,
+        error: 'Keine Zeilen gefunden, die den Filtern entsprechen'
+      }
+    }
+
+    if (options?.requireSingleRow !== false && count !== 1) {
+      createAuditLog('DELETE', tableName, 'FAILURE', {
+        userId: options?.userId,
+        ipAddress: options?.ipAddress,
+        filters: sanitizedFilters,
+        error: `Expected 1 row, found ${count}`,
+      })
+      return {
+        data: null,
+        error: `Mehrere Zeilen gefunden (${count}). Bitte verwende spezifischere Filter, um genau eine Zeile zu identifizieren.`
+      }
+    }
+
+    // Build delete query
     let query = supabaseAdmin.from(tableName).delete()
 
-    // Apply filters to identify which row(s) to delete
-    for (const [key, value] of Object.entries(filters)) {
+    // Apply filters
+    for (const [key, value] of Object.entries(sanitizedFilters)) {
       if (value === undefined || value === null) {
         continue
       }
@@ -448,17 +804,40 @@ export async function deleteRow(
     const { data, error } = await query.select()
 
     if (error) {
+      createAuditLog('DELETE', tableName, 'FAILURE', {
+        userId: options?.userId,
+        ipAddress: options?.ipAddress,
+        filters: sanitizedFilters,
+        error: error.message,
+      })
       return { data: null, error: error.message }
     }
 
+    const deletedCount = data?.length || 0
+
+    // Log successful delete
+    createAuditLog('DELETE', tableName, 'SUCCESS', {
+      userId: options?.userId,
+      ipAddress: options?.ipAddress,
+      filters: sanitizedFilters,
+      metadata: { deleted_count: deletedCount },
+    })
+
     return { 
-      data: { deleted_count: data?.length || 0, deleted_rows: data || [] }, 
+      data: { deleted_count: deletedCount, deleted_rows: data || [] }, 
       error: null 
     }
   } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : 'Unknown error'
+    createAuditLog('DELETE', tableName, 'FAILURE', {
+      userId: options?.userId,
+      ipAddress: options?.ipAddress,
+      filters,
+      error: errorMessage,
+    })
     return {
       data: null,
-      error: err instanceof Error ? err.message : 'Unknown error'
+      error: errorMessage
     }
   }
 }

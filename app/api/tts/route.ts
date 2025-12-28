@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { rateLimitMiddleware } from '@/lib/rate-limit'
 
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY
 const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM' // Default voice: Rachel
@@ -34,6 +35,12 @@ function getElevenLabsErrorMessage(status: number, errorText?: string): string {
 }
 
 export async function POST(req: NextRequest) {
+  // Apply rate limiting
+  const rateLimitResult = rateLimitMiddleware(req, '/api/tts')
+  if (!rateLimitResult.allowed) {
+    return rateLimitResult.response!
+  }
+
   try {
     const body = await req.json().catch(() => ({}))
     const { text } = body
