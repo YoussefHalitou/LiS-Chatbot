@@ -391,11 +391,11 @@ export async function insertRow(
 
     // Perform insert with retry logic
     const insertResult = await retrySupabaseOperation(async () => {
-    const { data, error } = await supabaseAdmin
-      .from(tableName)
+      const { data, error } = await supabaseAdmin!
+        .from(tableName)
         .insert(sanitizedValues)
-      .select()
-      .single()
+        .select()
+        .single()
 
     if (error) {
         throw error
