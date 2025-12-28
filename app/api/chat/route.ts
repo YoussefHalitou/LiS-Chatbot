@@ -188,6 +188,13 @@ Rules:
      * **CRITICAL**: ort (location) is OPTIONAL for t_projects - you can set it to null if not provided. Only name is required!
      * **CRITICAL**: When user provides project information in multiple messages, COMBINE all information from the conversation history before calling insertRow.
      * **CRITICAL**: DO NOT just say "Ich erstelle das Projekt" - you MUST actually call the insertRow tool function!
+     * **CRITICAL FOR EMPLOYEES**: When user says "füge worker/mitarbeiter [Name] [Stundensatz] [intern/extern]", extract:
+       - name: the name mentioned
+       - hourly_rate: the number mentioned (e.g., "35" means hourly_rate: 35)
+       - contract_type: "Intern" if user says "intern", "Extern" if user says "extern" (capitalize first letter!)
+       - is_active: true (default)
+       - role: null (default)
+     * **EXAMPLE**: "füge worker Youssef 35 intern" → insertRow with {name: "Youssef", hourly_rate: 35, contract_type: "Intern", is_active: true}
      * DO NOT show JSON or ask again - just execute the insert with what you have.
    - **UPDATE**: 
      * When user says "umbenennen", "ändern", "update", "setze", "aktualisiere", "rename", "change", "modify" or similar, you MUST:
@@ -1477,7 +1484,7 @@ function getToolDefinitions(): ChatCompletionTool[] {
       function: {
         name: 'insertRow',
         description:
-          'Insert a single row into an allowed table. YOU MUST CALL THIS TOOL - DO NOT JUST SAY YOU WILL DO IT! CRITICAL RULES: 1) When user says "neues projekt" or "projekt hinzufügen" and provides ANY information (even just a name like "ZZZ"), YOU MUST IMMEDIATELY CALL THIS TOOL with tableName="t_projects" and ALL available information from the conversation. 2) If user provides information in multiple messages (e.g., first "neues projekt named ZZZ", then "Köln"), COMBINE all information from the conversation history and call insertRow with the complete values object. 3) NEVER ask for more information if you have at least name for projects - use sensible defaults for everything else (ort can be null, status="geplant", project_code=auto-generate). 4) ALWAYS set confirm: true when calling this tool - the user has already provided the information. 5) Extract information from ALL previous messages in the conversation, not just the last one. 6) YOU MUST ACTUALLY CALL THIS TOOL FUNCTION - do NOT just respond with text saying you will create it!',
+          'Insert a single row into an allowed table. YOU MUST CALL THIS TOOL - DO NOT JUST SAY YOU WILL DO IT! CRITICAL RULES: 1) When user says "neues projekt" or "projekt hinzufügen" and provides ANY information (even just a name like "ZZZ"), YOU MUST IMMEDIATELY CALL THIS TOOL with tableName="t_projects" and ALL available information from the conversation. 2) When user says "füge worker/mitarbeiter [Name] [Stundensatz] [intern/extern]", extract: name (the name), hourly_rate (the number), contract_type ("Intern" or "Extern" - capitalize first letter!), is_active=true, role=null. 3) If user provides information in multiple messages, COMBINE all information from the conversation history and call insertRow with the complete values object. 4) NEVER ask for more information if you have at least name for projects/employees - use sensible defaults for everything else. 5) ALWAYS set confirm: true when calling this tool - the user has already provided the information. 6) Extract information from ALL previous messages in the conversation, not just the last one. 7) YOU MUST ACTUALLY CALL THIS TOOL FUNCTION - do NOT just respond with text saying you will create it!',
         parameters: {
           type: 'object',
           properties: {
