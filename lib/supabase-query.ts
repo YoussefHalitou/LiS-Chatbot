@@ -834,7 +834,12 @@ export async function deleteRow(
         }
       } else {
         // Simple equality filter
-        query = query.eq(key, value)
+        // Use case-insensitive search for 'name' fields
+        if (key === 'name' && typeof value === 'string') {
+          query = query.ilike(key, value)
+        } else {
+          query = query.eq(key, value)
+        }
       }
     }
 
