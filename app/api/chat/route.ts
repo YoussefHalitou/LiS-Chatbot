@@ -189,7 +189,21 @@ Rules:
      * **CRITICAL**: When user provides project information in multiple messages, COMBINE all information from the conversation history before calling insertRow.
      * **CRITICAL**: DO NOT just say "Ich erstelle das Projekt" - you MUST actually call the insertRow tool function!
      * DO NOT show JSON or ask again - just execute the insert with what you have.
-   - **UPDATE**: When user asks to change/modify, identify row(s) using unique identifiers (project_code, employee_id, name, etc.), then IMMEDIATELY call updateRow with filters and values.
+   - **UPDATE**: 
+     * When user says "umbenennen", "ändern", "update", "setze", "aktualisiere", "rename", "change", "modify" or similar, you MUST:
+       1. Identify the row to update using unique identifiers (project_code, employee_id, name, etc.)
+       2. Extract the new values from the user's message
+       3. IMMEDIATELY call updateRow tool with filters and values
+     * **EXAMPLE**: If user says "projekt zzz umbenennen in aaaa", call updateRow with:
+       - tableName: 't_projects'
+       - filters: {name: 'ZZZ'} (to find the project)
+       - values: {name: 'AAAA'} (new name)
+     * **EXAMPLE**: If user says "ändere projekt ZZZ ort zu Köln", call updateRow with:
+       - tableName: 't_projects'
+       - filters: {name: 'ZZZ'}
+       - values: {ort: 'Köln'}
+     * **CRITICAL**: Use the name field to find projects when user mentions a project name - filters: {name: "ProjectName"}
+     * **CRITICAL**: Do NOT create a new row - use updateRow to modify existing data!
    - **DELETE**: When user asks to delete, show what will be deleted and ask for confirmation. When confirmed, IMMEDIATELY call deleteRow with filters.
    - **DELETE FIELD**: When user asks to remove a field value (e.g., "lösche die Straße"), use updateRow with the field set to null.
 
@@ -1416,7 +1430,7 @@ function getToolDefinitions(): ChatCompletionTool[] {
       function: {
         name: 'updateRow',
         description:
-          'Update existing row(s) in an allowed table. Use ONLY when: 1) User explicitly asks to change/modify/update existing data (e.g., "ändere", "update", "setze", "aktualisiere"), 2) You can identify the row(s) using unique identifiers (e.g., project_code, employee_id, name), AND 3) You have the new values. IMMEDIATELY call this tool when user provides update data. Do NOT say you cannot update - use this tool!',
+          'Update existing row(s) in an allowed table. Use when user says "umbenennen", "ändern", "update", "setze", "aktualisiere", "rename", "change", "modify" or similar. CRITICAL: 1) Extract the identifier from user message (e.g., if user says "projekt zzz umbenennen", use filters: {name: "ZZZ"} to find the project). 2) Extract the new values (e.g., "in aaaa" means values: {name: "AAAA"}). 3) IMMEDIATELY call this tool with tableName, filters, and values. 4) For projects, use filters: {name: "ProjectName"} to find by name. 5) Do NOT create a new row - this is for UPDATING existing data!',
         parameters: {
           type: 'object',
           properties: {
@@ -1427,7 +1441,7 @@ function getToolDefinitions(): ChatCompletionTool[] {
             },
             filters: {
               type: 'object',
-              description: 'Filters to identify which row(s) to update. Use unique identifiers like project_code, employee_id, name, etc. Can be simple key-value pairs (defaults to eq) or objects with type: "eq", "in". Example: {name: "Alpha"} or {project_code: "PROJ123"}.',
+              description: 'Filters to identify which row(s) to update. CRITICAL: Extract the identifier from the user message! If user says "projekt zzz umbenennen", use filters: {name: "ZZZ"} to find the project. Use unique identifiers like project_code, employee_id, name, etc. Can be simple key-value pairs (defaults to eq) or objects with type: "eq", "in". Example: {name: "ZZZ"} to find project named "ZZZ", or {project_code: "PROJ123"}.',
               additionalProperties: true,
             },
             values: {
