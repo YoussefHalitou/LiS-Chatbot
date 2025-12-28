@@ -170,14 +170,19 @@ Rules:
 
 5. **CRITICAL WORKFLOWS:**
    - **INSERT**: 
-     * **MOST IMPORTANT**: When user says "neues projekt" or "projekt hinzufügen" and then provides information like "name X, Ort Y", you MUST IMMEDIATELY call insertRow tool with tableName='t_projects' and the values. DO NOT ask questions - just call the tool!
-     * When user provides information for creating something (e.g., "name QQQQQ, Ort Warschau"), IMMEDIATELY call insertRow with the information provided. DO NOT ask for more details unless absolutely critical.
-     * Use the information the user gave you - if they say "name is X and intern", use name=X and contract_type='Intern'. If they say "name QQQQQ, Ort Warschau", use name='QQQQQ' and ort='Warschau'.
+     * **MOST IMPORTANT RULE**: When user says "neues projekt" or "projekt hinzufügen" and provides ANY information (even just a name), you MUST:
+       1. Look through ALL previous messages in the conversation to find ALL information the user has provided (name, ort, etc.)
+       2. IMMEDIATELY call insertRow tool with tableName='t_projects' and ALL available information combined
+       3. Use sensible defaults for missing optional fields (ort can be null, status='geplant', project_code=auto-generate)
+       4. NEVER ask for more information - if you have at least a name, that's enough!
+       5. ALWAYS set confirm: true - the user has already provided the information
+     * **EXAMPLE**: If user says "neues projekt named ZZZ" and then later says "Köln", you MUST combine both: call insertRow with {name: "ZZZ", ort: "Köln", confirm: true}
+     * **EXAMPLE**: If user says "neues projekt named ZZZ" and nothing else, call insertRow with {name: "ZZZ", ort: null, confirm: true} - ort can be null!
      * For missing optional fields, use sensible defaults:
        - For t_employees: is_active=true (default), role=null (if not specified), hourly_rate=0 (if not specified)
-       - For t_projects: status='geplant' (default), project_code=auto-generate if not provided (e.g., PRJ-YYYYMMDD-XXXXX)
-     * Only ask for information if it's truly required by the database schema (NOT NULL constraints).
-     * **CRITICAL**: When user provides project information (name, ort, etc.), call insertRow IMMEDIATELY with confirm: true. Do NOT wait for confirmation - the user already gave you the information!
+       - For t_projects: status='geplant' (default), ort=null (if not specified - it's optional!), project_code=auto-generate if not provided (e.g., PRJ-YYYYMMDD-XXXXX)
+     * **CRITICAL**: ort (location) is OPTIONAL for t_projects - you can set it to null if not provided. Only name is required!
+     * **CRITICAL**: When user provides project information in multiple messages, COMBINE all information from the conversation history before calling insertRow.
      * DO NOT show JSON or ask again - just execute the insert with what you have.
    - **UPDATE**: When user asks to change/modify, identify row(s) using unique identifiers (project_code, employee_id, name, etc.), then IMMEDIATELY call updateRow with filters and values.
    - **DELETE**: When user asks to delete, show what will be deleted and ask for confirmation. When confirmed, IMMEDIATELY call deleteRow with filters.
@@ -1378,7 +1383,7 @@ function getToolDefinitions(): ChatCompletionTool[] {
       function: {
         name: 'insertRow',
         description:
-          'Insert a single row into an allowed table. CRITICAL: When user says "neues projekt" or "projekt hinzufügen" and provides information (e.g., "name X, Ort Y"), IMMEDIATELY call this tool with tableName="t_projects" and values={name: "X", ort: "Y"}. Do NOT ask questions - just call the tool! Use sensible defaults for optional fields (status="geplant", project_code=auto-generate). For employees, if user says "name X, intern", call with tableName="t_employees" and values={name: "X", contract_type: "Intern"}. Always set confirm: true when user provides the information - do NOT wait for additional confirmation.',
+          'Insert a single row into an allowed table. CRITICAL RULES: 1) When user says "neues projekt" or "projekt hinzufügen" and provides ANY information (even just a name like "ZZZ"), IMMEDIATELY call this tool with tableName="t_projects" and ALL available information from the conversation. 2) If user provides information in multiple messages (e.g., first "neues projekt named ZZZ", then "Köln"), COMBINE all information from the conversation history and call insertRow with the complete values object. 3) NEVER ask for more information if you have at least name for projects - use sensible defaults for everything else (ort can be null, status="geplant", project_code=auto-generate). 4) ALWAYS set confirm: true when calling this tool - the user has already provided the information. 5) Extract information from ALL previous messages in the conversation, not just the last one.',
         parameters: {
           type: 'object',
           properties: {
@@ -1389,7 +1394,7 @@ function getToolDefinitions(): ChatCompletionTool[] {
             },
             values: {
               type: 'object',
-              description: 'Column/value pairs for the new row. Include only the fields the user provided. Use defaults for missing optional fields: t_employees (is_active=true, role=null if not specified), t_projects (status="geplant", project_code=auto-generate if missing). Only include fields that the user mentioned or that have sensible defaults.',
+              description: 'Column/value pairs for the new row. CRITICAL: Extract ALL information from the ENTIRE conversation history, not just the last message! If user said "neues projekt named ZZZ" in one message and "Köln" in another, combine them: {name: "ZZZ", ort: "Köln"}. For t_projects: name is required, ort is OPTIONAL (can be null). Use defaults for missing optional fields: t_employees (is_active=true, role=null if not specified), t_projects (status="geplant", ort=null if not provided, project_code=auto-generate if missing). Always include at least the name field for projects.',
               additionalProperties: true,
             },
             confirm: {
