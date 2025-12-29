@@ -214,6 +214,20 @@ Rules:
        - tableName: 't_projects'
        - filters: {name: 'ZZZ'}
        - values: {ort: 'Köln'}
+     * **CRITICAL FOR EMPLOYEE START TIMES**: When user says "startzeit [EmployeeName] [Time]" or "startzeit [EmployeeName] [Time] für [ProjectName]":
+       - This refers to the **individual_start_time** field in **t_morningplan_staff**, NOT the start_time in t_morningplan!
+       - You MUST first query t_morningplan_staff to find the correct row by:
+         1. Finding the plan_id from t_morningplan using the project name
+         2. Finding the employee_id from t_employees using the employee name
+         3. Using both plan_id AND employee_id as filters in updateRow for t_morningplan_staff
+       - Then call updateRow with:
+         - tableName: 't_morningplan_staff'
+         - filters: {plan_id: '...', employee_id: '...'} (both required!)
+         - values: {individual_start_time: 'HH:MM:SS'} (format as time string)
+       - **EXAMPLE**: "startzeit Jonas 12:00 für Umzug" → 
+         1. Query t_morningplan to find plan_id for project "Umzug"
+         2. Query t_employees to find employee_id for "Jonas"
+         3. Call updateRow(tableName='t_morningplan_staff', filters={plan_id: '...', employee_id: '...'}, values={individual_start_time: '12:00:00'})
      * **CRITICAL**: Use the name field to find projects when user mentions a project name - filters: {name: "ProjectName"}
      * **CRITICAL**: Do NOT create a new row - use updateRow to modify existing data!
    - **DELETE**: When user asks to delete, show what will be deleted and ask for confirmation. When confirmed, IMMEDIATELY call deleteRow with filters.
