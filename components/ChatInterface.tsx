@@ -14,8 +14,8 @@ import {
   deleteChat,
   getCurrentChatId,
   setCurrentChatId,
-  migrateOldChatFormat,
-} from '@/lib/chat-management'
+} from '@/lib/chat-management-supabase'
+import { migrateOldChatFormat } from '@/lib/chat-management'
 import {
   delay,
   formatTextForSpeech,
@@ -72,52 +72,61 @@ export default function ChatInterface() {
   useEffect(() => {
     if (typeof window === 'undefined') return
     
-    // Migrate old format if needed
-    migrateOldChatFormat()
-    
-    // Load chat list
-    const loadedChats = getAllChats()
-    setChats(loadedChats)
-    
-    // Load current chat
-    const currentId = getCurrentChatId()
-    if (currentId) {
-      const chatExists = loadedChats.some(c => c.id === currentId)
-      if (chatExists) {
-        setCurrentChatId(currentId)
-        const chatMessages = getChatMessages(currentId)
+    async function loadChats() {
+      // Migrate old format if needed (localStorage only)
+      migrateOldChatFormat()
+      
+      // Load chat list (Supabase if authenticated, localStorage otherwise)
+      const loadedChats = await getAllChats()
+      setChats(loadedChats)
+      
+      // Load current chat
+      const currentId = getCurrentChatId()
+      if (currentId) {
+        const chatExists = loadedChats.some(c => c.id === currentId)
+        if (chatExists) {
+          setCurrentChatId(currentId)
+          const chatMessages = await getChatMessages(currentId)
+          setMessages(chatMessages)
+        } else {
+          // Current chat doesn't exist, create new one
+          const newChat = await createNewChat()
+          setCurrentChatId(newChat.id)
+          setChats([newChat, ...loadedChats])
+          setMessages([])
+        }
+      } else if (loadedChats.length > 0) {
+        // No current chat, use first one
+        const firstChat = loadedChats[0]
+        setCurrentChatId(firstChat.id)
+        const chatMessages = await getChatMessages(firstChat.id)
         setMessages(chatMessages)
       } else {
-        // Current chat doesn't exist, create new one
-        const newChat = createNewChat()
+        // No chats exist, create new one
+        const newChat = await createNewChat()
         setCurrentChatId(newChat.id)
-        setChats([newChat, ...loadedChats])
+        setChats([newChat])
         setMessages([])
       }
-    } else if (loadedChats.length > 0) {
-      // No current chat, use first one
-      const firstChat = loadedChats[0]
-      setCurrentChatId(firstChat.id)
-      setCurrentChatId(firstChat.id)
-      const chatMessages = getChatMessages(firstChat.id)
-      setMessages(chatMessages)
-    } else {
-      // No chats exist, create new one
-      const newChat = createNewChat()
-      setCurrentChatId(newChat.id)
-      setChats([newChat])
-      setMessages([])
     }
+    
+    loadChats()
   }, [])
 
   // Save chat messages whenever they change
   useEffect(() => {
     if (typeof window === 'undefined' || !currentChatId) return
     
-    if (messages.length > 0) {
-      saveChatMessages(currentChatId, messages)
-      // Update chat list to reflect changes
-      setChats(getAllChats())
+    async function saveMessages() {
+      if (messages.length > 0) {
+        await saveChatMessages(currentChatId, messages)
+        // Update chat list to reflect changes
+        const updatedChats = await getAllChats()
+        setChats(updatedChats)
+      }
+    }
+    
+    saveMessages()
     }
   }, [messages, currentChatId])
 
@@ -954,58 +963,60 @@ export default function ChatInterface() {
     }
   }, [])
 
-  const clearChat = useCallback(() => {
+  const clearChat = useCallback(async () => {
     if (confirm('Möchtest du den gesamten Chatverlauf wirklich löschen?')) {
       setMessages([])
       if (currentChatId) {
-        saveChatMessages(currentChatId, [])
-        setChats(getAllChats())
+        await saveChatMessages(currentChatId, [])
+        const updatedChats = await getAllChats()
+        setChats(updatedChats)
       }
       showToast('Chatverlauf wurde gelöscht', 'success', 3000)
     }
   }, [currentChatId])
 
   // Chat management functions
-  const handleNewChat = () => {
+  const handleNewChat = async () => {
     // Save current chat before switching
     if (currentChatId && messages.length > 0) {
-      saveChatMessages(currentChatId, messages)
+      await saveChatMessages(currentChatId, messages)
     }
     
-    const newChat = createNewChat()
+    const newChat = await createNewChat()
     setCurrentChatId(newChat.id)
-    setChats(getAllChats())
+    const updatedChats = await getAllChats()
+    setChats(updatedChats)
     setMessages([])
     setShowChatSidebar(false)
   }
 
-  const handleSwitchChat = (chatId: string) => {
+  const handleSwitchChat = async (chatId: string) => {
     // Save current chat before switching
     if (currentChatId && messages.length > 0) {
-      saveChatMessages(currentChatId, messages)
+      await saveChatMessages(currentChatId, messages)
     }
     
     setCurrentChatId(chatId)
-    setCurrentChatId(chatId)
-    const chatMessages = getChatMessages(chatId)
+    const chatMessages = await getChatMessages(chatId)
     setMessages(chatMessages)
-    setChats(getAllChats())
+    const updatedChats = await getAllChats()
+    setChats(updatedChats)
     setShowChatSidebar(false)
   }
 
-  const handleDeleteChat = (chatId: string, e: React.MouseEvent) => {
+  const handleDeleteChat = async (chatId: string, e: React.MouseEvent) => {
     e.stopPropagation()
     if (window.confirm('Möchtest du diesen Chat wirklich löschen?')) {
-      deleteChat(chatId)
-      const updatedChats = getAllChats()
+      await deleteChat(chatId)
+      const updatedChats = await getAllChats()
       setChats(updatedChats)
       
       // If deleted chat was current, switch to another
       if (chatId === currentChatId) {
         if (updatedChats.length > 0) {
-          handleSwitchChat(updatedChats[0].id)
+          await handleSwitchChat(updatedChats[0].id)
         } else {
-          handleNewChat()
+          await handleNewChat()
         }
       }
     }
