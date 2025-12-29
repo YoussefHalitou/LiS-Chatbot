@@ -203,6 +203,20 @@ Rules:
      * **EXAMPLE**: "neuer arbeiter X 30 int" → insertRow with {name: "X", hourly_rate: 30, contract_type: "Intern", is_active: true}
      * **EXAMPLE**: "mitarbeiter neu Rachid 50 euro intern" → insertRow with {name: "Rachid", hourly_rate: 50, contract_type: "Intern", is_active: true}
      * DO NOT show JSON or ask again - just execute the insert with what you have.
+     * **CRITICAL FOR MATERIALS**: 
+       - When user says "neues material", "material hinzufügen", "material erstellen" or similar and provides ANY information (even just a name like "Styro"), IMMEDIATELY call insertRow!
+       - Extract ALL available information from the message (name, unit, category, etc.)
+       - Use sensible defaults for missing fields:
+         * material_id: auto-generate if not provided (format: M-[UPPERCASE_NAME]-[RANDOM])
+         * is_active: true (default)
+         * vat_rate: 19 (default, 19%)
+         * default_quantity: 1 (default)
+         * unit: null if not provided
+         * category: null if not provided
+       - NEVER ask for more information - if you have at least a name, that's enough!
+     * **EXAMPLE**: "neues material Styro" → insertRow with {name: "Styro", unit: null, category: null, vat_rate: 19, is_active: true, default_quantity: 1, material_id: auto-generate}
+     * **EXAMPLE**: "neues material Styro Kilogramm EK 10 VK 30" → insertRow with {name: "Styro", unit: "Kilogramm", vat_rate: 19, is_active: true, default_quantity: 1, material_id: auto-generate}
+       Note: EK/VK prices go into t_material_prices table separately, not in t_materials!
    - **UPDATE**: 
      * When user says "umbenennen", "ändern", "update", "setze", "aktualisiere", "rename", "change", "modify" or similar, you MUST:
        1. Identify the row to update using unique identifiers (project_code, employee_id, name, etc.)
@@ -1518,7 +1532,7 @@ function getToolDefinitions(): ChatCompletionTool[] {
       function: {
         name: 'insertRow',
         description:
-          'Insert a single row into an allowed table. YOU MUST CALL THIS TOOL IMMEDIATELY - DO NOT JUST SAY YOU WILL DO IT! CRITICAL RULES: 1) When user says "neues projekt"/"projekt hinzufügen"/"neuer Eintrag projekt"/"projekt erstellen" and provides ANY information (even just a name like "Grosser UMZUG"), IMMEDIATELY CALL THIS TOOL with tableName="t_projects" and values MUST be a valid object like: {name: "Grosser UMZUG", ort: null, status: "geplant"}. The values object MUST include at least the name field! 2) When user says "neu/neuer mitarbeiter/arbeiter/worker [Name]" with ANY information (even just a name), IMMEDIATELY CALL THIS TOOL with tableName="t_employees" and values MUST be a valid object like: {name: "[EmployeeName]", hourly_rate: 0, contract_type: null, is_active: true, role: null}. 3) NEVER ask for more information - if you have at least a name, call the tool immediately with defaults! 4) If user provides info in multiple messages, COMBINE all info from conversation history. 5) ALWAYS set confirm: true - user already provided the info. 6) Extract info from ALL previous messages. 7) YOU MUST ACTUALLY CALL THIS TOOL FUNCTION - do NOT just respond with text saying you will create it! 8) The values parameter MUST be a valid JSON object (not null, not undefined, not empty string) with at least the required fields (name for projects/employees).',
+          'Insert a single row into an allowed table. YOU MUST CALL THIS TOOL IMMEDIATELY - DO NOT JUST SAY YOU WILL DO IT! CRITICAL RULES: 1) When user says "neues projekt"/"projekt hinzufügen"/"neuer Eintrag projekt"/"projekt erstellen" and provides ANY information (even just a name like "Grosser UMZUG"), IMMEDIATELY CALL THIS TOOL with tableName="t_projects" and values MUST be a valid object like: {name: "Grosser UMZUG", ort: null, status: "geplant"}. The values object MUST include at least the name field! 2) When user says "neu/neuer mitarbeiter/arbeiter/worker [Name]" with ANY information (even just a name), IMMEDIATELY CALL THIS TOOL with tableName="t_employees" and values MUST be a valid object like: {name: "[EmployeeName]", hourly_rate: 0, contract_type: null, is_active: true, role: null}. 3) When user says "neues material"/"material hinzufügen"/"material erstellen" and provides ANY information (even just a name like "Styro"), IMMEDIATELY CALL THIS TOOL with tableName="t_materials" and values MUST be a valid object like: {name: "Styro", unit: null, category: null, vat_rate: 19, is_active: true, default_quantity: 1}. The material_id will be auto-generated if not provided. 4) NEVER ask for more information - if you have at least a name, call the tool immediately with defaults! 5) If user provides info in multiple messages, COMBINE all info from conversation history. 6) ALWAYS set confirm: true - user already provided the info. 7) Extract info from ALL previous messages. 8) YOU MUST ACTUALLY CALL THIS TOOL FUNCTION - do NOT just respond with text saying you will create it! 9) The values parameter MUST be a valid JSON object (not null, not undefined, not empty string) with at least the required fields (name for projects/employees/materials).',
         parameters: {
           type: 'object',
           properties: {
@@ -1752,6 +1766,23 @@ async function handleToolCalls(
             const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '')
             const randomStr = Math.random().toString(36).substring(2, 7).toUpperCase()
             valuesWithDefaults.project_code = `PRJ-${dateStr}-${randomStr}`
+          }
+        } else if (functionArgs.tableName === 't_materials') {
+          // Defaults for materials
+          if (valuesWithDefaults.is_active === undefined) {
+            valuesWithDefaults.is_active = true
+          }
+          if (valuesWithDefaults.vat_rate === undefined) {
+            valuesWithDefaults.vat_rate = 19
+          }
+          if (valuesWithDefaults.default_quantity === undefined) {
+            valuesWithDefaults.default_quantity = 1
+          }
+          // Auto-generate material_id if missing (format: M-[UPPERCASE_NAME])
+          if (!valuesWithDefaults.material_id && valuesWithDefaults.name) {
+            const nameUpper = String(valuesWithDefaults.name).toUpperCase().replace(/[^A-Z0-9]/g, '').substring(0, 10)
+            const randomStr = Math.random().toString(36).substring(2, 5).toUpperCase()
+            valuesWithDefaults.material_id = `M-${nameUpper}-${randomStr}`
           }
         }
         
