@@ -1706,16 +1706,16 @@ async function handleToolCalls(
           if (valuesWithDefaults.hourly_rate === undefined) {
             valuesWithDefaults.hourly_rate = 0
           }
-          // Normalize contract_type: always capitalize first letter
-          if (valuesWithDefaults.contract_type) {
-            const contractTypeLower = String(valuesWithDefaults.contract_type).toLowerCase()
-            if (contractTypeLower.includes('intern')) {
+          // Normalize contract_type: handle any variation (intern, int, extern, etc.)
+          if (valuesWithDefaults.contract_type !== null && valuesWithDefaults.contract_type !== undefined) {
+            const contractTypeLower = String(valuesWithDefaults.contract_type).toLowerCase().trim()
+            if (contractTypeLower.includes('intern') || contractTypeLower === 'int') {
               valuesWithDefaults.contract_type = 'Intern'
             } else if (contractTypeLower.includes('extern')) {
               valuesWithDefaults.contract_type = 'Extern'
             }
-          } else if (valuesWithDefaults.contract_type === undefined) {
-            // If not specified, default to null
+          } else {
+            // If contract_type is undefined or null, leave it as null (don't set a default)
             valuesWithDefaults.contract_type = null
           }
         } else if (functionArgs.tableName === 't_projects') {
