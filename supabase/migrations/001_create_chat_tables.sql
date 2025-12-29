@@ -23,15 +23,27 @@ CREATE TABLE IF NOT EXISTS t_chats (
 CREATE TABLE IF NOT EXISTS t_chat_messages (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   chat_id UUID NOT NULL REFERENCES t_chats(id) ON DELETE CASCADE,
-  role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'tool')),
+  role TEXT NOT NULL,
   content TEXT NOT NULL,
   timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   tool_calls JSONB,
   tool_call_id TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT t_chat_messages_chat_id_check CHECK (chat_id IS NOT NULL),
-  CONSTRAINT t_chat_messages_role_check CHECK (role IN ('user', 'assistant', 'tool'))
+  CONSTRAINT t_chat_messages_chat_id_check CHECK (chat_id IS NOT NULL)
 );
+
+-- Add role constraint if it doesn't exist
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint 
+    WHERE conname = 't_chat_messages_role_check'
+  ) THEN
+    ALTER TABLE t_chat_messages 
+    ADD CONSTRAINT t_chat_messages_role_check 
+    CHECK (role IN ('user', 'assistant', 'tool'));
+  END IF;
+END $$;
 
 -- Indexes for better query performance
 CREATE INDEX IF NOT EXISTS idx_t_chats_user_id ON t_chats(user_id);
@@ -48,7 +60,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Trigger to automatically update updated_at on t_chats
+-- Trigger to automatically update updated_at on t_chats (drop if exists first)
+DROP TRIGGER IF EXISTS update_t_chats_updated_at ON t_chats;
 CREATE TRIGGER update_t_chats_updated_at
   BEFORE UPDATE ON t_chats
   FOR EACH ROW
@@ -69,7 +82,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Trigger to automatically update message_count
+-- Trigger to automatically update message_count (drop if exists first)
+DROP TRIGGER IF EXISTS update_chat_message_count_trigger ON t_chat_messages;
 CREATE TRIGGER update_chat_message_count_trigger
   AFTER INSERT OR DELETE ON t_chat_messages
   FOR EACH ROW
@@ -78,6 +92,16 @@ CREATE TRIGGER update_chat_message_count_trigger
 -- Row Level Security (RLS) Policies
 ALTER TABLE t_chats ENABLE ROW LEVEL SECURITY;
 ALTER TABLE t_chat_messages ENABLE ROW LEVEL SECURITY;
+
+-- Drop existing policies if they exist (for idempotency)
+DROP POLICY IF EXISTS "Users can view their own chats" ON t_chats;
+DROP POLICY IF EXISTS "Users can create their own chats" ON t_chats;
+DROP POLICY IF EXISTS "Users can update their own chats" ON t_chats;
+DROP POLICY IF EXISTS "Users can delete their own chats" ON t_chats;
+DROP POLICY IF EXISTS "Users can view messages from their own chats" ON t_chat_messages;
+DROP POLICY IF EXISTS "Users can insert messages into their own chats" ON t_chat_messages;
+DROP POLICY IF EXISTS "Users can update messages in their own chats" ON t_chat_messages;
+DROP POLICY IF EXISTS "Users can delete messages from their own chats" ON t_chat_messages;
 
 -- Policy: Users can only see their own chats
 CREATE POLICY "Users can view their own chats"
