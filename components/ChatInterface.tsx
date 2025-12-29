@@ -1,11 +1,21 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { Mic, MicOff, Volume2, Send, Loader2, Copy, Check, Trash2, X } from 'lucide-react'
+import { Mic, MicOff, Volume2, Send, Loader2, Copy, Check, Trash2, X, MessageSquare, Plus, Menu } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Message } from '@/types'
+import { Message, Chat } from '@/types'
 import { APP_CONFIG, AUDIO_CONFIG, ERROR_MESSAGES, UI_CONFIG } from '@/lib/constants'
+import {
+  getAllChats,
+  getChatMessages,
+  saveChatMessages,
+  createNewChat,
+  deleteChat,
+  getCurrentChatId,
+  setCurrentChatId,
+  migrateOldChatFormat,
+} from '@/lib/chat-management'
 import {
   delay,
   formatTextForSpeech,
@@ -22,6 +32,9 @@ export default function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [currentChatId, setCurrentChatId] = useState<string | null>(null)
+  const [chats, setChats] = useState<Chat[]>([])
+  const [showChatSidebar, setShowChatSidebar] = useState(false)
   const [isStreamingResponse, setIsStreamingResponse] = useState(false)
   const [showLoadingBubble, setShowLoadingBubble] = useState(false)
   const [isQueryingDatabase, setIsQueryingDatabase] = useState(false)
@@ -55,36 +68,58 @@ export default function ChatInterface() {
     []
   )
 
-  // Load chat history from localStorage on mount
+  // Initialize chats on mount
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const savedMessages = localStorage.getItem(APP_CONFIG.CHAT_HISTORY_KEY)
-      if (savedMessages) {
-        try {
-          const parsed = JSON.parse(savedMessages)
-          // Limit stored messages to prevent localStorage overflow
-          const limitedMessages = parsed.slice(-APP_CONFIG.MAX_MESSAGES_TO_STORE)
-          // Convert timestamp strings back to Date objects
-          const messagesWithDates = limitedMessages.map((msg: Message) => ({
-            ...msg,
-            timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date(),
-          }))
-          setMessages(messagesWithDates)
-        } catch (e) {
-          console.error('Failed to load chat history:', e)
-        }
+    if (typeof window === 'undefined') return
+    
+    // Migrate old format if needed
+    migrateOldChatFormat()
+    
+    // Load chat list
+    const loadedChats = getAllChats()
+    setChats(loadedChats)
+    
+    // Load current chat
+    const currentId = getCurrentChatId()
+    if (currentId) {
+      const chatExists = loadedChats.some(c => c.id === currentId)
+      if (chatExists) {
+        setCurrentChatId(currentId)
+        const chatMessages = getChatMessages(currentId)
+        setMessages(chatMessages)
+      } else {
+        // Current chat doesn't exist, create new one
+        const newChat = createNewChat()
+        setCurrentChatId(newChat.id)
+        setChats([newChat, ...loadedChats])
+        setMessages([])
       }
+    } else if (loadedChats.length > 0) {
+      // No current chat, use first one
+      const firstChat = loadedChats[0]
+      setCurrentChatId(firstChat.id)
+      setCurrentChatId(firstChat.id)
+      const chatMessages = getChatMessages(firstChat.id)
+      setMessages(chatMessages)
+    } else {
+      // No chats exist, create new one
+      const newChat = createNewChat()
+      setCurrentChatId(newChat.id)
+      setChats([newChat])
+      setMessages([])
     }
   }, [])
 
-  // Save chat history to localStorage whenever messages change
+  // Save chat messages whenever they change
   useEffect(() => {
-    if (typeof window !== 'undefined' && messages.length > 0) {
-      // Limit stored messages to prevent localStorage overflow
-      const messagesToStore = messages.slice(-APP_CONFIG.MAX_MESSAGES_TO_STORE)
-      localStorage.setItem(APP_CONFIG.CHAT_HISTORY_KEY, JSON.stringify(messagesToStore))
+    if (typeof window === 'undefined' || !currentChatId) return
+    
+    if (messages.length > 0) {
+      saveChatMessages(currentChatId, messages)
+      // Update chat list to reflect changes
+      setChats(getAllChats())
     }
-  }, [messages])
+  }, [messages, currentChatId])
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -922,12 +957,59 @@ export default function ChatInterface() {
   const clearChat = useCallback(() => {
     if (confirm('Möchtest du den gesamten Chatverlauf wirklich löschen?')) {
       setMessages([])
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem(APP_CONFIG.CHAT_HISTORY_KEY)
+      if (currentChatId) {
+        saveChatMessages(currentChatId, [])
+        setChats(getAllChats())
       }
       showToast('Chatverlauf wurde gelöscht', 'success', 3000)
     }
-  }, [])
+  }, [currentChatId])
+
+  // Chat management functions
+  const handleNewChat = () => {
+    // Save current chat before switching
+    if (currentChatId && messages.length > 0) {
+      saveChatMessages(currentChatId, messages)
+    }
+    
+    const newChat = createNewChat()
+    setCurrentChatId(newChat.id)
+    setChats(getAllChats())
+    setMessages([])
+    setShowChatSidebar(false)
+  }
+
+  const handleSwitchChat = (chatId: string) => {
+    // Save current chat before switching
+    if (currentChatId && messages.length > 0) {
+      saveChatMessages(currentChatId, messages)
+    }
+    
+    setCurrentChatId(chatId)
+    setCurrentChatId(chatId)
+    const chatMessages = getChatMessages(chatId)
+    setMessages(chatMessages)
+    setChats(getAllChats())
+    setShowChatSidebar(false)
+  }
+
+  const handleDeleteChat = (chatId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (window.confirm('Möchtest du diesen Chat wirklich löschen?')) {
+      deleteChat(chatId)
+      const updatedChats = getAllChats()
+      setChats(updatedChats)
+      
+      // If deleted chat was current, switch to another
+      if (chatId === currentChatId) {
+        if (updatedChats.length > 0) {
+          handleSwitchChat(updatedChats[0].id)
+        } else {
+          handleNewChat()
+        }
+      }
+    }
+  }
 
   const clearStreamTimeout = () => {
     if (streamTimeoutRef.current) {
@@ -1100,7 +1182,10 @@ export default function ChatInterface() {
           'Content-Type': 'application/json',
           ...(streamingDisabled ? { 'X-Disable-Streaming': 'true' } : {}),
         },
-        body: JSON.stringify({ messages: conversationMessages }),
+        body: JSON.stringify({ 
+          messages: conversationMessages,
+          chatId: currentChatId || undefined,
+        }),
         signal: controller.signal,
       })
 
@@ -1287,7 +1372,82 @@ export default function ChatInterface() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-white safe-area-inset">
+    <div className="flex flex-col h-screen bg-white safe-area-inset relative">
+      {/* Chat Sidebar */}
+      {showChatSidebar && (
+        <div className="fixed inset-0 z-50 flex sm:relative sm:z-auto">
+          {/* Overlay for mobile */}
+          <div 
+            className="fixed inset-0 bg-black/50 sm:hidden"
+            onClick={() => setShowChatSidebar(false)}
+          />
+          {/* Sidebar */}
+          <div className="w-80 bg-white border-r border-gray-200 flex flex-col h-full z-50 sm:z-auto">
+            <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-gray-900">Chats</h2>
+              <button
+                onClick={handleNewChat}
+                className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                title="Neuer Chat"
+              >
+                <Plus className="h-5 w-5 text-gray-600" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {chats.length === 0 ? (
+                <div className="p-4 text-center text-gray-500">
+                  <p>Noch keine Chats</p>
+                  <button
+                    onClick={handleNewChat}
+                    className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    Ersten Chat erstellen
+                  </button>
+                </div>
+              ) : (
+                <div className="p-2">
+                  {chats.map((chat) => (
+                    <div
+                      key={chat.id}
+                      onClick={() => handleSwitchChat(chat.id)}
+                      className={`p-3 rounded-lg cursor-pointer transition-colors mb-2 group ${
+                        chat.id === currentChatId
+                          ? 'bg-blue-50 border border-blue-200'
+                          : 'hover:bg-gray-50 border border-transparent'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className={`font-medium truncate ${
+                            chat.id === currentChatId ? 'text-blue-900' : 'text-gray-900'
+                          }`}>
+                            {chat.title}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {chat.messageCount} Nachrichten • {new Date(chat.updatedAt).toLocaleDateString('de-DE', {
+                              day: '2-digit',
+                              month: '2-digit',
+                              year: 'numeric',
+                            })}
+                          </p>
+                        </div>
+                        <button
+                          onClick={(e) => handleDeleteChat(chat.id, e)}
+                          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-100 text-red-600 transition-all"
+                          title="Chat löschen"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      
       {/* Header - Mobile optimized */}
       <div className={`${voiceOnlyMode ? 'bg-blue-600' : 'bg-white'} border-b ${voiceOnlyMode ? 'border-blue-700' : 'border-gray-100'} px-3 py-3 sm:px-4 sm:py-3 sticky top-0 z-10 safe-area-inset-top transition-colors`}>
         <div className="max-w-3xl mx-auto">
@@ -1306,6 +1466,16 @@ export default function ChatInterface() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {!voiceOnlyMode && (
+                <button
+                  onClick={() => setShowChatSidebar(!showChatSidebar)}
+                  className="p-2.5 sm:p-2 rounded-lg text-gray-500 active:bg-gray-100 transition-colors touch-manipulation flex-shrink-0"
+                  title="Chats anzeigen"
+                  aria-label="Chats anzeigen"
+                >
+                  <MessageSquare className="h-5 w-5 sm:h-5 sm:w-5" />
+                </button>
+              )}
               {!voiceOnlyMode && <ConnectionStatus className="hidden sm:flex" />}
               {voiceOnlyMode && (
                 <button

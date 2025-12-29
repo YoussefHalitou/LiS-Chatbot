@@ -19,6 +19,15 @@ export interface Message {
 
 export interface ChatRequest {
   messages: Message[]
+  chatId?: string
+}
+
+export interface Chat {
+  id: string
+  title: string
+  createdAt: Date
+  updatedAt: Date
+  messageCount: number
 }
 
 export interface STTResponse {
