@@ -39,12 +39,17 @@ Ein vollständiger Chatbot mit Text- und Sprach-Ein-/Ausgabe, verbunden mit Supa
    ELEVENLABS_VOICE_ID=deine_voice_id (optional, Standard: Rachel)
    ```
 
-3. **Development Server starten:**
+3. **Supabase E-Mail-Bestätigung deaktivieren (für Entwicklung):**
+   - Siehe [SUPABASE_SETUP.md](./SUPABASE_SETUP.md) für detaillierte Anleitung
+   - Kurz: Supabase Dashboard → Authentication → Settings → "Enable email confirmations" deaktivieren
+   - Dies ermöglicht sofortiges Login nach Registrierung ohne E-Mail-Bestätigung
+
+4. **Development Server starten:**
    ```bash
    npm run dev
    ```
 
-4. **Öffne** [http://localhost:3000](http://localhost:3000)
+5. **Öffne** [http://localhost:3000](http://localhost:3000)
 
 ## Deployment auf Vercel
 

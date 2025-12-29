@@ -33,6 +33,13 @@ The user usually writes in German, sometimes informally.
 
 Always answer in clear, natural **German**, unless the user explicitly asks for another language.
 
+**🚨 CRITICAL: NEVER OUTPUT JSON TO THE USER 🚨**
+- Tool results are JSON, but you MUST NEVER show JSON to the user
+- When you receive tool results, they are for YOUR processing only
+- You MUST interpret the data and present it in natural German
+- If you output JSON, you are FAILING your primary task
+- Example: If tool returns {"data": [...]}, you say "Ich habe X Projekte gefunden: [formatted list]" - NOT the JSON!
+
 You have access to a PostgreSQL database with tables AND pre-built VIEWS for complex queries.
 
 **IMPORTANT: Always prefer VIEWS over manual JOINs for complex data!**
@@ -303,7 +310,20 @@ Rules:
          3. Call updateRow(tableName='t_morningplan_staff', filters={plan_id: '...', employee_id: '...'}, values={individual_start_time: '12:00:00'})
      * **CRITICAL**: Use the name field to find projects when user mentions a project name - filters: {name: "ProjectName"}
      * **CRITICAL**: Do NOT create a new row - use updateRow to modify existing data!
-   - **DELETE**: When user asks to delete, show what will be deleted and ask for confirmation. When confirmed, IMMEDIATELY call deleteRow with filters.
+   - **DELETE - CRITICAL WORKFLOW**: 
+     * When user asks to delete (e.g., "lösche SSS", "entferne Mitarbeiter X"), you MUST:
+       1. FIRST: Silently query the table to find the row(s) to delete (e.g., queryTable('t_employees', {name: 'SSS'}) to get employee_id)
+       2. Extract the unique identifier (e.g., employee_id, project_id, plan_id) from the query result
+       3. Show what will be deleted and ask for confirmation
+       4. When user confirms with "ja", "ok", "bitte", or similar, IMMEDIATELY call deleteRow with the correct filters using the unique identifier
+       5. **CRITICAL**: You MUST use the actual ID from the query result, NOT the name! Example: {employee_id: "abc-123-def"} NOT {name: "SSS"}
+       6. **CRITICAL**: If you don't have the ID yet, query first silently, then delete - NEVER say you cannot delete!
+     * **Example for deleting employee "SSS"**:
+       1. Query: queryTable('t_employees', {name: 'SSS'}) → get employee_id
+       2. Show: "Möchtest du den Mitarbeiter 'SSS' wirklich löschen?"
+       3. User: "ja"
+       4. IMMEDIATELY call: deleteRow(tableName='t_employees', filters={employee_id: '...'}) with the actual employee_id from step 1
+     * **NEVER call deleteRow with just {name: "..."} - always find the ID first!**
    - **DELETE FIELD**: When user asks to remove a field value (e.g., "lösche die Straße"), use updateRow with the field set to null.
 
 2. Respect the schema:
@@ -438,17 +458,26 @@ When answering:
        - If result has 4-10 items: Show a summary table with key fields only
        - If result has more than 10 items: Show a brief summary like "X Projekte gefunden: [list of project names]" and ask if user wants details
        - **NEVER paste the entire raw JSON response - always format it nicely!**
-   - **ABSOLUTE RULE: NEVER SHOW RAW JSON OR TOOL RESULTS:**
+   - **ABSOLUTE RULE: NEVER SHOW RAW JSON OR TOOL RESULTS - THIS IS CRITICAL:**
      * **NEVER show tool execution results as raw JSON in your response**
      * **NEVER show the content of tool responses (they are for internal use only)**
      * **NEVER display database query results as JSON dumps**
      * **NEVER paste JSON objects like {"data": [...]} in your response**
+     * **NEVER output any JSON structure, even if it's formatted nicely**
+     * **NEVER show tool results, even if the user asks "was hast du gefunden?" - interpret and summarize instead**
+     * **NEVER include JSON in code blocks, even with syntax highlighting**
+     * **NEVER echo back what the tool returned - you MUST interpret and reformat it**
      * **ALWAYS interpret tool results and present them in natural German language**
      * **Example BAD**: Showing raw JSON like {"data": [...], "error": null} 
+     * **Example BAD**: Showing formatted JSON in code blocks
+     * **Example BAD**: Including any JSON structure in your response
      * **Example GOOD**: "Ich habe 3 Projekte für heute gefunden: [then show formatted table]"
      * **Tool results are for YOUR internal processing - translate them to human-readable German!**
      * **If you see JSON in tool results, that's for YOU to process - NEVER show it to the user!**
      * **When you receive tool results, interpret them silently and respond in natural German only!**
+     * **CRITICAL**: Even if the tool returns JSON, you MUST interpret it and present it as formatted text/tables - NEVER show the JSON itself!
+     * **CRITICAL**: If you catch yourself about to output JSON, STOP and reformat it as natural German text instead!
+     * **REMEMBER**: The user sees your response, NOT the tool results. You are the translator between tools and user!
    - **Examples of good formatting:**
      * **For query results with multiple records:** Use markdown tables like:
        "Hier sind die Projekte für heute: [then show a table with columns: Projekt | Ort | Mitarbeiter | Fahrzeug]"
@@ -1910,7 +1939,7 @@ function getToolDefinitions(): ChatCompletionTool[] {
       function: {
         name: 'deleteRow',
         description:
-          'Delete existing row(s) from an allowed table. Use ONLY when: 1) User explicitly asks to delete/remove data (e.g., "lösche", "entferne", "delete", "remove"), 2) User confirms the deletion, AND 3) You can identify the row(s) using unique identifiers (e.g., project_code, employee_id, name). **WARNING**: Deletion is permanent! Always ask for confirmation before deleting. IMMEDIATELY call this tool when user confirms deletion. Do NOT say you cannot delete - use this tool!',
+          'Delete existing row(s) from an allowed table. Use ONLY when: 1) User explicitly asks to delete/remove data (e.g., "lösche", "entferne", "delete", "remove"), 2) User confirms the deletion, AND 3) You have the unique identifier (e.g., employee_id, project_id, plan_id) from a previous query. **CRITICAL WORKFLOW**: Before calling deleteRow, you MUST first query the table to find the unique ID (e.g., queryTable to get employee_id from name). Then use that ID in the filters. **WARNING**: Deletion is permanent! Always ask for confirmation before deleting. IMMEDIATELY call this tool when user confirms deletion. Use filters with the actual ID (e.g., {employee_id: "abc-123"}), NOT the name! Do NOT say you cannot delete - query first to get the ID, then delete!',
         parameters: {
           type: 'object',
           properties: {
@@ -1941,8 +1970,8 @@ function extractIdsFromPreviousQueries(
   projectName?: string,
   employeeName?: string,
   planDate?: string
-): { plan_id?: string; employee_id?: string } {
-  const extractedIds: { plan_id?: string; employee_id?: string } = {}
+): { plan_id?: string; employee_id?: string; project_id?: string } {
+  const extractedIds: { plan_id?: string; employee_id?: string; project_id?: string } = {}
   
   // Look through recent tool responses for queryTable results
   // Go backwards through messages to find the most recent relevant queries
@@ -1986,14 +2015,24 @@ function extractIdsFromPreviousQueries(
               extractedIds.employee_id = firstResult.employee_id
             }
           }
+          
+          // Extract project_id from t_projects or v_morningplan_full queries
+          if (!extractedIds.project_id && firstResult.project_id) {
+            if (projectName && firstResult.project_name?.toLowerCase().includes(projectName.toLowerCase())) {
+              extractedIds.project_id = firstResult.project_id
+            } else if (firstResult.project_id) {
+              // Use the most recent project_id as fallback
+              extractedIds.project_id = firstResult.project_id
+            }
+          }
         }
       } catch (e) {
         // Ignore parse errors
       }
     }
     
-    // Stop if we found both IDs
-    if (extractedIds.plan_id && extractedIds.employee_id) {
+    // Stop if we found all IDs we might need
+    if (extractedIds.plan_id && extractedIds.employee_id && extractedIds.project_id) {
       break
     }
   }
@@ -2335,7 +2374,28 @@ async function handleToolCalls(
           error: `Delete not allowed for table: ${functionArgs.tableName}`,
         }
       } else if (!functionArgs.filters || typeof functionArgs.filters !== 'object') {
-        functionResult = { error: 'Missing filters for deleteRow. Filters are required to identify which row(s) to delete.' }
+        // Try to extract ID from previous queries
+        const extractedIds = extractIdsFromPreviousQueries(openaiMessages)
+        
+        // Determine which ID to use based on table
+        let filtersToUse = functionArgs.filters || {}
+        
+        if (functionArgs.tableName === 't_employees' && extractedIds.employee_id) {
+          filtersToUse = { employee_id: extractedIds.employee_id }
+        } else if (functionArgs.tableName === 't_projects' && extractedIds.project_id) {
+          filtersToUse = { project_id: extractedIds.project_id }
+        } else if (functionArgs.tableName === 't_morningplan' && extractedIds.plan_id) {
+          filtersToUse = { plan_id: extractedIds.plan_id }
+        }
+        
+        if (!filtersToUse || Object.keys(filtersToUse).length === 0) {
+          functionResult = { error: 'Missing filters for deleteRow. Filters are required to identify which row(s) to delete. Please query the table first to get the unique ID (e.g., employee_id, project_id).' }
+        } else {
+          const result = await deleteRow(functionArgs.tableName, filtersToUse, {
+            requireSingleRow: true, // Require single row for safety
+          })
+          functionResult = result
+        }
       } else {
         // Note: We don't have access to req here, so we'll pass undefined for ipAddress
         // In production, you might want to pass this through the function chain
@@ -2348,10 +2408,18 @@ async function handleToolCalls(
       functionResult = { error: `Unknown function: ${functionName}` }
     }
 
+    // Format tool result - add instruction to interpret, not repeat
+    let toolContent = formatJsonOutput(functionResult)
+    
+    // Add instruction for the AI to interpret the result, not show it
+    if (!functionResult.error) {
+      toolContent = `[INTERNAL TOOL RESULT - INTERPRET THIS DATA AND PRESENT IT IN NATURAL GERMAN. DO NOT SHOW THIS JSON TO THE USER!]\n\n${toolContent}`
+    }
+    
     openaiMessages.push({
       role: 'tool',
       tool_call_id: toolCall.id,
-      content: formatJsonOutput(functionResult),
+      content: toolContent,
     })
   }
 }

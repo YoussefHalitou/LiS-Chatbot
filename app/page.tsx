@@ -22,9 +22,12 @@ export default function Home() {
     async function setupAuthListener() {
       const { supabase } = await import('@/lib/supabase')
       if (supabase) {
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+          console.log('Auth state changed:', event, session?.user?.email)
           setUser(session?.user ?? null)
-          setShowAuth(false) // Hide auth when user logs in
+          if (session?.user) {
+            setShowAuth(false) // Hide auth when user logs in
+          }
         })
 
         return () => subscription.unsubscribe()
@@ -55,7 +58,12 @@ export default function Home() {
       {showAuth ? (
         <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
           <div className="w-full max-w-md">
-            <Auth onAuthSuccess={() => setShowAuth(false)} />
+            <Auth onAuthSuccess={async () => {
+              // Update user state after successful auth
+              const { user } = await getCurrentUser()
+              setUser(user)
+              setShowAuth(false)
+            }} />
             <div className="mt-4 text-center">
               <button
                 onClick={() => setShowAuth(false)}

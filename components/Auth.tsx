@@ -47,22 +47,50 @@ export default function Auth({ onAuthSuccess }: AuthProps) {
     setLoading(true)
     setError(null)
 
+    if (!supabase) {
+      setError('Supabase client not initialized')
+      setLoading(false)
+      return
+    }
+
     try {
-      const action = isSignUp ? 'signup' : 'signin'
-      const response = await fetch('/api/auth', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, email, password }),
-      })
+      if (isSignUp) {
+        // Sign up directly with Supabase client
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            emailRedirectTo: `${window.location.origin}/`,
+          },
+        })
 
-      const data = await response.json()
-
-      if (data.error) {
-        setError(data.error)
+        if (error) {
+          setError(error.message)
+        } else if (data.user && !data.session) {
+          // Email confirmation required
+          setError(null)
+          alert('Registrierung erfolgreich! Bitte prüfe deine E-Mails, um dein Konto zu bestätigen.')
+        } else if (data.user && data.session) {
+          // User is logged in immediately (email confirmation disabled)
+          setUser(data.user)
+          if (onAuthSuccess) {
+            onAuthSuccess()
+          }
+        }
       } else {
-        setUser(data.user)
-        if (onAuthSuccess) {
-          onAuthSuccess()
+        // Sign in directly with Supabase client
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        })
+
+        if (error) {
+          setError(error.message)
+        } else if (data.user) {
+          setUser(data.user)
+          if (onAuthSuccess) {
+            onAuthSuccess()
+          }
         }
       }
     } catch (err) {

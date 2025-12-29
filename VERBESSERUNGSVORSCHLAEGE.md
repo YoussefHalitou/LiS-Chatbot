@@ -291,5 +291,264 @@ function sanitizeBotResponse(content: string): string {
 
 ---
 
+---
+
+## 🔥 AKTUELLE PROBLEME (Dezember 2025)
+
+### Problem 1: JSON wird immer noch angezeigt
+**Status:** ❌ Nicht gelöst  
+**Beschreibung:** Bot zeigt trotz aller Regeln manchmal noch JSON-Ausgaben an.
+
+**Mögliche Lösungen:**
+1. **Post-Processing auf Client-Seite** (Empfohlen)
+   - Filtere JSON aus Bot-Antworten im Frontend
+   - Einfach zu implementieren, keine API-Änderungen nötig
+   - Funktioniert auch bei Streaming
+
+2. **Response-Validierung im Backend**
+   - Prüfe Bot-Antworten auf JSON-Patterns
+   - Entferne JSON automatisch vor dem Senden
+   - Erfordert Backend-Änderungen
+
+3. **Stärkere Prompt-Engineering**
+   - Mehrfache Warnungen im System-Prompt
+   - Negative Beispiele hinzufügen
+   - Beispiel-Antworten ohne JSON zeigen
+
+---
+
+### Problem 2: Löschen funktioniert nicht zuverlässig
+**Status:** ⚠️ Teilweise gelöst  
+**Beschreibung:** Bot findet manchmal nicht die richtige ID zum Löschen.
+
+**Lösung:**
+- ✅ Automatische ID-Extraktion aus vorherigen Queries implementiert
+- ⚠️ Bot muss trotzdem zuerst queryTable aufrufen
+- 💡 **Verbesserung:** Bot sollte automatisch queryTable aufrufen, wenn Name statt ID gegeben ist
+
+**Code-Erweiterung:**
+```typescript
+// In deleteRow tool description:
+// "If user provides a name (e.g., 'SSS'), you MUST first call queryTable 
+// to find the employee_id, then use that ID in deleteRow filters."
+```
+
+---
+
+### Problem 3: Mitarbeiter-Zuordnung schwierig
+**Status:** ⚠️ Teilweise gelöst  
+**Beschreibung:** Bot hat Probleme, Mitarbeiter zu Projekten zuzuordnen.
+
+**Bereits implementiert:**
+- ✅ Fuzzy-Matching mit `ilike`
+- ✅ Automatische ID-Extraktion
+- ✅ Fallback-Suche mit höherem Limit
+
+**Weitere Verbesserungen:**
+- 💡 **Kontext-Speicherung:** Merke letzten Mitarbeiter und Projekt
+- 💡 **Bestätigung:** Zeige gefundenen Mitarbeiter vor Zuordnung
+- 💡 **Mehrfach-Zuordnung:** Unterstütze "Füge Achim, Ali und Björn hinzu"
+
+---
+
+## 🆕 NEUE VERBESSERUNGSVORSCHLÄGE
+
+### 13. **Intelligente Kontext-Erkennung für "alle Projekte"**
+**Problem:** "alle projekte" findet keine Ergebnisse, obwohl Projekte existieren.
+
+**Lösung:**
+- Wenn "alle projekte" → Query `t_projects` statt `v_morningplan_full`
+- Oder: Query beide und kombiniere Ergebnisse
+- Zeige alle Projekte, nicht nur die mit Plänen
+
+**Code:**
+```typescript
+// In SYSTEM_PROMPT:
+// "When user asks for 'alle projekte' or 'all projects', query t_projects table, 
+// not v_morningplan_full (which only shows projects with plans)"
+```
+
+---
+
+### 14. **Bessere Fehlerbehandlung bei leeren Ergebnissen**
+**Problem:** Bot sagt "keine Projekte gefunden", obwohl User weiß, dass es welche gibt.
+
+**Lösung:**
+- Wenn Query leer: Versuche alternative Query
+- Zeige Vorschläge: "Meintest du vielleicht Projekte für heute/morgen?"
+- Erkläre Filter: "Ich habe nach X gesucht. Soll ich anders suchen?"
+
+---
+
+### 15. **Automatische Datums-Konvertierung**
+**Problem:** User sagt "30. Dezember" aber Bot sucht nach ISO-Format.
+
+**Lösung:**
+- Verbessere Datums-Erkennung
+- Unterstütze verschiedene Formate: "30.12.", "30. Dezember", "30.12.2025"
+- Konvertiere automatisch zu ISO-Format
+
+---
+
+### 16. **Chat-Historie Verbesserungen**
+**Status:** ✅ Multi-User-Support implementiert
+
+**Weitere Verbesserungen:**
+- 💡 **Chat-Suche:** Suche in Chat-Verläufen
+- 💡 **Chat-Tags:** Organisiere Chats mit Tags
+- 💡 **Chat-Export:** Exportiere einzelne Chats
+- 💡 **Chat-Sharing:** Teile Chats mit anderen Usern
+
+---
+
+### 17. **Performance-Optimierungen**
+**Problem:** Manche Queries sind langsam.
+
+**Lösungen:**
+1. **Query-Optimierung**
+   - Verwende Indizes effizienter
+   - Limitiere Ergebnisse früher
+   - Cache häufige Queries
+
+2. **Streaming-Verbesserungen**
+   - Zeige erste Ergebnisse sofort
+   - Lade weitere Ergebnisse im Hintergrund
+
+3. **Lazy Loading**
+   - Lade Chat-Historie erst bei Bedarf
+   - Paginiere große Ergebnislisten
+
+---
+
+### 18. **Bessere Validierung**
+**Problem:** Bot akzeptiert manchmal ungültige Eingaben.
+
+**Lösungen:**
+- Validierung von Datums-Eingaben
+- Validierung von Mitarbeiter-Namen (existiert der Mitarbeiter?)
+- Validierung von Projekt-Namen
+- Zeige Fehler sofort, nicht erst nach API-Call
+
+---
+
+### 19. **Erweiterte Statistiken**
+**Beschreibung:** Zeige nützliche Statistiken und Insights.
+
+**Beispiele:**
+- "Wie viele Mitarbeiter sind diese Woche eingeplant?"
+- "Welches Projekt hat die meisten Mitarbeiter?"
+- "Zeige Auslastung pro Mitarbeiter"
+- "Welche Projekte sind überfällig?"
+
+**Vorteile:**
+- Bessere Übersicht
+- Proaktive Informationen
+- Entscheidungsunterstützung
+
+---
+
+### 20. **Bulk-Operationen**
+**Beschreibung:** Mehrere Operationen auf einmal ausführen.
+
+**Beispiele:**
+- "Füge Achim, Ali und Björn zu Projekt X hinzu"
+- "Lösche alle Test-Projekte"
+- "Verschiebe alle Projekte von heute auf morgen"
+
+**Implementierung:**
+- Erkenne Bulk-Operationen im Prompt
+- Führe Operationen in Transaktion aus
+- Zeige Fortschritt für jede Operation
+
+---
+
+### 21. **Intelligente Vorschläge**
+**Beschreibung:** Bot schlägt relevante Aktionen vor.
+
+**Beispiele:**
+- Nach "alle projekte" → "Möchtest du Projekte für heute/morgen sehen?"
+- Nach "mitarbeiter hinzufügen" → "Zu welchem Projekt soll ich den Mitarbeiter hinzufügen?"
+- Nach Fehler → "Möchtest du es anders versuchen?"
+
+**Vorteile:**
+- Bessere UX
+- Weniger Nachfragen
+- Proaktive Hilfe
+
+---
+
+### 22. **Voice-Command-Verbesserungen**
+**Status:** ✅ STT/TTS implementiert
+
+**Weitere Verbesserungen:**
+- 💡 **Wake Word:** "Hey LiS" zum Aktivieren
+- 💡 **Offline-Modus:** Lokale STT für bessere Performance
+- 💡 **Mehrsprachigkeit:** Unterstütze Englisch zusätzlich zu Deutsch
+- 💡 **Voice-Feedback:** Bestätige Aktionen mit Voice
+
+---
+
+### 23. **Mobile-Optimierungen**
+**Beschreibung:** Verbesserungen für mobile Nutzung.
+
+**Features:**
+- Touch-optimierte Buttons
+- Swipe-Gesten für Chat-Navigation
+- Offline-Modus (lokale Chat-Speicherung)
+- Push-Benachrichtigungen (bei neuen Nachrichten)
+
+---
+
+### 24. **Analytics & Monitoring**
+**Beschreibung:** Tracke Nutzung und Performance.
+
+**Metriken:**
+- Häufigste Queries
+- Durchschnittliche Antwortzeit
+- Fehlerrate
+- User-Aktivität
+
+**Tools:**
+- Supabase Analytics
+- Custom Logging
+- Error Tracking (Sentry)
+
+---
+
+### 25. **Backup & Recovery**
+**Beschreibung:** Sicherung und Wiederherstellung von Daten.
+
+**Features:**
+- Automatische Backups
+- Chat-Verlauf Export
+- Datenbank-Snapshots
+- Wiederherstellung von gelöschten Chats
+
+---
+
+## 📋 PRIORISIERUNG (Aktualisiert)
+
+### Sofort (Diese Woche):
+1. ✅ **JSON-Problem lösen** (Post-Processing im Frontend)
+2. ✅ **Löschen verbessern** (Automatische Query vor Delete)
+3. ✅ **"Alle Projekte" Query** (t_projects statt v_morningplan_full)
+
+### Kurzfristig (Nächste 2 Wochen):
+4. **Bessere Fehlerbehandlung** bei leeren Ergebnissen
+5. **Automatische Datums-Konvertierung**
+6. **Intelligente Vorschläge**
+
+### Mittelfristig (Nächster Monat):
+7. **Bulk-Operationen**
+8. **Erweiterte Statistiken**
+9. **Performance-Optimierungen**
+
+### Langfristig:
+10. **Chat-Suche & -Organisation**
+11. **Mobile-Optimierungen**
+12. **Analytics & Monitoring**
+
+---
+
 **Hinweis:** Diese Vorschläge basieren auf den aktuellen Problemen im Chatbot. Priorisiere basierend auf deinen spezifischen Anforderungen.
 

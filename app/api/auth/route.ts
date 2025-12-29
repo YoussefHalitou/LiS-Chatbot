@@ -57,6 +57,9 @@ export async function POST(req: NextRequest) {
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
+        options: {
+          emailRedirectTo: `${req.nextUrl.origin}/`,
+        },
       })
 
       if (error) {
@@ -64,6 +67,25 @@ export async function POST(req: NextRequest) {
           { error: error.message },
           { status: 400 }
         )
+      }
+
+      // If email confirmation is disabled, session will be available immediately
+      // If email confirmation is enabled, session will be null until email is confirmed
+      if (data.user && data.session) {
+        // Email confirmation is disabled - user is logged in immediately
+        return NextResponse.json({ 
+          user: data.user, 
+          error: null,
+          session: data.session
+        })
+      } else if (data.user && !data.session) {
+        // Email confirmation is enabled - user needs to confirm email
+        return NextResponse.json({ 
+          user: data.user, 
+          error: null,
+          message: 'Registrierung erfolgreich! Bitte prüfe deine E-Mails, um dein Konto zu bestätigen.',
+          requiresConfirmation: true
+        })
       }
 
       return NextResponse.json({ user: data.user, error: null })

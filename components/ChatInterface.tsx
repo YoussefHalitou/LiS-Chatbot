@@ -127,7 +127,6 @@ export default function ChatInterface() {
     }
     
     saveMessages()
-    }
   }, [messages, currentChatId])
 
   // Scroll to bottom when messages change
