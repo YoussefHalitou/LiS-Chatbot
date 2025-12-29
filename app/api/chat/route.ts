@@ -214,13 +214,20 @@ Rules:
        - tableName: 't_projects'
        - filters: {name: 'ZZZ'}
        - values: {ort: 'Köln'}
-     * **CRITICAL FOR EMPLOYEE START TIMES**: When user says "startzeit [EmployeeName] [Time]" or "startzeit [EmployeeName] [Time] für [ProjectName]":
+     * **CRITICAL FOR EMPLOYEE START TIMES**: When user says "startzeit [EmployeeName] [Time]" or "startzeit [EmployeeName] [Time]" for a project:
        - This refers to the **individual_start_time** field in **t_morningplan_staff**, NOT the start_time in t_morningplan!
-       - You MUST first query t_morningplan_staff to find the correct row by:
-         1. Finding the plan_id from t_morningplan using the project name
-         2. Finding the employee_id from t_employees using the employee name
-         3. Using both plan_id AND employee_id as filters in updateRow for t_morningplan_staff
+       - You MUST first find the correct row by:
+         1. Query t_morningplan to find plan_id where project name matches (use queryTable with filters on project name or project_id)
+         2. Query t_employees to find employee_id where name matches (use queryTable with filters on name)
+         3. Use both plan_id AND employee_id as filters in updateRow for t_morningplan_staff
        - Then call updateRow with:
+         - tableName: 't_morningplan_staff'
+         - filters: {plan_id: [found_plan_id], employee_id: [found_employee_id]}
+         - values: {individual_start_time: '[Time]'} (format: "HH:MM:SS", e.g., "12:00:00")
+       - **EXAMPLE**: User says "startzeit jonas 12:00" for project "Umzug":
+         1. Query t_morningplan: queryTable('t_morningplan', {project_id: [found_project_id]}) or join with t_projects to find plan_id
+         2. Query t_employees: queryTable('t_employees', {name: 'Jonas'}) to find employee_id
+         3. Call updateRow: tableName='t_morningplan_staff', filters={plan_id: [found_plan_id], employee_id: [found_employee_id]}, values={individual_start_time: '12:00:00'}
          - tableName: 't_morningplan_staff'
          - filters: {plan_id: '...', employee_id: '...'} (both required!)
          - values: {individual_start_time: 'HH:MM:SS'} (format as time string)
