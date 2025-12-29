@@ -1932,6 +1932,75 @@ function getToolDefinitions(): ChatCompletionTool[] {
   ]
 }
 
+/**
+ * Helper function to extract IDs from previous query results in the conversation
+ * This helps when the bot finds IDs but doesn't pass them correctly to insertRow
+ */
+function extractIdsFromPreviousQueries(
+  openaiMessages: any[],
+  projectName?: string,
+  employeeName?: string,
+  planDate?: string
+): { plan_id?: string; employee_id?: string } {
+  const extractedIds: { plan_id?: string; employee_id?: string } = {}
+  
+  // Look through recent tool responses for queryTable results
+  // Go backwards through messages to find the most recent relevant queries
+  for (let i = openaiMessages.length - 1; i >= 0; i--) {
+    const message = openaiMessages[i]
+    
+    // Check tool responses
+    if (message.role === 'tool' && message.content) {
+      try {
+        const toolResult = typeof message.content === 'string' 
+          ? JSON.parse(message.content) 
+          : message.content
+        
+        if (toolResult.data && Array.isArray(toolResult.data) && toolResult.data.length > 0) {
+          const firstResult = toolResult.data[0]
+          
+          // Extract plan_id from v_morningplan_full or t_morningplan queries
+          if (!extractedIds.plan_id && firstResult.plan_id) {
+            // If project name and date match, use this plan_id
+            if (projectName && planDate) {
+              if (
+                firstResult.project_name?.toLowerCase().includes(projectName.toLowerCase()) &&
+                firstResult.plan_date === planDate
+              ) {
+                extractedIds.plan_id = firstResult.plan_id
+              }
+            } else if (projectName && firstResult.project_name?.toLowerCase().includes(projectName.toLowerCase())) {
+              extractedIds.plan_id = firstResult.plan_id
+            } else if (firstResult.plan_id) {
+              // Use the most recent plan_id as fallback
+              extractedIds.plan_id = firstResult.plan_id
+            }
+          }
+          
+          // Extract employee_id from t_employees queries
+          if (!extractedIds.employee_id && firstResult.employee_id) {
+            if (employeeName && firstResult.name?.toLowerCase().includes(employeeName.toLowerCase())) {
+              extractedIds.employee_id = firstResult.employee_id
+            } else if (firstResult.employee_id) {
+              // Use the most recent employee_id as fallback
+              extractedIds.employee_id = firstResult.employee_id
+            }
+          }
+        }
+      } catch (e) {
+        // Ignore parse errors
+      }
+    }
+    
+    // Stop if we found both IDs
+    if (extractedIds.plan_id && extractedIds.employee_id) {
+      break
+    }
+  }
+  
+  return extractedIds
+}
+
 async function handleToolCalls(
   responseMessage: any,
   openaiMessages: any[],
@@ -2078,9 +2147,52 @@ async function handleToolCalls(
         }
       } else if (functionArgs.tableName === 't_morningplan_staff') {
         // Validate required fields for employee assignment
-        if (!functionArgs.values.plan_id || !functionArgs.values.employee_id) {
+        let planId = functionArgs.values.plan_id
+        let employeeId = functionArgs.values.employee_id
+        
+        // If IDs are missing, try to extract them from previous query results
+        if (!planId || !employeeId) {
+          const userMsg = lastUserMessage || openaiMessages
+            .filter((m: any) => m.role === 'user')
+            .pop()?.content || ''
+          
+          // Try to infer project name and employee name from user message
+          const projectName = requestedProjectIdentifiers?.projectName || 
+            userMsg.match(/projekt\s+(\w+)/i)?.[1] ||
+            userMsg.match(/zu\s+(?:dem\s+)?projekt\s+(\w+)/i)?.[1]
+          
+          const employeeName = userMsg.match(/füge\s+(\w+)/i)?.[1] ||
+            userMsg.match(/(\w+)\s+zu/i)?.[1]
+          
+          // Extract date from user message if mentioned
+          const dateMatch = userMsg.match(/(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})/)
+          const planDate = dateMatch 
+            ? `${dateMatch[3]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[1].padStart(2, '0')}`
+            : undefined
+          
+          // Try to extract IDs from previous queries
+          const extractedIds = extractIdsFromPreviousQueries(
+            openaiMessages,
+            projectName,
+            employeeName,
+            planDate
+          )
+          
+          // Use extracted IDs if available
+          if (!planId && extractedIds.plan_id) {
+            planId = extractedIds.plan_id
+            functionArgs.values.plan_id = planId
+          }
+          if (!employeeId && extractedIds.employee_id) {
+            employeeId = extractedIds.employee_id
+            functionArgs.values.employee_id = employeeId
+          }
+        }
+        
+        // Final validation
+        if (!planId || !employeeId) {
           functionResult = {
-            error: 'Fehler beim Hinzufügen des Mitarbeiters: Es fehlen erforderliche Angaben (plan_id oder employee_id). Bitte stelle sicher, dass sowohl der Mitarbeiter als auch das Projekt existieren und die IDs korrekt extrahiert wurden.'
+            error: 'Fehler beim Hinzufügen des Mitarbeiters: Es fehlen erforderliche Angaben (plan_id oder employee_id). Bitte stelle sicher, dass sowohl der Mitarbeiter als auch das Projekt existieren und die IDs korrekt extrahiert wurden. Tipp: Führe zuerst eine Query für das Projekt und den Mitarbeiter durch, um die IDs zu erhalten.'
           }
         } else {
           // Continue with normal processing
