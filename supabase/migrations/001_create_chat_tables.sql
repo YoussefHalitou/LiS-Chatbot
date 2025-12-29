@@ -60,12 +60,19 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Trigger to automatically update updated_at on t_chats (drop if exists first)
-DROP TRIGGER IF EXISTS update_t_chats_updated_at ON t_chats;
-CREATE TRIGGER update_t_chats_updated_at
-  BEFORE UPDATE ON t_chats
-  FOR EACH ROW
-  EXECUTE FUNCTION update_updated_at_column();
+-- Trigger to automatically update updated_at on t_chats (create if not exists)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger 
+    WHERE tgname = 'update_t_chats_updated_at'
+  ) THEN
+    CREATE TRIGGER update_t_chats_updated_at
+      BEFORE UPDATE ON t_chats
+      FOR EACH ROW
+      EXECUTE FUNCTION update_updated_at_column();
+  END IF;
+END $$;
 
 -- Function to update message_count on t_chats
 CREATE OR REPLACE FUNCTION update_chat_message_count()
@@ -82,29 +89,159 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Trigger to automatically update message_count (drop if exists first)
-DROP TRIGGER IF EXISTS update_chat_message_count_trigger ON t_chat_messages;
-CREATE TRIGGER update_chat_message_count_trigger
-  AFTER INSERT OR DELETE ON t_chat_messages
-  FOR EACH ROW
-  EXECUTE FUNCTION update_chat_message_count();
+-- Trigger to automatically update message_count (create if not exists)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger 
+    WHERE tgname = 'update_chat_message_count_trigger'
+  ) THEN
+    CREATE TRIGGER update_chat_message_count_trigger
+      AFTER INSERT OR DELETE ON t_chat_messages
+      FOR EACH ROW
+      EXECUTE FUNCTION update_chat_message_count();
+  END IF;
+END $$;
 
 -- Row Level Security (RLS) Policies
 ALTER TABLE t_chats ENABLE ROW LEVEL SECURITY;
 ALTER TABLE t_chat_messages ENABLE ROW LEVEL SECURITY;
 
--- Drop existing policies if they exist (for idempotency)
-DROP POLICY IF EXISTS "Users can view their own chats" ON t_chats;
-DROP POLICY IF EXISTS "Users can create their own chats" ON t_chats;
-DROP POLICY IF EXISTS "Users can update their own chats" ON t_chats;
-DROP POLICY IF EXISTS "Users can delete their own chats" ON t_chats;
-DROP POLICY IF EXISTS "Users can view messages from their own chats" ON t_chat_messages;
-DROP POLICY IF EXISTS "Users can insert messages into their own chats" ON t_chat_messages;
-DROP POLICY IF EXISTS "Users can update messages in their own chats" ON t_chat_messages;
-DROP POLICY IF EXISTS "Users can delete messages from their own chats" ON t_chat_messages;
+-- Policy: Users can only see their own chats (create if not exists)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policy 
+    WHERE polrelid = 't_chats'::regclass 
+    AND polname = 'Users can view their own chats'
+  ) THEN
+    CREATE POLICY "Users can view their own chats"
+      ON t_chats FOR SELECT
+      USING (auth.uid() = user_id OR auth.uid() = ANY(shared_with_user_ids));
+  END IF;
+END $$;
 
--- Policy: Users can only see their own chats
-CREATE POLICY "Users can view their own chats"
+-- Policy: Users can create their own chats (create if not exists)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policy 
+    WHERE polrelid = 't_chats'::regclass 
+    AND polname = 'Users can create their own chats'
+  ) THEN
+    CREATE POLICY "Users can create their own chats"
+      ON t_chats FOR INSERT
+      WITH CHECK (auth.uid() = user_id);
+  END IF;
+END $$;
+
+-- Policy: Users can update their own chats (create if not exists)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policy 
+    WHERE polrelid = 't_chats'::regclass 
+    AND polname = 'Users can update their own chats'
+  ) THEN
+    CREATE POLICY "Users can update their own chats"
+      ON t_chats FOR UPDATE
+      USING (auth.uid() = user_id);
+  END IF;
+END $$;
+
+-- Policy: Users can delete their own chats (create if not exists)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policy 
+    WHERE polrelid = 't_chats'::regclass 
+    AND polname = 'Users can delete their own chats'
+  ) THEN
+    CREATE POLICY "Users can delete their own chats"
+      ON t_chats FOR DELETE
+      USING (auth.uid() = user_id);
+  END IF;
+END $$;
+
+-- Policy: Users can view messages from their own chats (create if not exists)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policy 
+    WHERE polrelid = 't_chat_messages'::regclass 
+    AND polname = 'Users can view messages from their own chats'
+  ) THEN
+    CREATE POLICY "Users can view messages from their own chats"
+      ON t_chat_messages FOR SELECT
+      USING (
+        EXISTS (
+          SELECT 1 FROM t_chats
+          WHERE t_chats.id = t_chat_messages.chat_id
+          AND (t_chats.user_id = auth.uid() OR auth.uid() = ANY(t_chats.shared_with_user_ids))
+        )
+      );
+  END IF;
+END $$;
+
+-- Policy: Users can insert messages into their own chats (create if not exists)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policy 
+    WHERE polrelid = 't_chat_messages'::regclass 
+    AND polname = 'Users can insert messages into their own chats'
+  ) THEN
+    CREATE POLICY "Users can insert messages into their own chats"
+      ON t_chat_messages FOR INSERT
+      WITH CHECK (
+        EXISTS (
+          SELECT 1 FROM t_chats
+          WHERE t_chats.id = t_chat_messages.chat_id
+          AND t_chats.user_id = auth.uid()
+        )
+      );
+  END IF;
+END $$;
+
+-- Policy: Users can update messages in their own chats (create if not exists)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policy 
+    WHERE polrelid = 't_chat_messages'::regclass 
+    AND polname = 'Users can update messages in their own chats'
+  ) THEN
+    CREATE POLICY "Users can update messages in their own chats"
+      ON t_chat_messages FOR UPDATE
+      USING (
+        EXISTS (
+          SELECT 1 FROM t_chats
+          WHERE t_chats.id = t_chat_messages.chat_id
+          AND t_chats.user_id = auth.uid()
+        )
+      );
+  END IF;
+END $$;
+
+-- Policy: Users can delete messages from their own chats (create if not exists)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policy 
+    WHERE polrelid = 't_chat_messages'::regclass 
+    AND polname = 'Users can delete messages from their own chats'
+  ) THEN
+    CREATE POLICY "Users can delete messages from their own chats"
+      ON t_chat_messages FOR DELETE
+      USING (
+        EXISTS (
+          SELECT 1 FROM t_chats
+          WHERE t_chats.id = t_chat_messages.chat_id
+          AND t_chats.user_id = auth.uid()
+        )
+      );
+  END IF;
+END $$;
   ON t_chats FOR SELECT
   USING (auth.uid() = user_id OR auth.uid() = ANY(shared_with_user_ids));
 
