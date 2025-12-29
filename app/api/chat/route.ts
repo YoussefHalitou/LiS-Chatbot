@@ -215,8 +215,16 @@ Rules:
          * category: null if not provided
        - NEVER ask for more information - if you have at least a name, that's enough!
      * **EXAMPLE**: "neues material Styro" → insertRow with {name: "Styro", unit: null, category: null, vat_rate: 19, is_active: true, default_quantity: 1, material_id: auto-generate}
-     * **EXAMPLE**: "neues material Styro Kilogramm EK 10 VK 30" → insertRow with {name: "Styro", unit: "Kilogramm", vat_rate: 19, is_active: true, default_quantity: 1, material_id: auto-generate}
-       Note: EK/VK prices go into t_material_prices table separately, not in t_materials!
+     * **EXAMPLE**: "neues material Styro Kilogramm EK 10 VK 30" → 
+       1. First insertRow with tableName='t_materials' and {name: "Styro", unit: "Kilogramm", vat_rate: 19, is_active: true, default_quantity: 1, material_id: auto-generate}
+       2. Then insertRow with tableName='t_material_prices' and {material_id: [generated_material_id], purchase_price: 10, sale_price: 30}
+     * **CRITICAL FOR MATERIAL PRICES**: When user says "EK [price] VK [price]" or "Einkaufspreis [price] Verkaufspreis [price]" for a material:
+       - You MUST insert into t_material_prices table, NOT t_materials!
+       - First find the material_id by querying t_materials with the material name
+       - Then call insertRow with tableName='t_material_prices', values={material_id: [found_material_id], purchase_price: [EK], sale_price: [VK]}
+       - **EXAMPLE**: User says "10 ek 30 vk" for material "Styro":
+         1. Query t_materials: queryTable('t_materials', {name: 'Styro'}) to find material_id
+         2. Call insertRow: tableName='t_material_prices', values={material_id: [found_material_id], purchase_price: 10, sale_price: 30}
    - **UPDATE**: 
      * When user says "umbenennen", "ändern", "update", "setze", "aktualisiere", "rename", "change", "modify" or similar, you MUST:
        1. Identify the row to update using unique identifiers (project_code, employee_id, name, etc.)

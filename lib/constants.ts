@@ -72,5 +72,6 @@ export const INSERT_ALLOWED_TABLES = new Set([
   't_employees',
   't_services',
   't_materials',
+  't_material_prices',
 ])
 
