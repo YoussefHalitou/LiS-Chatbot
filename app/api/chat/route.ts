@@ -188,13 +188,18 @@ Rules:
      * **CRITICAL**: ort (location) is OPTIONAL for t_projects - you can set it to null if not provided. Only name is required!
      * **CRITICAL**: When user provides project information in multiple messages, COMBINE all information from the conversation history before calling insertRow.
      * **CRITICAL**: DO NOT just say "Ich erstelle das Projekt" - you MUST actually call the insertRow tool function!
-     * **CRITICAL FOR EMPLOYEES**: When user says "füge worker/mitarbeiter [Name] [Stundensatz] [intern/extern]", extract:
-       - name: the name mentioned
-       - hourly_rate: the number mentioned (e.g., "35" means hourly_rate: 35)
-       - contract_type: "Intern" if user says "intern", "Extern" if user says "extern" (capitalize first letter!)
-       - is_active: true (default)
-       - role: null (default)
-     * **EXAMPLE**: "füge worker Youssef 35 intern" → insertRow with {name: "Youssef", hourly_rate: 35, contract_type: "Intern", is_active: true}
+     * **CRITICAL FOR EMPLOYEES**: 
+       - When user says "neu/neuer mitarbeiter/arbeiter/worker [Name]" with ANY information (even just a name), IMMEDIATELY call insertRow!
+       - Extract ALL available information from the message
+       - Use sensible defaults for missing fields:
+         * hourly_rate: 0 if not provided
+         * contract_type: null if not provided (or "Intern" if user says "intern")
+         * is_active: true (always)
+         * role: null (always, unless specified)
+       - NEVER ask for more information - if you have at least a name, that's enough!
+     * **EXAMPLE**: "neu mitarbeiter Jonas" → insertRow with {name: "Jonas", hourly_rate: 0, contract_type: null, is_active: true}
+     * **EXAMPLE**: "neuer arbeiter X 30 int" → insertRow with {name: "X", hourly_rate: 30, contract_type: "Intern", is_active: true}
+     * **EXAMPLE**: "mitarbeiter neu Rachid 50 euro intern" → insertRow with {name: "Rachid", hourly_rate: 50, contract_type: "Intern", is_active: true}
      * DO NOT show JSON or ask again - just execute the insert with what you have.
    - **UPDATE**: 
      * When user says "umbenennen", "ändern", "update", "setze", "aktualisiere", "rename", "change", "modify" or similar, you MUST:
@@ -513,7 +518,7 @@ const extractInsertPayload = (content: string) => {
         const hasValues = 'values' in payload
         
         if (hasTableName || (hasProjectFields && !hasValues)) {
-          return normalizeInsertPayload(payload)
+        return normalizeInsertPayload(payload)
         }
         
         // If it has values object, it might be the payload structure
@@ -727,13 +732,13 @@ const applyDateRangeFilters = (
   }
 
   if (dateRange) {
-    return {
-      ...filters,
-      [dateField]: {
-        type: 'between',
-        value: [dateRange.start, dateRange.end],
-      },
-    }
+  return {
+    ...filters,
+    [dateField]: {
+      type: 'between',
+      value: [dateRange.start, dateRange.end],
+    },
+  }
   }
 
   return filters
@@ -1028,11 +1033,11 @@ export async function POST(req: NextRequest) {
 
       // Fallback to extracting from assistant message text
       if (lastAssistantMessage) {
-        const insertPayload = extractInsertPayload(lastAssistantMessage)
-        const inferredTable =
-          insertPayload?.tableName ||
-          inferInsertTable(lastAssistantMessage) ||
-          inferInsertTable(lastUserMessage)
+      const insertPayload = extractInsertPayload(lastAssistantMessage)
+      const inferredTable =
+        insertPayload?.tableName ||
+        inferInsertTable(lastAssistantMessage) ||
+        inferInsertTable(lastUserMessage)
 
         // Handle case where payload has values nested
         let insertValues = insertPayload?.values
@@ -1053,18 +1058,18 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        if (inferredTable && insertValues) {
-          if (!INSERT_ALLOWED_TABLES.has(inferredTable)) {
-            return NextResponse.json(
-              {
-                message: {
-                  role: 'assistant',
-                  content: `Eintrag nicht möglich: Tabelle "${inferredTable}" ist nicht erlaubt.`,
-                },
+      if (inferredTable && insertValues) {
+        if (!INSERT_ALLOWED_TABLES.has(inferredTable)) {
+          return NextResponse.json(
+            {
+              message: {
+                role: 'assistant',
+                content: `Eintrag nicht möglich: Tabelle "${inferredTable}" ist nicht erlaubt.`,
               },
-              { headers: NO_CACHE_HEADERS }
-            )
-          }
+            },
+            { headers: NO_CACHE_HEADERS }
+          )
+        }
 
           console.log('Attempting insert:', { table: inferredTable, values: insertValues })
           const clientId = getClientIdentifier(req)
@@ -1072,29 +1077,29 @@ export async function POST(req: NextRequest) {
             ipAddress: clientId,
           })
 
-          if (insertResult.error) {
+        if (insertResult.error) {
             console.error('Insert error:', insertResult.error)
-            return NextResponse.json(
-              {
-                message: {
-                  role: 'assistant',
-                  content: `Der Eintrag konnte nicht erstellt werden: ${insertResult.error}`,
-                },
-              },
-              { headers: NO_CACHE_HEADERS }
-            )
-          }
-
           return NextResponse.json(
             {
               message: {
                 role: 'assistant',
-                content: 'Der Eintrag wurde erfolgreich erstellt. Soll ich dir die Details anzeigen?',
+                content: `Der Eintrag konnte nicht erstellt werden: ${insertResult.error}`,
               },
             },
             { headers: NO_CACHE_HEADERS }
           )
         }
+
+        return NextResponse.json(
+          {
+            message: {
+              role: 'assistant',
+                content: 'Der Eintrag wurde erfolgreich erstellt. Soll ich dir die Details anzeigen?',
+            },
+          },
+          { headers: NO_CACHE_HEADERS }
+        )
+      }
         
         // If we have payload but missing table or values, provide helpful error
         if (insertPayload || inferredTable) {
@@ -1104,16 +1109,16 @@ export async function POST(req: NextRequest) {
             hasValues: !!insertValues,
             payload: insertPayload 
           })
-          return NextResponse.json(
-            {
-              message: {
-                role: 'assistant',
-                content:
+        return NextResponse.json(
+          {
+            message: {
+              role: 'assistant',
+              content:
                   'Ich habe eine Bestätigung erhalten, aber konnte die Eintragsdaten nicht vollständig erkennen. Bitte versuche es erneut oder gib die Details explizit an.',
-              },
             },
-            { headers: NO_CACHE_HEADERS }
-          )
+          },
+          { headers: NO_CACHE_HEADERS }
+        )
         }
       }
     }
@@ -1221,7 +1226,7 @@ export async function POST(req: NextRequest) {
         
         if (allToolCallsHaveResponses) {
           // Include tool_calls and add tool response messages after
-          openaiMessage.tool_calls = message.tool_calls
+        openaiMessage.tool_calls = message.tool_calls
           openaiMessages.push(openaiMessage)
           
           // Add tool response messages for each tool call
@@ -1490,7 +1495,7 @@ function getToolDefinitions(): ChatCompletionTool[] {
       function: {
         name: 'insertRow',
         description:
-          'Insert a single row into an allowed table. YOU MUST CALL THIS TOOL - DO NOT JUST SAY YOU WILL DO IT! CRITICAL RULES: 1) When user says "neues projekt" or "projekt hinzufügen" and provides ANY information (even just a name like "ZZZ"), YOU MUST IMMEDIATELY CALL THIS TOOL with tableName="t_projects" and ALL available information from the conversation. 2) When user says "füge worker/mitarbeiter [Name] [Stundensatz] [intern/extern]", extract: name (the name), hourly_rate (the number), contract_type ("Intern" or "Extern" - capitalize first letter!), is_active=true, role=null. 3) If user provides information in multiple messages, COMBINE all information from the conversation history and call insertRow with the complete values object. 4) NEVER ask for more information if you have at least name for projects/employees - use sensible defaults for everything else. 5) ALWAYS set confirm: true when calling this tool - the user has already provided the information. 6) Extract information from ALL previous messages in the conversation, not just the last one. 7) YOU MUST ACTUALLY CALL THIS TOOL FUNCTION - do NOT just respond with text saying you will create it!',
+          'Insert a single row into an allowed table. YOU MUST CALL THIS TOOL - DO NOT JUST SAY YOU WILL DO IT! CRITICAL RULES: 1) When user says "neues projekt"/"projekt hinzufügen" and provides ANY information (even just a name), IMMEDIATELY CALL THIS TOOL with tableName="t_projects". 2) When user says "neu/neuer mitarbeiter/arbeiter/worker [Name]" with ANY information (even just a name like "Jonas" or "X"), IMMEDIATELY CALL THIS TOOL with tableName="t_employees". Extract available info: name (required), hourly_rate (default 0), contract_type (default null, or "Intern"/"Extern" if mentioned), is_active=true, role=null. 3) NEVER ask for more information - if you have at least a name, call the tool immediately with defaults! 4) If user provides info in multiple messages, COMBINE all info from conversation history. 5) ALWAYS set confirm: true - user already provided the info. 6) Extract info from ALL previous messages. 7) YOU MUST ACTUALLY CALL THIS TOOL - do NOT just respond with text!',
         parameters: {
           type: 'object',
           properties: {
@@ -1887,7 +1892,7 @@ async function handleStreamingCompletion(
           
           // Track how many tool messages exist before handleToolCalls
           const toolMessageCountBefore = openaiMessages.filter((m: any) => m.role === 'tool').length
-          
+
           await handleToolCalls(
             { tool_calls, content: null },
             openaiMessages,
