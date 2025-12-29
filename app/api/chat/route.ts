@@ -171,15 +171,17 @@ Rules:
 5. **CRITICAL WORKFLOWS:**
    - **INSERT - ABSOLUTE REQUIREMENT**: 
      * **YOU MUST CALL insertRow TOOL IMMEDIATELY - DO NOT JUST SAY YOU WILL DO IT!**
-     * When user says "neues projekt" or "projekt hinzufügen" and provides ANY information (even just a name like "ZZZ"), you MUST:
-       1. IMMEDIATELY call the insertRow tool - do NOT just say you will create it, ACTUALLY CALL THE TOOL!
+     * When user says "neues projekt", "projekt hinzufügen", "neuer Eintrag projekt", "projekt erstellen" or similar and provides ANY information (even just a name like "Grosser UMZUG" or "ZZZ"), you MUST:
+       1. IMMEDIATELY call the insertRow tool - do NOT just say you will create it, ACTUALLY CALL THE TOOL FUNCTION!
        2. Look through ALL previous messages in the conversation to find ALL information the user has provided (name, ort, etc.)
        3. Call insertRow with tableName='t_projects' and values containing ALL available information combined
        4. Use sensible defaults for missing optional fields (ort can be null, status='geplant', project_code=auto-generate)
        5. NEVER ask for more information - if you have at least a name, that's enough!
        6. ALWAYS set confirm: true - the user has already provided the information
+       7. **CRITICAL**: The values object MUST contain at least the 'name' field. Example: {name: "Grosser UMZUG", ort: null, status: "geplant"}
      * **CRITICAL**: You MUST actually call the insertRow tool function - do NOT just respond with text saying you will create it!
-     * **EXAMPLE**: If user says "neues projekt named ZZZ", you MUST call: insertRow(tableName='t_projects', values={name: 'ZZZ', ort: null}, confirm=true)
+     * **EXAMPLE**: If user says "neues projekt named ZZZ", you MUST call: insertRow(tableName='t_projects', values={name: 'ZZZ', ort: null, status: 'geplant'}, confirm=true)
+     * **EXAMPLE**: If user says "neuer Eintrag projekt namens Grosser UMZUG", you MUST call: insertRow(tableName='t_projects', values={name: 'Grosser UMZUG', ort: null, status: 'geplant'}, confirm=true)
      * **EXAMPLE**: If user says "neues projekt named ZZZ" and then later says "Köln", you MUST combine both: call insertRow with {name: "ZZZ", ort: "Köln", confirm: true}
      * **EXAMPLE**: If user says "neues projekt named ZZZ" and nothing else, call insertRow with {name: "ZZZ", ort: null, confirm: true} - ort can be null!
      * For missing optional fields, use sensible defaults:
