@@ -6,6 +6,137 @@ import { retrySupabaseOperation } from './retry'
 import { getUserFriendlyErrorMessage } from './error-messages'
 
 /**
+ * Get statistics/aggregations from a table
+ * Supports COUNT, SUM, AVG, MIN, MAX, GROUP BY
+ */
+export async function getStatistics(
+  tableName: string,
+  options: {
+    aggregation?: 'count' | 'sum' | 'avg' | 'min' | 'max'
+    column?: string
+    groupBy?: string
+    filters?: Record<string, any>
+    limit?: number
+  } = {}
+) {
+  try {
+    if (!supabaseAdmin) {
+      return {
+        data: null,
+        error: 'Service role key not configured'
+      }
+    }
+
+    const { aggregation = 'count', column, groupBy, filters = {}, limit = 1000 } = options
+
+    // Use queryTable to get data, then calculate statistics in-memory
+    // This approach works with existing infrastructure and doesn't require SQL injection
+    const result = await queryTable(tableName, filters, limit)
+    
+    if (result.error) {
+      return result
+    }
+
+    // Process results to calculate statistics
+    if (!result.data || !Array.isArray(result.data)) {
+      return {
+        data: null,
+        error: 'Invalid data format'
+      }
+    }
+
+    const data = result.data
+    let statistics: any = {}
+
+    if (aggregation === 'count') {
+      if (groupBy) {
+        // Group by and count
+        const grouped: Record<string, number> = {}
+        for (const row of data) {
+          const groupValue = (row as any)[groupBy] || 'Unbekannt'
+          grouped[groupValue] = (grouped[groupValue] || 0) + 1
+        }
+        statistics = Object.entries(grouped).map(([key, value]) => ({
+          [groupBy]: key,
+          count: value
+        }))
+      } else {
+        statistics = { count: data.length }
+      }
+    } else if (column) {
+      const values = data.map((row: any) => parseFloat((row as any)[column])).filter((v: number) => !isNaN(v))
+      
+      if (values.length === 0) {
+        return {
+          data: null,
+          error: `No valid numeric values found in column ${column}`
+        }
+      }
+
+      if (groupBy) {
+        // Group by and aggregate
+        const grouped: Record<string, number[]> = {}
+        for (const row of data) {
+          const groupValue = (row as any)[groupBy] || 'Unbekannt'
+          const numValue = parseFloat((row as any)[column])
+          if (!isNaN(numValue)) {
+            if (!grouped[groupValue]) {
+              grouped[groupValue] = []
+            }
+            grouped[groupValue].push(numValue)
+          }
+        }
+
+        statistics = Object.entries(grouped).map(([key, values]) => {
+          const result: Record<string, any> = { [groupBy]: key }
+          switch (aggregation) {
+            case 'sum':
+              result.total = values.reduce((a, b) => a + b, 0)
+              break
+            case 'avg':
+              result.average = values.reduce((a, b) => a + b, 0) / values.length
+              break
+            case 'min':
+              result.minimum = Math.min(...values)
+              break
+            case 'max':
+              result.maximum = Math.max(...values)
+              break
+          }
+          return result
+        })
+      } else {
+        // Single aggregation
+        switch (aggregation) {
+          case 'sum':
+            statistics = { total: values.reduce((a, b) => a + b, 0) }
+            break
+          case 'avg':
+            statistics = { average: values.reduce((a, b) => a + b, 0) / values.length }
+            break
+          case 'min':
+            statistics = { minimum: Math.min(...values) }
+            break
+          case 'max':
+            statistics = { maximum: Math.max(...values) }
+            break
+        }
+      }
+    }
+
+    return {
+      data: statistics,
+      error: null
+    }
+  } catch (error) {
+    return {
+      data: null,
+      error: error instanceof Error ? error.message : 'Statistics calculation failed'
+    }
+  }
+}
+
+/**
  * Execute a read-only SQL query via Supabase REST API
  * Note: This requires the service role key and uses the REST API directly
  */
