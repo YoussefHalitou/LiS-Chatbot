@@ -25,7 +25,8 @@ export async function getAllChats(): Promise<{ chats: Chat[]; error: string | nu
   const { user, error: authError } = await getCurrentUser()
   
   if (authError || !user) {
-    return { chats: [], error: authError || 'User not authenticated' }
+    const errorMessage = authError ? (typeof authError === 'string' ? authError : authError.message) : 'User not authenticated'
+    return { chats: [], error: errorMessage }
   }
 
   if (!supabase) {
@@ -67,7 +68,8 @@ export async function getChatMessages(chatId: string): Promise<{ messages: Messa
   const { user, error: authError } = await getCurrentUser()
   
   if (authError || !user) {
-    return { messages: [], error: authError || 'User not authenticated' }
+    const errorMessage = authError ? (typeof authError === 'string' ? authError : authError.message) : 'User not authenticated'
+    return { messages: [], error: errorMessage }
   }
 
   if (!supabase) {
@@ -124,7 +126,8 @@ export async function saveChatMessages(
   const { user, error: authError } = await getCurrentUser()
   
   if (authError || !user) {
-    return { error: authError || 'User not authenticated' }
+    const errorMessage = authError ? (typeof authError === 'string' ? authError : authError.message) : 'User not authenticated'
+    return { error: errorMessage }
   }
 
   if (!supabase) {
@@ -206,7 +209,8 @@ export async function createNewChat(): Promise<{ chat: Chat | null; error: strin
   const { user, error: authError } = await getCurrentUser()
   
   if (authError || !user) {
-    return { chat: null, error: authError || 'User not authenticated' }
+    const errorMessage = authError ? (typeof authError === 'string' ? authError : authError.message) : 'User not authenticated'
+    return { chat: null, error: errorMessage }
   }
 
   if (!supabase) {
@@ -252,7 +256,8 @@ export async function deleteChat(chatId: string): Promise<{ error: string | null
   const { user, error: authError } = await getCurrentUser()
   
   if (authError || !user) {
-    return { error: authError || 'User not authenticated' }
+    const errorMessage = authError ? (typeof authError === 'string' ? authError : authError.message) : 'User not authenticated'
+    return { error: errorMessage }
   }
 
   if (!supabase) {
@@ -289,7 +294,8 @@ export async function shareChat(
   const { user, error: authError } = await getCurrentUser()
   
   if (authError || !user) {
-    return { error: authError || 'User not authenticated' }
+    const errorMessage = authError ? (typeof authError === 'string' ? authError : authError.message) : 'User not authenticated'
+    return { error: errorMessage }
   }
 
   if (!supabase) {

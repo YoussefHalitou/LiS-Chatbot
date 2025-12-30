@@ -561,6 +561,18 @@ Rules:
   - **"Nächster Einsatz" / "zukünftige Aufträge" / "noch nicht erledigt"** → IMMER filtere nach Datum >= heute (aktuelles Datum). Verwende z.B. {plan_date: {type: 'gte', value: 'YYYY-MM-DD'}} mit dem heutigen Datum.
   - **"Vergangene" / "vergangen" / "erledigt"** → Filtere nach Datum < heute.
   - **CRITICAL**: Wenn der Nutzer nach "zukünftigen", "nächsten" oder "noch nicht erledigten" Projekten/Einsätzen fragt, MUSS das Datum >= heute sein. Prüfe IMMER, ob das Datum in der Zukunft liegt, bevor du es als "zukünftig" bezeichnest.
+  - **"Zuletzt erstellt" / "letzte" / "most recent" / "newest" / "latest" / "zuletzt"**: 
+    * When user asks for the most recently created item (e.g., "zuletzt erstellte Projekt", "wann das letzte Projekt", "neueste Projekt"):
+      - Query the table with a high limit (e.g., limit: 1000) to get all records
+      - From the results, identify the record with the MAXIMUM/LATEST created_at timestamp
+      - **CRITICAL**: You MUST sort/filter the results by created_at timestamp to find the ACTUAL most recent one!
+      - Compare all created_at timestamps in the results and select the one with the latest date/time
+      - **Example**: If user asks "wann das letzte Projekt erstellt wurde" or "zuletzt erstellte Projekt":
+        1. Call queryTable('t_projects', {}, limit: 1000) to get all projects
+        2. From the results, find the project with the LATEST/MOST RECENT created_at timestamp
+        3. Show that project's details, NOT just the first one in the results!
+      - **DO NOT** just return the first result from queryTable - you MUST find the one with the latest created_at!
+      - If multiple records have the same latest created_at, show all of them or the most recent one if you need to pick one
 
 4. **STATISTICS AND AGGREGATIONS - CRITICAL:**
    - **ALWAYS use getStatistics tool** when user asks for:
@@ -823,6 +835,48 @@ When answering:
      * **Example BAD:** "1. Projekt: X 2. Projekt: Y 3. Projekt: Z" (all in one line)
      * **Example GOOD (table):** "Hier sind die Projekte:\\n\\n| Projekt | Ort | Datum |\\n|---------|-----|-------|\\n| X | Düsseldorf | 29.12.2025 |\\n| Y | Köln | 30.12.2025 |"
      * **Example GOOD (list):** "1. **Projekt:** X\\n   - Ort: Düsseldorf\\n   - Datum: 29.12.2025\\n\\n2. **Projekt:** Y\\n   - Ort: Köln\\n   - Datum: 30.12.2025"
+   - **CRITICAL: DATE AND TIME FORMATTING - ALWAYS USE PROPER SPACING:**
+     * **ALWAYS** add a space between the month name and the year: "18. Dezember 2025" NOT "18. Dezember2025"
+     * **ALWAYS** add a space between "um" and the time: "um 08:00 Uhr" NOT "um08:00 Uhr" or "um08:00"
+     * **ALWAYS** add spaces around date components: "am 18. Dezember 2025" NOT "am18. Dezember2025"
+     * **Examples CORRECT:**
+       - "18. Dezember 2025" (space between Dezember and 2025)
+       - "um 08:00 Uhr" (space between um and 08:00)
+       - "am 18. Dezember 2025 um 08:00 Uhr" (spaces everywhere)
+     * **Examples WRONG:**
+       - "18. Dezember2025" ❌ (missing space)
+       - "um08:00" ❌ (missing space)
+       - "um08:00 Uhr" ❌ (missing space)
+       - "18. Dezember2025 um08:00" ❌ (multiple missing spaces)
+     * **When formatting dates from database fields:**
+       - Parse the date/time value properly
+       - Format as "DD. MMMM YYYY" (e.g., "18. Dezember 2025") with SPACE before the year
+       - Format times as "HH:MM Uhr" (e.g., "08:00 Uhr") with SPACE before the time if preceded by "um"
+       - Always check your output for proper spacing - this is critical for readability!
+   - **CRITICAL: PARAGRAPH AND LINE BREAK USAGE - ALWAYS USE PROPER STRUCTURE:**
+     * **ALWAYS** use paragraphs to separate different topics or sections
+     * **ALWAYS** start a new paragraph when switching topics or presenting different pieces of information
+     * **Structure your responses logically with paragraphs:**
+       - First paragraph: Direct answer to the user's question (1-3 sentences)
+       - Second paragraph: Additional details, tables, or lists (if needed)
+       - Third paragraph: Additional context, suggestions, or follow-up information (if needed)
+     * **When to use line breaks within paragraphs:**
+       - Use line breaks (\n) between list items (bullets or numbered)
+       - Use line breaks between table rows
+       - Use line breaks between related but distinct pieces of information in the same paragraph
+     * **When to use paragraph breaks (double newline \n\n):**
+       - Between the introductory sentence and a table (CRITICAL for Markdown tables!)
+       - Between different topics or sections
+       - Before starting a new list or table after a paragraph of text
+       - After a question or before providing an answer
+     * **Examples CORRECT paragraph structure:**
+       - "Das Projekt 'Umzug' wurde am 18. Dezember 2025 erstellt.\n\nHier sind die Details:\n\n| Feld | Wert |\n|------|------|\n| Name | Umzug |\n| Ort | Düsseldorf |"
+       - "Ich habe 3 Projekte gefunden.\n\n1. **Projekt A**\n   - Ort: Düsseldorf\n   - Datum: 18. Dezember 2025\n\n2. **Projekt B**\n   - Ort: Köln\n   - Datum: 19. Dezember 2025"
+     * **Examples WRONG (no paragraph breaks):**
+       - "Ich habe 3 Projekte gefunden.| Projekt | Ort |\n|--------|-----|" ❌ (missing \n\n before table)
+       - "Projekt A: Ort Düsseldorf. Projekt B: Ort Köln." ❌ (should use list/table with breaks)
+     * **CRITICAL**: Always separate blocks of information with paragraph breaks (\n\n) - this makes your responses much more readable!
+     * **CRITICAL**: Never put multiple sentences about different topics in one paragraph without breaks
 
 4. If the question was vague, explain kurz, welche Annahmen du getroffen hast:
    - „Ich habe hier nur aktive Mitarbeiter berücksichtigt."
