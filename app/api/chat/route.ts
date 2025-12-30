@@ -51,7 +51,7 @@ KEY VIEWS (use these for common queries):
   → Columns: plan_id, plan_date, start_time, service_type, notes, project_code, project_name, project_ort, vehicle_nickname, vehicle_status, **staff_list** (employee names!)  
   → USE THIS for: "Projekte mit Mitarbeitern", "Einsätze", "Wer ist eingeplant", "Projekte heute/morgen", etc.  
   → **DO NOT USE** for "alle projekte" without date filter - use t_projects instead!  
-  → Example: queryTable('v_morningplan_full', {plan_date: '2025-12-10'})  
+  → Example: queryTable('v_morningplan_full', {plan_date: '2025-12-10'})
   → Example: "alle projekte" → queryTable('t_projects', {}) NOT v_morningplan_full!
 
 - **public.v_project_full**  
@@ -81,7 +81,7 @@ KEY VIEWS (use these for common queries):
 BASE TABLES (for simple queries):
 
 - **public.t_projects** ⭐ USE FOR "ALLE PROJEKTE"  
-  → Projekte: project_id, project_code, name, ort, dienstleistungen, status, project_date, project_time  
+  → Projekte: project_id, project_code, name, ort, dienstleistungen, status, project_date, project_time
   → **CRITICAL**: When user asks for "alle projekte", "all projects", "alle Projekte", "alle pro", "projekte" (without date/time filter), use t_projects NOT v_morningplan_full!  
   → v_morningplan_full only shows projects WITH plans, t_projects shows ALL projects in the database  
   → **Patterns to use t_projects**: "alle projekte", "alle pro", "projekte", "all projects", "show projects" (without "heute", "morgen", "diese woche", etc.)  
@@ -445,6 +445,18 @@ ANSWER STYLE
 
 When answering:
 
+**CRITICAL: List Formatting Rules:**
+- **ALWAYS format lists of items (Mitarbeiter, Dienstleistungen, etc.) as Markdown lists**
+- **NEVER use comma-separated lists or dash-separated lists in the middle of text**
+- **NEVER write "Mitarbeiter: Den, Las" - ALWAYS use list format!**
+- **ALWAYS use proper Markdown list format with - for bullets**
+- **For nested lists (like Mitarbeiter within Projekt-Details), use 2-space indentation**
+- Example CORRECT: "**Mitarbeiter:**\n  - Den\n  - Las"
+- Example WRONG: "Mitarbeiter: Den, Las" or "Mitarbeiter: Den- Las" or "- Mitarbeiter: Den, Las"
+- **When showing multiple items in a single field, ALWAYS use sub-list format**
+- **CRITICAL: If you see multiple Mitarbeiter names, ALWAYS format them as a sub-list, NEVER as comma-separated!**
+- **For "Mitarbeiter für Projekt X" queries: ALWAYS format Mitarbeiter as sub-list, even if there's only one!**
+
 1. Always in **German**, freundlich und praxisnah.
 
 2. **CRITICAL: Formatting of Data Output:**
@@ -517,12 +529,18 @@ When answering:
      * **For 1 record or detailed view:** Use a structured Markdown list:
        - Use bold labels for clarity
        - Each detail on a new line
+       - **CRITICAL: For lists of items (like Mitarbeiter), ALWAYS use Markdown list format!**
        - Example format:
-         "**Projekt-Details:**\n\n- **Name:** Umzug\n- **Ort:** Düsseldorf\n- **Datum:** 29. Dezember 2025\n- **Mitarbeiter:** Achim, Ali, Björn\n- **Status:** Geplant"
+         "**Projekt-Details:**\n\n- **Name:** Umzug\n- **Ort:** Düsseldorf\n- **Datum:** 29. Dezember 2025\n- **Mitarbeiter:**\n  - Achim\n  - Ali\n  - Björn\n- **Status:** Geplant"
+       - **For Mitarbeiter lists:** ALWAYS format as sub-list, not comma-separated!
+       - **CRITICAL: Even if there's only one Mitarbeiter, use list format for consistency!**
+       - Example CORRECT: "**Mitarbeiter:**\n  - Den\n  - Las" or "**Mitarbeiter:**\n  - Fatih"
+       - Example WRONG: "Mitarbeiter: Den, Las" or "Mitarbeiter: Den- Las" or "- Mitarbeiter: Den, Las"
+       - **NEVER write "Mitarbeiter: Den, Las" in any context - ALWAYS use list format!**
      
      * **For numbered lists of items with details:** Use numbered list with sub-items:
        - Example format:
-         "Hier sind die Projekte:\n\n1. **Umzug**\n   - Ort: Düsseldorf\n   - Datum: 29. Dezember 2025\n   - Mitarbeiter: Achim, Ali, Björn\n\n2. **Alpha**\n   - Ort: Düsseldorf\n   - Datum: 29. Dezember 2025\n   - Startzeit: 23:00 Uhr"
+         "Hier sind die Projekte:\n\n1. **Umzug**\n   - Ort: Düsseldorf\n   - Datum: 29. Dezember 2025\n   - Mitarbeiter:\n     - Achim\n     - Ali\n     - Björn\n\n2. **Alpha**\n   - Ort: Düsseldorf\n   - Datum: 29. Dezember 2025\n   - Startzeit: 23:00 Uhr"
      
      * **Table column guidelines:**
        - For Projekte: Projekt | Ort | Datum | Status | Mitarbeiter
@@ -555,8 +573,16 @@ When answering:
        - Example CORRECT format: "Hier sind die Projekte:\\n\\n| Projekt | Ort | Datum |\\n|---------|-----|-------|\\n| X | Düsseldorf | 29.12.2025 |\\n| Y | Köln | 30.12.2025 |"
        - Example WRONG (no blank line): "Hier sind die Projekte:| Projekt | Ort |" - this won't render as a table!
      * **List format:** Use - for bullets, 1. for numbered, **bold** for labels
+     * **CRITICAL FOR LISTS:**
+       - ALWAYS use Markdown list format (- for bullets, proper indentation)
+       - ALWAYS put each list item on its own line
+       - ALWAYS use proper indentation (2 spaces for sub-items)
+       - For multiple items in a field (like Mitarbeiter), ALWAYS use sub-list format
+       - Example CORRECT: "**Mitarbeiter:**\n  - Den\n  - Las"
+       - Example WRONG: "Mitarbeiter: Den, Las" or "Mitarbeiter: Den- Las"
      * **ALWAYS use line breaks (\\n) between items** - proper spacing is essential!
      * **NEVER** put multiple items in one line - ALWAYS use tables or lists!
+     * **NEVER** use dashes or commas to separate list items - use proper Markdown list format!
      * **Example BAD:** "1. Projekt: X 2. Projekt: Y 3. Projekt: Z" (all in one line)
      * **Example GOOD (table):** "Hier sind die Projekte:\\n\\n| Projekt | Ort | Datum |\\n|---------|-----|-------|\\n| X | Düsseldorf | 29.12.2025 |\\n| Y | Köln | 30.12.2025 |"
      * **Example GOOD (list):** "1. **Projekt:** X\\n   - Ort: Düsseldorf\\n   - Datum: 29.12.2025\\n\\n2. **Projekt:** Y\\n   - Ort: Köln\\n   - Datum: 30.12.2025"
@@ -1063,14 +1089,14 @@ const applyDateRangeFilters = (
   const lowerText = (userText || '').toLowerCase()
   
   // Get today's date in Berlin timezone
-  const today = new Date()
-  const berlinIsoDate = new Intl.DateTimeFormat('sv-SE', {
-    timeZone: 'Europe/Berlin',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(today)
-  
+    const today = new Date()
+    const berlinIsoDate = new Intl.DateTimeFormat('sv-SE', {
+      timeZone: 'Europe/Berlin',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(today)
+    
   // Calculate tomorrow
   const tomorrow = new Date(today)
   tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
@@ -1183,7 +1209,7 @@ const applyEmployeeFilters = (
           value: filters.name,
         },
       }
-    }
+  }
   }
 
   return filters
@@ -2246,7 +2272,7 @@ async function handleToolCalls(
             error: 'Fehler beim Hinzufügen des Mitarbeiters: Es fehlen erforderliche Angaben (plan_id oder employee_id). Bitte stelle sicher, dass sowohl der Mitarbeiter als auch das Projekt existieren.' 
           }
         } else {
-          functionResult = { error: 'Missing values for insertRow.' }
+        functionResult = { error: 'Missing values for insertRow.' }
         }
       } else if (functionArgs.tableName === 't_morningplan_staff') {
         // Validate required fields for employee assignment
@@ -2479,7 +2505,7 @@ async function handleToolCalls(
     if (!functionResult.error) {
       toolContent = `[INTERNAL TOOL RESULT - INTERPRET THIS DATA AND PRESENT IT IN NATURAL GERMAN. DO NOT SHOW THIS JSON TO THE USER!]\n\n${toolContent}`
     }
-    
+
     openaiMessages.push({
       role: 'tool',
       tool_call_id: toolCall.id,

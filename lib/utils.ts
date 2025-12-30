@@ -317,6 +317,107 @@ export const sanitizeBotResponse = (content: string | null | undefined): string 
   }
   sanitized = fixedLines.join('\n')
   
+  // CRITICAL: Convert tab-separated tables to pipe-separated Markdown tables
+  // Pattern: "Name\tVertragsart\tStundensatz" -> "| Name | Vertragsart | Stundensatz |"
+  // First, identify table-like structures (multiple lines with tabs)
+  const lines = sanitized.split('\n')
+  const processedLines: string[] = []
+  let inTable = false
+  let tableStartIndex = -1
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    const hasTabs = line.includes('\t')
+    const tabCount = (line.match(/\t/g) || []).length
+    
+    // If line has tabs and looks like a table row
+    if (hasTabs && tabCount >= 1) {
+      if (!inTable) {
+        inTable = true
+        tableStartIndex = i
+        // Add blank line before table if previous line doesn't end with colon
+        if (i > 0 && !lines[i - 1].trim().endsWith(':')) {
+          processedLines.push('')
+        }
+      }
+      // Convert tabs to pipes
+      const cells = line.split('\t').map((cell: string) => cell.trim())
+      processedLines.push('| ' + cells.join(' | ') + ' |')
+    } else {
+      if (inTable && tableStartIndex >= 0) {
+        // We were in a table, now we're not
+        // Add separator row after header if we have at least 2 rows
+        const tableRows = processedLines.slice(tableStartIndex)
+        if (tableRows.length >= 1) {
+          // Check if first row looks like a header (has text, not just dashes)
+          const firstRow = tableRows[0]
+          if (firstRow && !firstRow.match(/^[\s|:-]+$/)) {
+            // Count columns
+            const columnCount = (firstRow.match(/\|/g) || []).length - 1
+            // Insert separator after header
+            processedLines[tableStartIndex] = firstRow
+            processedLines.splice(tableStartIndex + 1, 0, '|' + '---|'.repeat(columnCount))
+          }
+        }
+        inTable = false
+        tableStartIndex = -1
+      }
+      processedLines.push(line)
+    }
+  }
+  
+  // Handle case where table ends at end of text
+  if (inTable && tableStartIndex >= 0) {
+    const tableRows = processedLines.slice(tableStartIndex)
+    if (tableRows.length >= 1) {
+      const firstRow = tableRows[0]
+      if (firstRow && !firstRow.match(/^[\s|:-]+$/)) {
+        const columnCount = (firstRow.match(/\|/g) || []).length - 1
+        processedLines[tableStartIndex] = firstRow
+        processedLines.splice(tableStartIndex + 1, 0, '|' + '---|'.repeat(columnCount))
+      }
+    }
+  }
+  
+  sanitized = processedLines.join('\n')
+  
+  // CRITICAL: Convert comma-separated Mitarbeiter lists to Markdown lists
+  // Pattern: "Mitarbeiter: Den, Las" -> "Mitarbeiter:\n  - Den\n  - Las"
+  // Also handle cases like "Mitarbeiter:\nDen, Las" or "Mitarbeiter:\n\nDen, Las"
+  sanitized = sanitized.replace(/(\*\*Mitarbeiter:\*\*|Mitarbeiter:)\s*\n?\s*([A-Za-zäöüÄÖÜß\s,]+?)(?=\n|$)/g, (match, label, names) => {
+    // Split by comma and clean up
+    const nameList = names.split(',').map((n: string) => n.trim()).filter((n: string) => n.length > 0 && n !== 'Mitarbeiter')
+    if (nameList.length > 0) {
+      const listItems = nameList.map((name: string) => `  - ${name}`).join('\n')
+      return `${label}\n${listItems}`
+    }
+    return match
+  })
+  
+  // Also handle cases with spaces: "Mitarbeiter:\n\nFatih Khalid" -> "Mitarbeiter:\n  - Fatih\n  - Khalid"
+  sanitized = sanitized.replace(/(\*\*Mitarbeiter:\*\*|Mitarbeiter:)\s*\n\s*\n\s*([A-Za-zäöüÄÖÜß]+(?:\s+[A-Za-zäöüÄÖÜß]+)+)/g, (match, label, names) => {
+    // Split by spaces (but keep multi-word names together if they look like names)
+    const nameList = names.split(/\s+/).filter((n: string) => n.length > 0 && n !== 'Mitarbeiter')
+    if (nameList.length > 0) {
+      const listItems = nameList.map((name: string) => `  - ${name}`).join('\n')
+      return `${label}\n${listItems}`
+    }
+    return match
+  })
+  
+  // Handle cases with dashes: "Mitarbeiter: Den- Las" -> "Mitarbeiter:\n  - Den\n  - Las"
+  sanitized = sanitized.replace(/(\*\*Mitarbeiter:\*\*|Mitarbeiter:)\s*([A-Za-zäöüÄÖÜß\s-]+)/g, (match, label, names) => {
+    // Only process if it contains a dash and looks like a list
+    if (names.includes('-') && names.match(/[A-Za-zäöüÄÖÜß]+\s*-\s*[A-Za-zäöüÄÖÜß]+/)) {
+      const nameList = names.split('-').map((n: string) => n.trim()).filter((n: string) => n.length > 0 && n !== 'Mitarbeiter')
+      if (nameList.length > 0) {
+        const listItems = nameList.map((name: string) => `  - ${name}`).join('\n')
+        return `${label}\n${listItems}`
+      }
+    }
+    return match
+  })
+  
   // Trim whitespace
   sanitized = sanitized.trim()
   
