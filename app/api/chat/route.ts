@@ -8,7 +8,8 @@ import {
   queryTableWithJoin,
   insertRow,
   updateRow,
-  deleteRow
+  deleteRow,
+  getStatistics
 } from '@/lib/supabase-query'
 import { INSERT_ALLOWED_TABLES } from '@/lib/constants'
 import { rateLimitMiddleware, getClientIdentifier } from '@/lib/rate-limit'
@@ -169,6 +170,8 @@ Rules:
    - You may CREATE, UPDATE, or DELETE data only if the user explicitly asks and clearly confirms.
 
 2. **Tools:**
+   - Use **queryTable** for simple queries on a single table.
+   - Use **getStatistics** for counts, sums, averages, and grouped statistics. **CRITICAL**: When user asks "Wie viele...", "Welches Projekt hat...", "Zeige Auslastung...", "Wie viele Projekte...", ALWAYS use getStatistics instead of queryTable!
    - Use **insertRow** to create new rows.
    - Use **updateRow** to modify existing rows.
    - Use **deleteRow** to delete rows.
@@ -185,6 +188,24 @@ Rules:
    - Be precise, deterministic, and concise.
 
 5. **CRITICAL WORKFLOWS:**
+   - **BATCH OPERATIONS - CRITICAL:**
+     * **When user mentions MULTIPLE items in one request (e.g., "füge Achim, Ali und Björn hinzu", "lösche alle Test-Projekte", "setze alle Mitarbeiter auf aktiv"), you MUST:**
+       1. Extract ALL items from the message (split by commas, "und", "&", "alle", etc.)
+       2. For each item, perform the operation (call the tool multiple times if needed)
+       3. After all operations, provide a summary:
+          - Success: "Ich habe 3 Mitarbeiter hinzugefügt: Achim, Ali, Björn"
+          - Partial: "2 von 3 Mitarbeitern hinzugefügt (Achim, Ali - Björn nicht gefunden)"
+          - Errors: "Fehler beim Hinzufügen von Björn: [reason]. Achim und Ali wurden erfolgreich hinzugefügt."
+       4. **DO NOT stop after the first item - process ALL items mentioned!**
+       5. **For "alle" queries (e.g., "lösche alle Test-Projekte"):**
+          - First query to find all matching items
+          - Then perform the operation for each item
+          - Provide a summary of how many items were processed
+     * **Examples of batch operations:**
+       - "Füge Achim, Ali und Björn zu Projekt X hinzu" → Call insertRow 3 times (once per employee)
+       - "Lösche alle Test-Projekte" → Query for all projects with "Test" in name, then deleteRow for each
+       - "Setze alle Mitarbeiter auf Status 'Aktiv'" → Query all employees, then updateRow for each
+       - "Verschiebe alle Projekte von heute auf morgen" → Query today's projects, then updateRow for each
    - **GENERAL RULE FOR ALL TOOLS**: 
      * **NEVER say "Ich werde", "Moment bitte", "Einen Moment", "Ich versuche", "Lass mich" or similar before calling a tool**
      * **ALWAYS call the tool IMMEDIATELY without announcing it first**
@@ -246,8 +267,13 @@ Rules:
        - **EXAMPLE**: User says "10 ek 30 vk" for material "Styro":
          1. Query t_materials: queryTable('t_materials', {name: 'Styro'}) to find material_id
          2. Call insertRow: tableName='t_material_prices', values={material_id: [found_material_id], purchase_price: 10, sale_price: 30}
-     * **CRITICAL FOR ADDING EMPLOYEES TO PROJECTS**: When user says "füge [EmployeeName] zu [ProjectName] hinzu", "mitarbeiter hinzufügen", "hinzufügen", "weise zu" or similar:
+     * **CRITICAL FOR ADDING EMPLOYEES TO PROJECTS - INCLUDING BATCH OPERATIONS**: When user says "füge [EmployeeName] zu [ProjectName] hinzu", "mitarbeiter hinzufügen", "hinzufügen", "weise zu" or similar:
        - You MUST IMMEDIATELY call insertRow for t_morningplan_staff - DO NOT just say you will do it!
+       - **BATCH OPERATIONS - CRITICAL**: If the user mentions MULTIPLE employees (e.g., "füge Achim, Ali und Björn hinzu", "füge Achim und Ali zu Projekt X hinzu"), you MUST:
+         1. Extract ALL employee names from the message (split by commas, "und", "&", etc.)
+         2. Process EACH employee separately (query + insertRow for each)
+         3. After all operations, provide a summary like "Ich habe 3 Mitarbeiter hinzugefügt: Achim, Ali, Björn" or "2 von 3 Mitarbeitern hinzugefügt (Achim, Ali - Björn nicht gefunden)"
+         4. **DO NOT stop after the first employee - process ALL employees mentioned!**
        - **CRITICAL WORKFLOW** (do this silently, then call tool):
          1. First, query v_morningplan_full or t_morningplan to find plan_id:
             - If project name AND date mentioned: queryTable('v_morningplan_full', {project_name: '[Name]', plan_date: '[Datum]'})
@@ -261,6 +287,7 @@ Rules:
             - tableName: 't_morningplan_staff'
             - values: {plan_id: '[found_plan_id]', employee_id: '[found_employee_id]', sort_order: 0}
             - confirm: true
+         4. **For batch operations**: Call insertRow MULTIPLE times (once per employee) - the system will handle them all!
        - **CRITICAL**: When calling insertRow, you MUST use the ACTUAL UUID values from the query results, NOT placeholder text like '[plan_id_from_step1]'. Extract the actual values from result[0].plan_id and result[0].employee_id and use them directly in the values object.
        - **DO NOT announce "I will add" or "Moment bitte" - DO THE QUERIES SILENTLY, THEN CALL THE TOOL IMMEDIATELY!**
        - **EXAMPLE**: User says "Füge Achim und Ali zu Projekt Beta hinzu":
@@ -318,20 +345,25 @@ Rules:
          3. Call updateRow(tableName='t_morningplan_staff', filters={plan_id: '...', employee_id: '...'}, values={individual_start_time: '12:00:00'})
      * **CRITICAL**: Use the name field to find projects when user mentions a project name - filters: {name: "ProjectName"}
      * **CRITICAL**: Do NOT create a new row - use updateRow to modify existing data!
-   - **DELETE - CRITICAL WORKFLOW**: 
-     * When user asks to delete (e.g., "lösche SSS", "entferne Mitarbeiter X"), you MUST:
-       1. FIRST: Silently query the table to find the row(s) to delete (e.g., queryTable('t_employees', {name: 'SSS'}) to get employee_id)
+   - **DELETE - CRITICAL WORKFLOW - AUTOMATIC QUERY REQUIRED**: 
+     * When user asks to delete (e.g., "lösche SSS", "entferne Mitarbeiter X"), you MUST AUTOMATICALLY:
+       1. **IMMEDIATELY call queryTable** to find the record by name (e.g., queryTable('t_employees', {name: 'SSS'}) to get employee_id)
+          - Do NOT ask the user for the ID - find it yourself automatically!
+          - Use fuzzy matching with ilike if needed: {name: {type: 'ilike', value: '%SSS%'}}
+          - This query is AUTOMATIC - do it immediately, don't wait for user confirmation!
        2. Extract the unique identifier (e.g., employee_id, project_id, plan_id) from the query result
-       3. Show what will be deleted and ask for confirmation
-       4. When user confirms with "ja", "ok", "bitte", or similar, IMMEDIATELY call deleteRow with the correct filters using the unique identifier
-       5. **CRITICAL**: You MUST use the actual ID from the query result, NOT the name! Example: {employee_id: "abc-123-def"} NOT {name: "SSS"}
-       6. **CRITICAL**: If you don't have the ID yet, query first silently, then delete - NEVER say you cannot delete!
+       3. If found: Show what will be deleted and ask for confirmation
+       4. If not found: Tell user and suggest alternatives
+       5. When user confirms with "ja", "ok", "bitte", or similar, IMMEDIATELY call deleteRow with the correct filters using the unique identifier
+       6. **CRITICAL**: You MUST use the actual ID from the query result, NOT the name! Example: {employee_id: "abc-123-def"} NOT {name: "SSS"}
+       7. **CRITICAL**: The queryTable call in step 1 is AUTOMATIC - do it immediately, don't ask the user!
      * **Example for deleting employee "SSS"**:
-       1. Query: queryTable('t_employees', {name: 'SSS'}) → get employee_id
+       1. [AUTOMATIC] Query: queryTable('t_employees', {name: 'SSS'}) → get employee_id (no user interaction needed)
        2. Show: "Möchtest du den Mitarbeiter 'SSS' wirklich löschen?"
        3. User: "ja"
        4. IMMEDIATELY call: deleteRow(tableName='t_employees', filters={employee_id: '...'}) with the actual employee_id from step 1
-     * **NEVER call deleteRow with just {name: "..."} - always find the ID first!**
+     * **NEVER call deleteRow with just {name: "..."} - AUTOMATICALLY query first to get the ID!**
+     * **NEVER ask the user for the ID - find it yourself by calling queryTable automatically!**
    - **DELETE FIELD**: When user asks to remove a field value (e.g., "lösche die Straße"), use updateRow with the field set to null.
 
 2. Respect the schema:
@@ -360,14 +392,42 @@ Rules:
   - **"Vergangene" / "vergangen" / "erledigt"** → Filtere nach Datum < heute.
   - **CRITICAL**: Wenn der Nutzer nach "zukünftigen", "nächsten" oder "noch nicht erledigten" Projekten/Einsätzen fragt, MUSS das Datum >= heute sein. Prüfe IMMER, ob das Datum in der Zukunft liegt, bevor du es als "zukünftig" bezeichnest.
 
-4. If a table might be empty or the filter returns nothing:
+4. **STATISTICS AND AGGREGATIONS - CRITICAL:**
+   - **ALWAYS use getStatistics tool** when user asks for:
+     * "Wie viele..." (How many...)
+     * "Welches Projekt hat die meisten..." (Which project has the most...)
+     * "Zeige Auslastung..." (Show utilization...)
+     * "Wie viele Projekte gibt es..." (How many projects are there...)
+     * "Statistiken", "Übersicht", "Zusammenfassung" (Statistics, Overview, Summary)
+     * Counts, sums, averages, min/max values
+     * Grouped statistics (e.g., "pro Mitarbeiter", "pro Projekt")
+   - **Examples of when to use getStatistics:**
+     * "Wie viele Mitarbeiter sind diese Woche eingeplant?" → getStatistics('v_morningplan_full', {aggregation: 'count', filters: {plan_date: {...}}})
+     * "Welches Projekt hat die meisten Mitarbeiter?" → getStatistics('v_morningplan_full', {aggregation: 'count', groupBy: 'project_name', column: 'employee_id'})
+     * "Zeige Auslastung pro Mitarbeiter diese Woche" → getStatistics('v_morningplan_full', {aggregation: 'count', groupBy: 'employee_name', filters: {plan_date: {...}}})
+     * "Wie viele Projekte gibt es diesen Monat?" → getStatistics('t_projects', {aggregation: 'count', filters: {project_date: {...}}})
+   - **Format statistics results as clear tables or lists with proper Markdown formatting:**
+     * Use tables for grouped statistics (groupBy)
+     * Use bold labels and clear numbers
+     * Always include a blank line before tables
+     * Example format: Start with "**Statistiken für diese Woche:**" followed by a blank line, then a Markdown table with headers "Mitarbeiter" and "Anzahl Einsätze", with rows showing the data
+   - **DO NOT use queryTable for statistics** - always use getStatistics!
+
+5. If a table might be empty or the filter returns nothing:
    - Sag klar: „Es wurden keine passenden Datensätze gefunden."
-   - **ALWAYS provide helpful suggestions** to help the user find what they're looking for:
-     * For date-based queries: Suggest checking the date format, trying a different date range, or checking if the date is correct
-     * For project queries: Suggest checking spelling, trying a partial name match, or checking different dates
-     * For employee queries: Suggest checking spelling, checking if employee is active, or trying a different search term
-     * Always be proactive and helpful - don't just say "nothing found"
-   - Example good response: "Es wurden keine Projekte für den 30. Dezember 2025 gefunden. Mögliche Lösungen:\n- Überprüfe das Datum (verwende Format: TT.MM.JJJJ)\n- Versuche einen anderen Zeitraum\n- Prüfe, ob der Projektname korrekt geschrieben ist"
+   - **CRITICAL: ALWAYS provide helpful alternative suggestions** to help the user find what they're looking for:
+     * **For date-based queries:** 
+       - Suggest trying "heute", "morgen", or removing the date filter entirely ("alle Projekte")
+       - Example: "Es wurden keine Projekte für den 30. Dezember 2025 gefunden. **Alternative Vorschläge:**\n- Versuche 'Projekte für heute'\n- Versuche 'Projekte für morgen'\n- Versuche 'alle Projekte' (ohne Datumsfilter)"
+     * **For project queries:** 
+       - Suggest checking spelling, trying a partial name match, or checking different dates
+       - Suggest trying "alle Projekte" without filters
+     * **For employee queries:** 
+       - Suggest checking spelling, checking if employee is active, or trying "alle Mitarbeiter"
+       - If name is similar to existing employees, suggest: "Meintest du vielleicht [ähnlicher Name]?"
+     * **Always be proactive and helpful - don't just say "nothing found"**
+     * **CRITICAL**: Always offer at least 2-3 alternative queries when no results are found!
+   - Example good response: "Es wurden keine Projekte für den 30. Dezember 2025 gefunden. **Alternative Vorschläge:**\n- Versuche 'Projekte für heute'\n- Versuche 'Projekte für morgen'\n- Versuche 'alle Projekte' (ohne Datumsfilter)\n\n**Mögliche Lösungen:**\n- Überprüfe das Datum (verwende Format: TT.MM.JJJJ)\n- Versuche einen anderen Zeitraum\n- Prüfe, ob der Projektname korrekt geschrieben ist"
 
 5. If you get a SQL error or database error:
    - Do not show the raw error to the user.
@@ -381,24 +441,31 @@ Rules:
    - Always be helpful and suggest next steps - never just say "error occurred"
 
 6. **CRITICAL: Context and Memory Management**
+   - **ALWAYS use the CONVERSATION CONTEXT provided in the system prompt:**
+     - The system provides you with "KONVERSATIONS-KONTEXT" including the last project mentioned (name, date, code).
+     - **CRITICAL**: If the user's current message does NOT explicitly mention a project, AUTOMATICALLY use the last project from the context!
+     - **Example**: If context shows "Letztes Projekt: Besichtigung (Datum: 2025-12-30)" and user says "füge Mitarbeiter hinzu", automatically use "Besichtigung" for 2025-12-30.
+     - **Example**: If context shows "Letztes Projekt: Alpha" and user says "zeige Details", automatically query for project "Alpha".
    - **ALWAYS prioritize the MOST RECENT user message and context:**
      - When the user mentions a specific project name AND date in the current message, use THAT project and date, NOT a project mentioned earlier in the conversation.
      - If the user says "für das Projekt [Name] am [Datum]", use exactly that project and date.
      - If the user corrects you or clarifies which project they mean, immediately switch to the corrected project.
+   - **Context priority (in order):**
+     1. **FIRST**: Current user message explicitly mentions project name AND date → use that
+     2. **SECOND**: Current user message mentions only project name → use that name + date from context if available
+     3. **THIRD**: Current user message mentions NO project → AUTOMATICALLY use last project from context
+     4. **FOURTH**: If no context available, ask for clarification
    - **Do NOT carry over context from old topics:**
-     - If the user switches topics (e.g., from "Jonas entfernen" to "Projekt Besichtigung aktualisieren"), focus ONLY on the new topic.
-     - Do NOT mention or reference old topics unless the user explicitly brings them up again.
+     - If the user switches topics (e.g., from "Jonas entfernen" to "Projekt Besichtigung aktualisieren"), focus ONLY on the new topic and update the context.
      - When the user says "Diese Informationen waren aber für das Projekt [X]", immediately switch to project [X] and forget about the previous project.
-   - **Project identification priority:**
-     1. **FIRST**: Check if the current user message explicitly mentions a project name AND date - use that combination.
-     2. **SECOND**: If only a project name is mentioned, check if there's a recent context (last 2-3 messages) that mentioned a date for that project.
-     3. **THIRD**: If multiple projects match, ask for clarification with the specific date.
    - **When updating project information:**
      - If user says "für das Projekt [Name] am [Datum]" or "für das Projekt [Name] für den [Datum]", use filters: {name: "[Name]"} AND check the date field (project_date or plan_date) matches [Datum].
+     - If user says just "ändere [field]" without mentioning project, use the last project from context.
      - NEVER update a different project just because it has a similar name - always verify both name AND date match.
    - **Example of correct context handling:**
-     - User: "Erstelle Projekt Besichtigung für 30. Dezember" → Create "Besichtigung" for 2025-12-30
-     - User: "Die Straße ist Kölner Landstraße 99" → Update "Besichtigung" for 2025-12-30 (NOT "Umzug" from earlier!)
+     - User: "Erstelle Projekt Besichtigung für 30. Dezember" → Create "Besichtigung" for 2025-12-30 (context updated)
+     - User: "Die Straße ist Kölner Landstraße 99" → Update "Besichtigung" for 2025-12-30 using context (NOT "Umzug" from earlier!)
+     - User: "füge Mitarbeiter hinzu" → Add employee to "Besichtigung" for 2025-12-30 using context
      - User: "Diese Informationen waren aber für das Projekt Besichtigung am dreißigsten Dezember" → Immediately switch to "Besichtigung" for 2025-12-30
 
 7. **CRITICAL: Data Consistency Rules**
@@ -771,19 +838,76 @@ const formatErrorMessage = (error: string, context?: string): string => {
 
 /**
  * Provides helpful suggestions when no results are found
+ * Returns alternative queries and helpful tips
  */
-const getNoResultsSuggestions = (queryType: string, filters?: Record<string, any>): string => {
+const getNoResultsSuggestions = async (
+  queryType: string, 
+  filters?: Record<string, any>,
+  tableName?: string
+): Promise<string> => {
   const suggestions: string[] = []
+  const alternatives: string[] = []
+  
+  // Get current date for alternative suggestions
+  const now = new Date()
+  const berlinIsoDate = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Europe/Berlin',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now)
+  
+  const tomorrow = new Date(now)
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
+  const tomorrowIsoDate = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Europe/Berlin',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(tomorrow)
   
   if (queryType === 'project' || queryType === 'morningplan') {
     suggestions.push('- Überprüfe das Datum (verwende Format: TT.MM.JJJJ)')
     suggestions.push('- Versuche einen anderen Zeitraum')
     suggestions.push('- Prüfe, ob der Projektname korrekt geschrieben ist')
+    
+    // Add alternative date suggestions
+    if (filters && filters.plan_date) {
+      alternatives.push(`- Versuche "Projekte für heute" (${berlinIsoDate})`)
+      alternatives.push(`- Versuche "Projekte für morgen" (${tomorrowIsoDate})`)
+      alternatives.push('- Versuche "alle Projekte" (ohne Datumsfilter)')
+    } else {
+      alternatives.push(`- Versuche "Projekte für heute" (${berlinIsoDate})`)
+      alternatives.push(`- Versuche "Projekte für morgen" (${tomorrowIsoDate})`)
+      alternatives.push('- Versuche "Projekte diese Woche"')
+    }
   }
   
   if (queryType === 'employee') {
     suggestions.push('- Überprüfe die Schreibweise des Mitarbeiternamens')
     suggestions.push('- Prüfe, ob der Mitarbeiter als aktiv markiert ist')
+    alternatives.push('- Versuche "alle Mitarbeiter" (ohne Namensfilter)')
+    
+    // Try to find similar employee names if we have a name filter
+    if (filters && filters.name && tableName === 't_employees') {
+      try {
+        const similarQuery = await queryTable('t_employees', {}, 50)
+        if (similarQuery.data && Array.isArray(similarQuery.data) && similarQuery.data.length > 0) {
+          const searchName = typeof filters.name === 'string' ? filters.name.toLowerCase() : 
+                            (filters.name?.value || '').toLowerCase()
+          const similarNames = similarQuery.data
+            .map((emp: any) => emp.name)
+            .filter((name: string) => name && name.toLowerCase().includes(searchName.substring(0, 2)))
+            .slice(0, 3)
+          
+          if (similarNames.length > 0) {
+            alternatives.push(`- Meintest du vielleicht: ${similarNames.join(', ')}?`)
+          }
+        }
+      } catch (error) {
+        // Ignore errors in suggestion generation
+      }
+    }
   }
   
   if (filters && Object.keys(filters).length > 0) {
@@ -791,11 +915,19 @@ const getNoResultsSuggestions = (queryType: string, filters?: Record<string, any
     suggestions.push('- Überprüfe die Filterwerte auf Tippfehler')
   }
   
-  if (suggestions.length === 0) {
-    return 'Versuche es mit anderen Suchkriterien oder einem anderen Zeitraum.'
+  let result = ''
+  
+  if (alternatives.length > 0) {
+    result += `**Alternative Vorschläge:**\n${alternatives.join('\n')}\n\n`
   }
   
-  return `Mögliche Lösungen:\n${suggestions.join('\n')}`
+  if (suggestions.length > 0) {
+    result += `**Mögliche Lösungen:**\n${suggestions.join('\n')}`
+  } else {
+    result += 'Versuche es mit anderen Suchkriterien oder einem anderen Zeitraum.'
+  }
+  
+  return result
 }
 
 const normalizeText = (text: string) =>
@@ -1213,6 +1345,147 @@ const applyEmployeeFilters = (
   }
 
   return filters
+}
+
+/**
+ * Extract conversation context from recent messages
+ * Tracks: last project (name + date), last action, last filters
+ */
+interface ConversationContext {
+  lastProject?: {
+    name: string
+    date?: string
+    code?: string
+  }
+  lastAction?: {
+    type: 'query' | 'insert' | 'update' | 'delete' | 'statistics'
+    table?: string
+    description?: string
+  }
+  lastFilters?: {
+    dateRange?: DateRange | null
+    projectName?: string
+    employeeName?: string
+  }
+}
+
+const extractConversationContext = (messages: any[]): ConversationContext => {
+  const context: ConversationContext = {}
+  
+  // Look at last 15 messages (user + assistant + tool pairs)
+  const recentMessages = messages.slice(-15)
+  
+  // Extract last project mentioned from user messages and tool results
+  for (let i = recentMessages.length - 1; i >= 0; i--) {
+    const msg = recentMessages[i]
+    const content = msg?.content || ''
+    
+    // Look for project mentions with dates in user messages
+    const projectDateMatch = content.match(/projekt\s+([^,\n]+?)\s+(?:am|für|für den)\s+(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})/i)
+    if (projectDateMatch && msg?.role === 'user') {
+      context.lastProject = {
+        name: projectDateMatch[1].trim(),
+        date: `${projectDateMatch[4]}-${projectDateMatch[3].padStart(2, '0')}-${projectDateMatch[2].padStart(2, '0')}`
+      }
+      break
+    }
+    
+    // Look for project mentions without dates in user messages
+    const projectMatch = content.match(/projekt\s+([^,\n]+?)(?:\s|$|,|\.)/i)
+    if (projectMatch && msg?.role === 'user' && !context.lastProject) {
+      const projectName = projectMatch[1].trim()
+      // Skip common words that aren't project names
+      if (!['alle', 'heute', 'morgen', 'gestern', 'diese', 'nächste', 'letzte'].includes(projectName.toLowerCase())) {
+        context.lastProject = {
+          name: projectName
+        }
+      }
+    }
+    
+    // Extract project from tool call arguments (e.g., insertRow with project_name)
+    if (msg?.role === 'assistant' && msg?.tool_calls) {
+      for (const toolCall of msg.tool_calls) {
+        try {
+          const args = JSON.parse(toolCall.function?.arguments || '{}')
+          if (args.tableName === 't_projects' && args.values?.name) {
+            context.lastProject = {
+              name: args.values.name,
+              date: args.values.project_date || args.values.plan_date
+            }
+            break
+          }
+          // Extract from filters
+          if (args.filters?.project_name || args.filters?.name) {
+            const projectName = args.filters.project_name || args.filters.name
+            if (typeof projectName === 'string' && !context.lastProject) {
+              context.lastProject = {
+                name: projectName,
+                date: args.filters.plan_date || args.filters.project_date
+              }
+            }
+          }
+        } catch (e) {
+          // Ignore JSON parse errors
+        }
+      }
+      if (context.lastProject) break
+    }
+    
+    // Extract project from tool results (JSON responses)
+    if (msg?.role === 'tool' && content) {
+      try {
+        const toolResult = JSON.parse(content)
+        if (toolResult.data && Array.isArray(toolResult.data) && toolResult.data.length > 0) {
+          const firstResult = toolResult.data[0]
+          if (firstResult.project_name || firstResult.name) {
+            const projectName = firstResult.project_name || firstResult.name
+            if (!context.lastProject && typeof projectName === 'string') {
+              context.lastProject = {
+                name: projectName,
+                date: firstResult.plan_date || firstResult.project_date,
+                code: firstResult.project_code
+              }
+            }
+          }
+        }
+      } catch (e) {
+        // Not JSON, ignore
+      }
+    }
+  }
+  
+  // Extract last action from tool calls
+  for (let i = recentMessages.length - 1; i >= 0; i--) {
+    const msg = recentMessages[i]
+    if (msg?.role === 'assistant' && msg?.tool_calls) {
+      const lastToolCall = msg.tool_calls[msg.tool_calls.length - 1]
+      if (lastToolCall?.function?.name) {
+        const toolName = lastToolCall.function.name
+        try {
+          const args = JSON.parse(lastToolCall.function.arguments || '{}')
+          context.lastAction = {
+            type: toolName === 'queryTable' || toolName === 'queryTableWithJoin' ? 'query' :
+                  toolName === 'insertRow' ? 'insert' :
+                  toolName === 'updateRow' ? 'update' :
+                  toolName === 'deleteRow' ? 'delete' :
+                  toolName === 'getStatistics' ? 'statistics' : 'query',
+            table: args.tableName
+          }
+        } catch (e) {
+          context.lastAction = {
+            type: toolName === 'queryTable' || toolName === 'queryTableWithJoin' ? 'query' :
+                  toolName === 'insertRow' ? 'insert' :
+                  toolName === 'updateRow' ? 'update' :
+                  toolName === 'deleteRow' ? 'delete' :
+                  toolName === 'getStatistics' ? 'statistics' : 'query'
+          }
+        }
+        break
+      }
+    }
+  }
+  
+  return context
 }
 
 const applyProjectFilters = (
@@ -1662,7 +1935,29 @@ export async function POST(req: NextRequest) {
       hour12: false,
     }).format(now)
 
-    const systemPromptWithTime = `${SYSTEM_PROMPT}\n\nAKTUELLE SYSTEMZEIT:\n- ISO (UTC): ${now.toISOString()}\n- Europa/Berlin: ${berlinTime}\n- Berlin (ISO-ähnlich, Datum): ${berlinIsoDate}\n- Berlin (ISO-ähnlich, Datum+Zeit 24h): ${berlinIsoDateTime}\n- Berlin (ISO-Offset): ${berlinIsoDateTimeWithOffset}\n- Aktuelle Kalenderwoche (Mo-So, Berlin): ${berlinWeekRange}\n- HEUTE (für Filter): ${berlinIsoDate}\n\nNutze diese Angaben direkt, wenn nach dem aktuellen Datum oder der aktuellen Uhrzeit gefragt wird. Berechne relative Zeitangaben (z.B. gestern, morgen, übermorgen, letzte Woche, nächste Woche) ausschließlich auf Basis der Berlin-Zeit und filtere Woche/"Kalenderwoche"-Anfragen strikt auf ${berlinWeekRange}.\n\n**WICHTIG FÜR ZUKUNFTSFILTER**: Wenn der Nutzer nach "zukünftigen", "nächsten", "noch nicht erledigten" Projekten/Einsätzen fragt, verwende IMMER einen Filter mit plan_date >= '${berlinIsoDate}' oder project_date >= '${berlinIsoDate}'. Nur Datensätze mit Datum >= ${berlinIsoDate} sind zukünftig!`
+    // Extract conversation context from recent messages
+    const conversationContext = extractConversationContext(messages)
+    
+    // Build context string for system prompt
+    let contextInfo = ''
+    if (conversationContext.lastProject) {
+      contextInfo += `\n**KONVERSATIONS-KONTEXT:**\n`
+      contextInfo += `- **Letztes Projekt:** ${conversationContext.lastProject.name}`
+      if (conversationContext.lastProject.date) {
+        contextInfo += ` (Datum: ${conversationContext.lastProject.date})`
+      }
+      if (conversationContext.lastProject.code) {
+        contextInfo += ` (Code: ${conversationContext.lastProject.code})`
+      }
+      contextInfo += `\n`
+      contextInfo += `- **WICHTIG**: Wenn der Nutzer in der aktuellen Nachricht kein explizites Projekt erwähnt, verwende automatisch das letzte Projekt (${conversationContext.lastProject.name}${conversationContext.lastProject.date ? ` am ${conversationContext.lastProject.date}` : ''}) als Kontext.\n`
+      contextInfo += `- **Beispiel**: Wenn der Nutzer sagt "füge Mitarbeiter hinzu" ohne Projekt zu nennen, verwende automatisch "${conversationContext.lastProject.name}" als Projekt.\n`
+    }
+    if (conversationContext.lastAction) {
+      contextInfo += `- **Letzte Aktion:** ${conversationContext.lastAction.type}${conversationContext.lastAction.table ? ` auf Tabelle ${conversationContext.lastAction.table}` : ''}\n`
+    }
+    
+    const systemPromptWithTime = `${SYSTEM_PROMPT}${contextInfo}\n\nAKTUELLE SYSTEMZEIT:\n- ISO (UTC): ${now.toISOString()}\n- Europa/Berlin: ${berlinTime}\n- Berlin (ISO-ähnlich, Datum): ${berlinIsoDate}\n- Berlin (ISO-ähnlich, Datum+Zeit 24h): ${berlinIsoDateTime}\n- Berlin (ISO-Offset): ${berlinIsoDateTimeWithOffset}\n- Aktuelle Kalenderwoche (Mo-So, Berlin): ${berlinWeekRange}\n- HEUTE (für Filter): ${berlinIsoDate}\n\nNutze diese Angaben direkt, wenn nach dem aktuellen Datum oder der aktuellen Uhrzeit gefragt wird. Berechne relative Zeitangaben (z.B. gestern, morgen, übermorgen, letzte Woche, nächste Woche) ausschließlich auf Basis der Berlin-Zeit und filtere Woche/"Kalenderwoche"-Anfragen strikt auf ${berlinWeekRange}.\n\n**WICHTIG FÜR ZUKUNFTSFILTER**: Wenn der Nutzer nach "zukünftigen", "nächsten", "noch nicht erledigten" Projekten/Einsätzen fragt, verwende IMMER einen Filter mit plan_date >= '${berlinIsoDate}' oder project_date >= '${berlinIsoDate}'. Nur Datensätze mit Datum >= ${berlinIsoDate} sind zukünftig!`
 
     // Prepare messages for OpenAI
     const openaiMessages: any[] = [
@@ -1970,9 +2265,51 @@ function getToolDefinitions(): ChatCompletionTool[] {
     {
       type: 'function',
       function: {
+        name: 'getStatistics',
+        description:
+          'Get statistics and aggregations from a table. Use this when the user asks for counts, sums, averages, or grouped statistics. Examples: "Wie viele Mitarbeiter sind diese Woche eingeplant?", "Welches Projekt hat die meisten Mitarbeiter?", "Zeige Auslastung pro Mitarbeiter", "Wie viele Projekte gibt es diesen Monat?". Supports COUNT, SUM, AVG, MIN, MAX with optional GROUP BY. **CRITICAL**: When user asks for statistics, ALWAYS use this tool instead of queryTable. Format results as clear tables or lists with proper Markdown formatting.',
+        parameters: {
+          type: 'object',
+          properties: {
+            tableName: {
+              type: 'string',
+              description: 'The name of the table to get statistics from (e.g., "t_employees", "v_morningplan_full", "t_projects")',
+            },
+            aggregation: {
+              type: 'string',
+              enum: ['count', 'sum', 'avg', 'min', 'max'],
+              description: 'Type of aggregation: "count" for counting rows, "sum" for summing numeric values, "avg" for average, "min" for minimum, "max" for maximum',
+              default: 'count',
+            },
+            column: {
+              type: 'string',
+              description: 'Optional: Column name for sum/avg/min/max operations. Required for sum, avg, min, max. For count, can be omitted to count all rows, or provided to count non-null values in that column.',
+            },
+            groupBy: {
+              type: 'string',
+              description: 'Optional: Column name to group by. Use this to get statistics per group (e.g., groupBy: "project_name" to get count per project).',
+            },
+            filters: {
+              type: 'object',
+              description: 'Optional filters to apply before calculating statistics. Same format as queryTable filters. Use date filters for time-based statistics (e.g., "diese Woche", "diesen Monat").',
+              additionalProperties: true,
+            },
+            limit: {
+              type: 'number',
+              description: 'Maximum number of groups to return when using groupBy. Default: 100',
+              default: 100,
+            },
+          },
+          required: ['tableName', 'aggregation'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'insertRow',
         description:
-          'Insert a single row into an allowed table. YOU MUST CALL THIS TOOL IMMEDIATELY - DO NOT JUST SAY YOU WILL DO IT! CRITICAL RULES: 1) When user says "neues projekt" or "projekt hinzufügen" or "neuer Eintrag projekt" or "projekt erstellen" and provides ANY information (even just a name), IMMEDIATELY CALL THIS TOOL with tableName="t_projects" and values MUST be a valid object with at least name field. 2) When user says "neu mitarbeiter" or "neuer arbeiter" or "worker" with ANY information (even just a name), IMMEDIATELY CALL THIS TOOL with tableName="t_employees" and values MUST be a valid object with at least name field. 3) When user says "neues material" or "material hinzufügen" or "material erstellen" and provides ANY information (even just a name), IMMEDIATELY CALL THIS TOOL with tableName="t_materials" and values MUST be a valid object with at least name field. The material_id will be auto-generated if not provided. 4) When user says "EK [price] VK [price]" or mentions Einkaufspreis/Verkaufspreis for a material, IMMEDIATELY CALL THIS TOOL with tableName="t_material_prices". First query t_materials to find material_id by name using queryTable, then call insertRow with values containing material_id, purchase_price (EK value), and sale_price (VK value). 5) **CRITICAL FOR ADDING EMPLOYEES TO PROJECTS**: When user says "füge [EmployeeName] zu [ProjectName] hinzu", "mitarbeiter hinzufügen", "weise zu" or similar, you MUST: a) FIRST do queries silently (don\'t announce): query v_morningplan_full with {project_name: "[ProjectName]", plan_date: "[date if mentioned]"} to get plan_id from result[0].plan_id. If no date mentioned, use today\'s date or the most recent plan_date. b) Query t_employees with {name: "[EmployeeName]"} and limit: 50 to get employee_id from result[0].employee_id for EACH employee (use limit: 50 because employees might not be in first 10 results - if still not found, try limit: 100). c) IMMEDIATELY call insertRow for EACH employee with tableName="t_morningplan_staff", values={plan_id: "[plan_id_from_step_a]", employee_id: "[employee_id_from_step_b]", sort_order: 0}, confirm=true. **DO NOT announce anything - do queries silently, then call tool immediately!** **NEVER say "Ich werde", "Moment bitte", "Einen Moment" - just DO IT!** 6) NEVER ask for more information - if you have at least a name, call the tool immediately with defaults! 7) If user provides info in multiple messages, COMBINE all info from conversation history. 8) ALWAYS set confirm: true - user already provided the info. 9) Extract info from ALL previous messages. 10) YOU MUST ACTUALLY CALL THIS TOOL FUNCTION - do NOT just respond with text saying you will create it! 11) The values parameter MUST be a valid JSON object (not null, not undefined, not empty string) with at least the required fields (name for projects/employees/materials, plan_id and employee_id for t_morningplan_staff, material_id for material_prices).',
+          'Insert a single row into an allowed table. YOU MUST CALL THIS TOOL IMMEDIATELY - DO NOT JUST SAY YOU WILL DO IT! CRITICAL RULES: 1) When user says "neues projekt" or "projekt hinzufügen" or "neuer Eintrag projekt" or "projekt erstellen" and provides ANY information (even just a name), IMMEDIATELY CALL THIS TOOL with tableName="t_projects" and values MUST be a valid object with at least name field. 2) When user says "neu mitarbeiter" or "neuer arbeiter" or "worker" with ANY information (even just a name), IMMEDIATELY CALL THIS TOOL with tableName="t_employees" and values MUST be a valid object with at least name field. 3) When user says "neues material" or "material hinzufügen" or "material erstellen" and provides ANY information (even just a name), IMMEDIATELY CALL THIS TOOL with tableName="t_materials" and values MUST be a valid object with at least name field. The material_id will be auto-generated if not provided. 4) When user says "EK [price] VK [price]" or mentions Einkaufspreis/Verkaufspreis for a material, IMMEDIATELY CALL THIS TOOL with tableName="t_material_prices". First query t_materials to find material_id by name using queryTable, then call insertRow with values containing material_id, purchase_price (EK value), and sale_price (VK value). 5) **CRITICAL FOR ADDING EMPLOYEES TO PROJECTS - INCLUDING BATCH OPERATIONS**: When user says "füge [EmployeeName] zu [ProjectName] hinzu", "mitarbeiter hinzufügen", "weise zu" or similar, you MUST: a) **BATCH OPERATIONS**: If user mentions MULTIPLE employees (e.g., "füge Achim, Ali und Björn hinzu"), extract ALL names and process EACH separately - call insertRow MULTIPLE times (once per employee). After all operations, provide a summary. b) FIRST do queries silently (don\'t announce): query v_morningplan_full with {project_name: "[ProjectName]", plan_date: "[date if mentioned]"} to get plan_id from result[0].plan_id. If no date mentioned, use today\'s date or the most recent plan_date. c) Query t_employees with {name: "[EmployeeName]"} and limit: 50 to get employee_id from result[0].employee_id for EACH employee (use limit: 50 because employees might not be in first 10 results - if still not found, try limit: 100). d) IMMEDIATELY call insertRow for EACH employee with tableName="t_morningplan_staff", values={plan_id: "[plan_id_from_step_b]", employee_id: "[employee_id_from_step_c]", sort_order: 0}, confirm=true. **For batch operations, call insertRow MULTIPLE times - once per employee!** **DO NOT announce anything - do queries silently, then call tool immediately!** **NEVER say "Ich werde", "Moment bitte", "Einen Moment" - just DO IT!** 6) NEVER ask for more information - if you have at least a name, call the tool immediately with defaults! 7) If user provides info in multiple messages, COMBINE all info from conversation history. 8) ALWAYS set confirm: true - user already provided the info. 9) Extract info from ALL previous messages. 10) YOU MUST ACTUALLY CALL THIS TOOL FUNCTION - do NOT just respond with text saying you will create it! 11) The values parameter MUST be a valid JSON object (not null, not undefined, not empty string) with at least the required fields (name for projects/employees/materials, plan_id and employee_id for t_morningplan_staff, material_id for material_prices).',
         parameters: {
           type: 'object',
           properties: {
@@ -2029,7 +2366,7 @@ function getToolDefinitions(): ChatCompletionTool[] {
       function: {
         name: 'deleteRow',
         description:
-          'Delete existing row(s) from an allowed table. Use ONLY when: 1) User explicitly asks to delete/remove data (e.g., "lösche", "entferne", "delete", "remove"), 2) User confirms the deletion, AND 3) You have the unique identifier (e.g., employee_id, project_id, plan_id) from a previous query. **CRITICAL WORKFLOW**: Before calling deleteRow, you MUST first query the table to find the unique ID (e.g., queryTable to get employee_id from name). Then use that ID in the filters. **WARNING**: Deletion is permanent! Always ask for confirmation before deleting. IMMEDIATELY call this tool when user confirms deletion. Use filters with the actual ID (e.g., {employee_id: "abc-123"}), NOT the name! Do NOT say you cannot delete - query first to get the ID, then delete!',
+          'Delete existing row(s) from an allowed table. Use ONLY when: 1) User explicitly asks to delete/remove data (e.g., "lösche", "entferne", "delete", "remove"), 2) User confirms the deletion, AND 3) You have the unique identifier (e.g., employee_id, project_id, plan_id) from a previous query. **CRITICAL WORKFLOW - AUTOMATIC QUERY REQUIRED**: If the user provides a NAME (e.g., "lösche SSS" or "entferne Mitarbeiter Achim"), you MUST AUTOMATICALLY call queryTable FIRST to find the unique ID. Do NOT ask the user for the ID - find it yourself! Steps: 1) Call queryTable with the name filter (e.g., {name: "SSS"} for t_employees), 2) Extract the unique ID from the result (e.g., employee_id), 3) Ask for confirmation, 4) When confirmed, call deleteRow with the ID (e.g., {employee_id: "abc-123"}). **WARNING**: Deletion is permanent! Always ask for confirmation before deleting. IMMEDIATELY call this tool when user confirms deletion. Use filters with the actual ID (e.g., {employee_id: "abc-123"}), NOT the name! Do NOT say you cannot delete - AUTOMATICALLY query first to get the ID, then delete!',
         parameters: {
           type: 'object',
           properties: {
@@ -2259,6 +2596,41 @@ async function handleToolCalls(
       functionResult = result
     } else if (functionName === 'getTableStructure') {
       const result = await getTableStructure(functionArgs.tableName)
+      functionResult = result
+    } else if (functionName === 'getStatistics') {
+      // Get the last user message for context
+      const userMsg = lastUserMessage || openaiMessages
+        .filter((m: any) => m.role === 'user')
+        .pop()?.content || ''
+      
+      // Apply date range filters if applicable
+      let filtersWithRange = applyDateRangeFilters(
+        functionArgs.tableName,
+        functionArgs.filters || {},
+        requestedDateRange,
+        userMsg
+      )
+      
+      // Apply project filters if applicable
+      filtersWithRange = applyProjectFilters(
+        functionArgs.tableName,
+        filtersWithRange,
+        requestedProjectIdentifiers
+      )
+      
+      // Apply intelligent employee filters (fuzzy matching)
+      filtersWithRange = applyEmployeeFilters(
+        functionArgs.tableName,
+        filtersWithRange
+      )
+      
+      const result = await getStatistics(functionArgs.tableName, {
+        aggregation: functionArgs.aggregation || 'count',
+        column: functionArgs.column,
+        groupBy: functionArgs.groupBy,
+        filters: filtersWithRange,
+        limit: functionArgs.limit || 100,
+      })
       functionResult = result
     } else if (functionName === 'insertRow') {
       if (!INSERT_ALLOWED_TABLES.has(functionArgs.tableName)) {
