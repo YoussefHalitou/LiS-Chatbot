@@ -183,3 +183,143 @@ export const throttle = <T extends (...args: any[]) => any>(
   }
 }
 
+/**
+ * Removes JSON and internal tool result messages from bot responses
+ * This prevents the bot from showing raw JSON or internal instructions to users
+ */
+export const sanitizeBotResponse = (content: string | null | undefined): string => {
+  if (!content) return ''
+  
+  let sanitized = content
+  
+  // Remove internal tool result instructions (handle both single-line and multi-line)
+  sanitized = sanitized.replace(/\[INTERNAL TOOL RESULT[^\]]*\][\s\n]*/gi, '')
+  // Also remove if it spans multiple lines or has extra whitespace
+  sanitized = sanitized.replace(/\[INTERNAL TOOL RESULT[\s\S]*?DO NOT SHOW THIS JSON TO THE USER!\]\s*/gi, '')
+  
+  // Remove JSON code blocks (most common case)
+  sanitized = sanitized.replace(/```json[\s\S]*?```/gi, '')
+  sanitized = sanitized.replace(/```[\s\S]*?```/g, (match) => {
+    // Check if it looks like JSON (contains "data" or "error" keys)
+    const codeContent = match.replace(/```[a-z]*\n?/gi, '').replace(/```/g, '').trim()
+    if (codeContent.includes('"data"') || codeContent.includes('"error"') || 
+        codeContent.includes("'data'") || codeContent.includes("'error'") ||
+        (codeContent.startsWith('{') && codeContent.includes('"data"'))) {
+      try {
+        JSON.parse(codeContent)
+        return '' // Remove JSON code blocks
+      } catch {
+        // Might be partial JSON, remove anyway if it has data/error
+        return ''
+      }
+    }
+    return match // Keep non-JSON code blocks
+  })
+  
+  // Remove inline JSON objects that look like tool results
+  // Match objects starting with { and containing "data" or "error"
+  sanitized = sanitized.replace(/\{\s*"data"\s*:[\s\S]*?\}/g, '')
+  sanitized = sanitized.replace(/\{\s*"error"\s*:[\s\S]*?\}/g, '')
+  sanitized = sanitized.replace(/\{\s*"data"\s*:[\s\S]*?"error"[\s\S]*?\}/g, '')
+  
+  // More aggressive: remove any JSON object that contains "data" or "error" as keys
+  sanitized = sanitized.replace(/\{[^{}]*"data"[^{}]*\}/g, '')
+  sanitized = sanitized.replace(/\{[^{}]*"error"[^{}]*\}/g, '')
+  
+  // Handle multi-line JSON objects (more complex matching)
+  // Match { ... "data": ... } patterns across multiple lines
+  sanitized = sanitized.replace(/\{\s*[\s\S]*?"data"\s*:[\s\S]*?\}/g, '')
+  sanitized = sanitized.replace(/\{\s*[\s\S]*?"error"\s*:[\s\S]*?\}/g, '')
+  
+  // Remove standalone JSON objects on their own lines
+  const jsonLines = sanitized.split('\n')
+  const filteredLines = jsonLines.filter(line => {
+    const trimmed = line.trim()
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+      try {
+        const parsed = JSON.parse(trimmed)
+        // If it's a tool result object, remove it
+        if (parsed.data !== undefined || parsed.error !== undefined) {
+          return false
+        }
+      } catch {
+        // Not valid JSON, keep it
+      }
+    }
+    // Also check for partial JSON objects
+    if (trimmed.startsWith('{') && (trimmed.includes('"data"') || trimmed.includes('"error"'))) {
+      return false
+    }
+    return true
+  })
+  sanitized = filteredLines.join('\n')
+  
+  // Clean up multiple newlines (but preserve table spacing)
+  sanitized = sanitized.replace(/\n{4,}/g, '\n\n\n')
+  
+  // CRITICAL: Ensure tables have blank line before them
+  // Match patterns like "text:| Header |" and add blank line: "text:\n\n| Header |"
+  sanitized = sanitized.replace(/([^\n]):\s*\n\|/g, '$1:\n\n|')
+  sanitized = sanitized.replace(/([^\n])\.\s*\n\|/g, '$1.\n\n|')
+  // Also handle cases where table starts immediately after text
+  sanitized = sanitized.replace(/([^\n]):\s*\|/g, '$1:\n\n|')
+  sanitized = sanitized.replace(/([^\n])\.\s*\|/g, '$1.\n\n|')
+  
+  // CRITICAL: Fix table formatting - ensure each table row is on its own line
+  // First, fix malformed separator rows with too many pipes (like ||||||||---------|)
+  // Remove excessive pipes before separator
+  sanitized = sanitized.replace(/\|+\s*([-]{2,})\s*\|/g, '|$1|')
+  // Fix separator rows that have pipes mixed incorrectly
+  sanitized = sanitized.replace(/\|+\s*([-|]{3,})\s*\|/g, (match) => {
+    // Count how many columns we need based on dashes
+    const dashes = match.match(/-+/g) || []
+    const columnCount = dashes.length
+    // Create proper separator: |---|---| ---|
+    return '|' + '---|'.repeat(columnCount)
+  })
+  
+  // Fix cases where header row and separator row are on the same line
+  // Pattern: | Header | Header | Header ||----|----|----|
+  // This matches: |...| followed by ||----| (no newline between)
+  sanitized = sanitized.replace(/(\|[^|\n]+\|)\s*\|\s*([-|]{2,})\s*\|/g, '$1\n|$2|')
+  // Fix cases where separator row directly follows header without newline (more flexible)
+  // Match: | Header | followed by |----| or ----| (with or without leading |)
+  sanitized = sanitized.replace(/(\|[^|\n]+\|)\s*([|-]{3,})/g, '$1\n|$2|')
+  // Fix cases where separator row directly follows header with double pipe (||----|)
+  sanitized = sanitized.replace(/(\|[^|\n]+\|)\|\s*([-|]{2,})\s*\|/g, '$1\n|$2|')
+  // Fix cases where multiple table rows are on same line (header and data row)
+  sanitized = sanitized.replace(/(\|[^|\n]+\|)\s*\|([^|\n]+)\|/g, '$1\n|$2|')
+  
+  // Normalize separator rows - ensure they match header column count
+  const tableLines = sanitized.split('\n')
+  const fixedLines: string[] = []
+  for (let i = 0; i < tableLines.length; i++) {
+    const line = tableLines[i]
+    const nextLine = tableLines[i + 1]
+    
+    // If current line is a header row (starts with | and contains text, not just dashes)
+    if (line.match(/^\|\s*[^|]+\s*\|/) && !line.match(/^[\s|:-]+$/)) {
+      // Count columns in header
+      const headerColumns = (line.match(/\|/g) || []).length - 1
+      
+      // Check if next line is a separator row
+      if (nextLine && nextLine.match(/^\|[\s|:-]+\|$/)) {
+        // Create proper separator row with correct column count
+        const separator = '|' + '---|'.repeat(headerColumns)
+        fixedLines.push(line)
+        fixedLines.push(separator)
+        i++ // Skip the malformed separator line
+        continue
+      }
+    }
+    
+    fixedLines.push(line)
+  }
+  sanitized = fixedLines.join('\n')
+  
+  // Trim whitespace
+  sanitized = sanitized.trim()
+  
+  return sanitized
+}
+

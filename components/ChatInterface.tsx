@@ -24,6 +24,7 @@ import {
   getFileExtensionFromMimeType,
   getMicrophoneErrorMessage,
   sanitizeInput,
+  sanitizeBotResponse,
 } from '@/lib/utils'
 import ConnectionStatus from '@/components/ConnectionStatus'
 import { showToast } from '@/lib/toast'
@@ -118,7 +119,7 @@ export default function ChatInterface() {
     if (typeof window === 'undefined' || !currentChatId) return
     
     async function saveMessages() {
-      if (messages.length > 0) {
+      if (messages.length > 0 && currentChatId) {
         await saveChatMessages(currentChatId, messages)
         // Update chat list to reflect changes
         const updatedChats = await getAllChats()
@@ -1047,11 +1048,13 @@ export default function ChatInterface() {
 
     if (message) {
       const timestamp = new Date()
+      // Sanitize message to remove JSON
+      const sanitizedMessage = sanitizeBotResponse(message)
       setMessages((prev) => [
         ...prev,
         {
           role: 'assistant',
-          content: message,
+          content: sanitizedMessage,
           timestamp,
         },
       ])
@@ -1094,13 +1097,18 @@ export default function ChatInterface() {
             setIsStreamingResponse(true)
             setShowLoadingBubble(false)
             assembledContent += payload.content
-            setMessages((prev) =>
-              prev.map((msg, idx) =>
+            // Sanitize content to remove JSON as it streams in
+            // Use functional update to get current state
+            setMessages((prev) => {
+              const currentContent = prev[assistantIndex]?.content || ''
+              const newContent = currentContent + payload.content
+              const sanitizedContent = sanitizeBotResponse(newContent)
+              return prev.map((msg, idx) =>
                 idx === assistantIndex
-                  ? { ...msg, content: (msg.content || '') + payload.content, timestamp: assistantTimestamp }
+                  ? { ...msg, content: sanitizedContent, timestamp: assistantTimestamp }
                   : msg
               )
-            )
+            })
           } else if (payload.type === 'tool_calls' && payload.tool_calls) {
             // Preserve tool calls in the message
             setMessages((prev) =>
@@ -1111,16 +1119,9 @@ export default function ChatInterface() {
               )
             )
           } else if (payload.type === 'tool_response' && payload.tool_call_id) {
-            // Preserve tool response messages
-            setMessages((prev) => [
-              ...prev,
-              {
-                role: 'tool',
-                content: payload.content,
-                tool_call_id: payload.tool_call_id,
-                timestamp: new Date(),
-              },
-            ])
+            // Tool response messages are for the AI only, not for display
+            // Don't add them to the messages array - they're internal
+            // The AI will use them to generate the final response
           } else if (payload.type === 'done') {
             if (speakResponse) {
               speakText(assembledContent).catch((error) => {
@@ -1212,12 +1213,14 @@ export default function ChatInterface() {
         await readSseStream(response, assistantIndex, { speakResponse })
       } else {
         const data = await response.json()
+        // Sanitize non-streaming response to remove JSON
+        const sanitizedContent = sanitizeBotResponse(data.message?.content || 'Antwort konnte nicht geladen werden.')
         setMessages((prev) =>
           prev.map((msg, idx) =>
             idx === assistantIndex
               ? {
                   ...msg,
-                  content: data.message?.content || 'Antwort konnte nicht geladen werden.',
+                  content: sanitizedContent,
                   timestamp: assistantTimestamp,
                 }
               : msg
@@ -1617,7 +1620,7 @@ export default function ChatInterface() {
                           hr: ({ node, ...props }) => <hr className="my-4 border-t-2 border-gray-200" {...props} />,
                         }}
                       >
-                        {message.content}
+                        {sanitizeBotResponse(message.content)}
                       </ReactMarkdown>
                     )}
                   </div>
