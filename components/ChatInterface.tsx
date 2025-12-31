@@ -504,12 +504,12 @@ export default function ChatInterface() {
     }
   }
 
-  const stopRecording = () => {
+  const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop()
       // setIsRecording will be set to false in onstop handler
     }
-  }
+  }, [isRecording])
 
 
   const speakText = async (text: string) => {
@@ -799,7 +799,7 @@ export default function ChatInterface() {
     }
   }
 
-  const stopSpeaking = () => {
+  const stopSpeaking = useCallback(() => {
     console.log('[TTS] Stop speaking requested', { 
       hasAudio: !!audioRef.current, 
       isPlayingAudio,
@@ -829,7 +829,7 @@ export default function ChatInterface() {
         }
       }, 300)
     }
-  }
+  }, [isRecording, isLoading, isPlayingAudio])
 
   // Voice Activity Detection - monitor audio levels
   const startAudioMonitoring = (stream: MediaStream) => {
@@ -1061,7 +1061,7 @@ export default function ChatInterface() {
     }
   }
 
-  const readSseStream = async (
+  const readSseStream = useCallback(async (
     response: Response,
     assistantIndex: number,
     { speakResponse }: { speakResponse?: boolean } = {}
@@ -1137,9 +1137,9 @@ export default function ChatInterface() {
         }
       }
     }
-  }
+  }, [speakText])
 
-  const startChatRequest = async (
+  const startChatRequest = useCallback(async (
     userMessage: Message,
     { speakResponse }: { speakResponse?: boolean } = {}
   ) => {
@@ -1264,7 +1264,7 @@ export default function ChatInterface() {
       setIsLoading(false)
       setIsQueryingDatabase(false)
     }
-  }
+  }, [messages, currentChatId, streamingDisabled, readSseStream, clearLoadingBubbleTimeout, clearStreamTimeout])
 
   const sendMessage = useCallback(async () => {
     const sanitizedInput = sanitizeInput(input)
@@ -1324,7 +1324,7 @@ export default function ChatInterface() {
     return () => {
       window.removeEventListener('keydown', handleKeyboardShortcuts)
     }
-  }, [isRecording, voiceOnlyMode, isLoading, input, sendMessage])
+  }, [isRecording, voiceOnlyMode, isLoading, input, sendMessage, exitVoiceOnlyMode, stopRecording])
 
   // Auto-resize textarea
   useEffect(() => {
@@ -1355,14 +1355,14 @@ export default function ChatInterface() {
     await startRecording()
   }
 
-  const exitVoiceOnlyMode = () => {
+  const exitVoiceOnlyMode = useCallback(() => {
     console.log('[Voice Mode] Exiting voice-only mode')
     setVoiceOnlyMode(false)
     voiceOnlyModeRef.current = false // Sync ref immediately - this stops the loop
     stopRecording()
     stopSpeaking()
     stopAudioMonitoring()
-  }
+  }, [stopRecording, stopSpeaking])
 
   // Cleanup on unmount
   useEffect(() => {

@@ -30,7 +30,8 @@ export default function Auth({ onAuthSuccess }: AuthProps) {
 
       return () => subscription.unsubscribe()
     }
-  }, [onAuthSuccess])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onAuthSuccess]) // checkUser is stable, doesn't need to be in deps
 
   async function checkUser() {
     if (!supabase) return
