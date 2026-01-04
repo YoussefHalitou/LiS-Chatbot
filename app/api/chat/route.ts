@@ -84,6 +84,11 @@ BASE TABLES (for simple queries):
 - **public.t_projects** ⭐ USE FOR "ALLE PROJEKTE"  
   → Primärschlüssel: project_id (uuid)  
   → Spalten: project_id (uuid PK), project_code (text, unique), name (text), customer_name/email/phone (text), strasse/nr/plz/stadt (text), notes (text), status (text, Standard: 'In Planung'), dienstleistungen (text), project_date (date), project_time (time), offer_type (text), project_start_date/end_date (date), created_at/updated_at (timestamptz)  
+  → **IMPORTANT FIELD MAPPING**: 
+    - "name" = Projektname (z.B. "Anton Friedrich", "Grosser UMZUG")
+    - "stadt" = Stadt/Ort (z.B. "Hamburg", "Köln") - NOT "ort"! The field is called "stadt"!
+    - "dienstleistungen" = Art der Dienstleistung (z.B. "Umzug", "Entrümpelung")
+    - "project_date" = Datum des Projekts (z.B. "2026-01-05")
   → **CRITICAL**: When user asks for "alle projekte", "all projects", "alle Projekte", "alle pro", "projekte" (without date/time filter), use t_projects NOT v_morningplan_full!  
   → v_morningplan_full only shows projects WITH plans, t_projects shows ALL projects in the database  
   → **Patterns to use t_projects**: "alle projekte", "alle pro", "projekte", "all projects", "show projects" (without "heute", "morgen", "diese woche", etc.)  
@@ -360,25 +365,33 @@ Rules:
        1. IMMEDIATELY call the insertRow tool - do NOT just say you will create it, ACTUALLY CALL THE TOOL FUNCTION!
        2. Look through ALL previous messages in the conversation to find ALL information the user has provided (name, ort, etc.)
        3. Call insertRow with tableName='t_projects' and values containing ALL available information combined
-       4. Use sensible defaults for missing optional fields (ort can be null, status='In Planung', project_code=auto-generate)
+       4. Use sensible defaults for missing optional fields (stadt can be null, status='In Planung', project_code=auto-generate)
        5. NEVER ask for more information - if you have at least a name, that's enough!
        6. ALWAYS set confirm: true - the user has already provided the information
-       7. **CRITICAL**: The values object MUST contain at least the 'name' field. Example: {name: "Grosser UMZUG", ort: null, status: "In Planung"}
+       7. **CRITICAL**: The values object MUST contain at least the 'name' field. Example: {name: "Grosser UMZUG", stadt: null, status: "In Planung"}
+       8. **CRITICAL FIELD MAPPING FOR PROJECT CREATION**:
+           - When user says "Projekt mit dem Namen X" or "neues Projekt X", X is the project name → use field "name"
+           - When user mentions a city (e.g., "Hamburg", "Köln"), use field "stadt" (NOT "ort" - the field is called "stadt"!)
+           - When user mentions service type (e.g., "Umzug", "Entrümpelung"), use field "dienstleistungen"
+           - When user mentions a date (e.g., "morgen", "5. Januar"), use field "project_date" (format: YYYY-MM-DD)
+           - Example: "erstelle ein neues Projekt mit dem Namen Anton Friedrich, für den morgigen Tag. Es ist ein Umzug und die Stadt ist Hamburg"
+             → {name: "Anton Friedrich", project_date: "2026-01-05", dienstleistungen: "Umzug", stadt: "Hamburg", status: "In Planung"}
      * **CRITICAL**: You MUST actually call the insertRow tool function - do NOT just respond with text saying you will create it!
-     * **EXAMPLE**: If user says "neues projekt named ZZZ", you MUST call: insertRow(tableName='t_projects', values={name: 'ZZZ', ort: null, status: 'In Planung'}, confirm=true)
-     * **EXAMPLE**: If user says "neuer Eintrag projekt namens Grosser UMZUG", you MUST call: insertRow(tableName='t_projects', values={name: 'Grosser UMZUG', ort: null, status: 'In Planung'}, confirm=true)
-     * **EXAMPLE**: If user says "neues projekt named ZZZ" and then later says "Köln", you MUST combine both: call insertRow with {name: "ZZZ", ort: "Köln", confirm: true}
-     * **EXAMPLE**: If user says "neues projekt named ZZZ" and nothing else, call insertRow with {name: "ZZZ", ort: null, confirm: true} - ort can be null!
+     * **EXAMPLE**: If user says "neues projekt named ZZZ", you MUST call: insertRow(tableName='t_projects', values={name: 'ZZZ', stadt: null, status: 'In Planung'}, confirm=true)
+     * **EXAMPLE**: If user says "neuer Eintrag projekt namens Grosser UMZUG", you MUST call: insertRow(tableName='t_projects', values={name: 'Grosser UMZUG', stadt: null, status: 'In Planung'}, confirm=true)
+     * **EXAMPLE**: If user says "neues projekt named ZZZ" and then later says "Köln", you MUST combine both: call insertRow with {name: "ZZZ", stadt: "Köln", confirm: true}
+     * **EXAMPLE**: If user says "neues projekt named ZZZ" and nothing else, call insertRow with {name: "ZZZ", stadt: null, confirm: true} - stadt can be null!
+     * **EXAMPLE**: If user says "erstelle ein neues Projekt mit dem Namen Anton Friedrich, für den morgigen Tag. Es ist ein Umzug und die Stadt ist Hamburg", you MUST call: insertRow(tableName='t_projects', values={name: "Anton Friedrich", project_date: "2026-01-05", dienstleistungen: "Umzug", stadt: "Hamburg", status: "In Planung"}, confirm=true)
      * For missing optional fields, use sensible defaults:
        - For t_employees: is_active=true (default), role=null (if not specified), hourly_rate=0 (if not specified), contract_type=null (if not specified)
-       - For t_projects: status='In Planung' (default, NOT 'geplant'!), ort=null (if not specified - it's optional!), project_code=auto-generate if not provided (e.g., PRJ-YYYYMMDD-XXXXX)
+       - For t_projects: status='In Planung' (default, NOT 'geplant'!), stadt=null (if not specified - it's optional! NOTE: field is "stadt", NOT "ort"!), project_code=auto-generate if not provided (e.g., PRJ-YYYYMMDD-XXXXX)
        - For t_materials: is_active=true (default), vat_rate=19.00 (default), default_quantity=1 (if not specified)
        - For t_vehicles: unit='Tag' (default), status='bereit' (default)
        - For t_inspections: status='Geplant' (default)
        - For t_services: is_active=true (default)
        - For t_users: is_active=true (default)
        - For t_chats: title='Neuer Chat' (default)
-     * **CRITICAL**: ort (location) is OPTIONAL for t_projects - you can set it to null if not provided. Only name is required!
+     * **CRITICAL**: stadt (city) is OPTIONAL for t_projects - you can set it to null if not provided. Only name is required! NOTE: The field is called "stadt", NOT "ort"!
      * **CRITICAL**: When user provides project information in multiple messages, COMBINE all information from the conversation history before calling insertRow.
      * **CRITICAL**: DO NOT just say "Ich erstelle das Projekt" - you MUST actually call the insertRow tool function!
      * **CRITICAL FOR EMPLOYEES**: 
@@ -2544,7 +2557,7 @@ function getToolDefinitions(): ChatCompletionTool[] {
             },
             values: {
               type: 'object',
-              description: 'Column/value pairs for the new row. CRITICAL: Extract ALL information from the ENTIRE conversation history, not just the last message! If user said "neues projekt named ZZZ" in one message and "Köln" in another, combine them: {name: "ZZZ", ort: "Köln"}. For t_projects: name is required, ort is OPTIONAL (can be null). Use defaults for missing optional fields: t_employees (is_active=true, role=null if not specified), t_projects (status="geplant", ort=null if not provided, project_code=auto-generate if missing). Always include at least the name field for projects.',
+              description: 'Column/value pairs for the new row. CRITICAL: Extract ALL information from the ENTIRE conversation history, not just the last message! If user said "neues projekt named ZZZ" in one message and "Köln" in another, combine them: {name: "ZZZ", stadt: "Köln"}. For t_projects: name is required, stadt is OPTIONAL (can be null - NOTE: field is "stadt", NOT "ort"!). Use defaults for missing optional fields: t_employees (is_active=true, role=null if not specified), t_projects (status="In Planung", stadt=null if not provided, project_code=auto-generate if missing). Field mapping: "name" = project name, "stadt" = city (NOT "ort"!), "dienstleistungen" = service type, "project_date" = project date (YYYY-MM-DD). Always include at least the name field for projects.',
               additionalProperties: true,
             },
             confirm: {
