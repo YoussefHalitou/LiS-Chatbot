@@ -12,6 +12,8 @@
  */
 
 import * as fs from 'fs'
+// @ts-ignore - node-fetch is CommonJS
+const fetch = require('node-fetch')
 
 const API_URL = process.env.API_URL || 'http://localhost:3000/api/chat'
 const TEST_TIMEOUT = 45000 // 45 seconds per test
@@ -980,23 +982,30 @@ class ExhaustiveBotTester {
       throw new Error(`HTTP error! status: ${response.status}`)
     }
 
-    const reader = response.body?.getReader()
-    if (!reader) {
-      throw new Error('No response body')
+    // Handle node-fetch response (Node.js Stream) vs native fetch (ReadableStream)
+    if (response.body && typeof (response.body as any).getReader === 'function') {
+      // Native fetch with ReadableStream
+      const reader = (response.body as any).getReader()
+      if (!reader) {
+        throw new Error('No response body')
+      }
+
+      let fullResponse = ''
+      const decoder = new TextDecoder()
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        
+        const chunk = decoder.decode(value)
+        fullResponse += chunk
+      }
+
+      return fullResponse
+    } else {
+      // node-fetch - use text() method
+      return await response.text()
     }
-
-    let fullResponse = ''
-    const decoder = new TextDecoder()
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      
-      const chunk = decoder.decode(value)
-      fullResponse += chunk
-    }
-
-    return fullResponse
   }
 
   private extractToolCalls(response: string): any[] {
