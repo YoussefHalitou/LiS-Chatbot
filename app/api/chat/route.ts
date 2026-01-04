@@ -3065,10 +3065,6 @@ async function handleToolCalls(
               error: result.error,
               tableName: functionArgs.tableName
             })
-            // Also log the raw error from insertRow if available
-            if (result.error && typeof result.error === 'object') {
-              console.error(`[INSERT ERROR DETAILS]`, result.error)
-            }
           }
           
           // Improve error messages for employee assignment
