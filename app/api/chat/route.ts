@@ -360,15 +360,19 @@ Rules:
      * **The user wants ACTION, not announcements!**
      * **If you need to query data first (e.g., to find plan_id), do it silently in the background, then immediately call the tool**
    - **INSERT - ABSOLUTE REQUIREMENT**: 
+     * **🚨 CRITICAL: YOU MUST ALWAYS PROVIDE THE "values" PARAMETER AS A VALID JSON OBJECT! 🚨**
      * **YOU MUST CALL insertRow TOOL IMMEDIATELY - DO NOT JUST SAY YOU WILL DO IT!**
      * When user says "neues projekt", "projekt hinzufügen", "neuer Eintrag projekt", "projekt erstellen" or similar and provides ANY information (even just a name like "Grosser UMZUG" or "ZZZ"), you MUST:
-       1. IMMEDIATELY call the insertRow tool - do NOT just say you will create it, ACTUALLY CALL THE TOOL FUNCTION!
-       2. Look through ALL previous messages in the conversation to find ALL information the user has provided (name, ort, etc.)
-       3. Call insertRow with tableName='t_projects' and values containing ALL available information combined
-       4. Use sensible defaults for missing optional fields (stadt can be null, status='In Planung', project_code=auto-generate)
-       5. NEVER ask for more information - if you have at least a name, that's enough!
-       6. ALWAYS set confirm: true - the user has already provided the information
-       7. **CRITICAL**: The values object MUST contain at least the 'name' field. Example: {name: "Grosser UMZUG", stadt: null, status: "In Planung"}
+       1. **EXTRACT ALL VALUES FROM THE USER MESSAGE FIRST** - Parse the message to extract: name, stadt (city), dienstleistungen (service type), project_date (date), etc.
+       2. **BUILD THE VALUES OBJECT** - Create a complete JSON object with ALL extracted values. Example: If user says "neues projekt TestProjekt in Köln", extract: name="TestProjekt", stadt="Köln", then build: {"name": "TestProjekt", "stadt": "Köln", "status": "In Planung"}
+       3. **IMMEDIATELY call the insertRow tool** - do NOT just say you will create it, ACTUALLY CALL THE TOOL FUNCTION with BOTH tableName AND values!
+       4. Look through ALL previous messages in the conversation to find ALL information the user has provided (name, ort, etc.)
+       5. Call insertRow with tableName='t_projects' and values containing ALL available information combined as a JSON object
+       6. Use sensible defaults for missing optional fields (stadt can be null, status='In Planung', project_code=auto-generate)
+       7. NEVER ask for more information - if you have at least a name, that's enough!
+       8. ALWAYS set confirm: true - the user has already provided the information
+       9. **CRITICAL**: The values parameter MUST be a valid JSON object (not null, not undefined, not missing) with at least the 'name' field. Example: {"name": "Grosser UMZUG", "stadt": null, "status": "In Planung"}
+       10. **CRITICAL**: NEVER call insertRow without the values parameter! The tool call MUST look like: insertRow(tableName="t_projects", values={"name": "...", "stadt": "...", "status": "In Planung"}, confirm=true)
        8. **CRITICAL FIELD MAPPING FOR PROJECT CREATION**:
            - When user says "Projekt mit dem Namen X" or "neues Projekt X", X is the project name → use field "name"
            - When user mentions a city (e.g., "Hamburg", "Köln"), use field "stadt" (NOT "ort" - the field is called "stadt"!)
@@ -377,11 +381,14 @@ Rules:
            - Example: "erstelle ein neues Projekt mit dem Namen Anton Friedrich, für den morgigen Tag. Es ist ein Umzug und die Stadt ist Hamburg"
              → {name: "Anton Friedrich", project_date: "2026-01-05", dienstleistungen: "Umzug", stadt: "Hamburg", status: "In Planung"}
      * **CRITICAL**: You MUST actually call the insertRow tool function - do NOT just respond with text saying you will create it!
-     * **EXAMPLE**: If user says "neues projekt named ZZZ", you MUST call: insertRow(tableName='t_projects', values={name: 'ZZZ', stadt: null, status: 'In Planung'}, confirm=true)
-     * **EXAMPLE**: If user says "neuer Eintrag projekt namens Grosser UMZUG", you MUST call: insertRow(tableName='t_projects', values={name: 'Grosser UMZUG', stadt: null, status: 'In Planung'}, confirm=true)
-     * **EXAMPLE**: If user says "neues projekt named ZZZ" and then later says "Köln", you MUST combine both: call insertRow with {name: "ZZZ", stadt: "Köln", confirm: true}
-     * **EXAMPLE**: If user says "neues projekt named ZZZ" and nothing else, call insertRow with {name: "ZZZ", stadt: null, confirm: true} - stadt can be null!
-     * **EXAMPLE**: If user says "erstelle ein neues Projekt mit dem Namen Anton Friedrich, für den morgigen Tag. Es ist ein Umzug und die Stadt ist Hamburg", you MUST call: insertRow(tableName='t_projects', values={name: "Anton Friedrich", project_date: "2026-01-05", dienstleistungen: "Umzug", stadt: "Hamburg", status: "In Planung"}, confirm=true)
+     * **🚨 CRITICAL: THE "values" PARAMETER IS MANDATORY - NEVER OMIT IT! 🚨**
+     * **EXAMPLE 1**: If user says "neues projekt named ZZZ", you MUST call: insertRow(tableName='t_projects', values={"name": "ZZZ", "stadt": null, "status": "In Planung"}, confirm=true)
+     * **EXAMPLE 2**: If user says "neuer Eintrag projekt namens Grosser UMZUG", you MUST call: insertRow(tableName='t_projects', values={"name": "Grosser UMZUG", "stadt": null, "status": "In Planung"}, confirm=true)
+     * **EXAMPLE 3**: If user says "neues projekt named ZZZ" and then later says "Köln", you MUST combine both: call insertRow with values={"name": "ZZZ", "stadt": "Köln", "status": "In Planung"}, confirm=true
+     * **EXAMPLE 4**: If user says "neues projekt named ZZZ" and nothing else, call insertRow with values={"name": "ZZZ", "stadt": null, "status": "In Planung"}, confirm=true - stadt can be null!
+     * **EXAMPLE 5**: If user says "erstelle ein neues Projekt mit dem Namen Anton Friedrich, für den morgigen Tag. Es ist ein Umzug und die Stadt ist Hamburg", you MUST call: insertRow(tableName='t_projects', values={"name": "Anton Friedrich", "project_date": "2026-01-05", "dienstleistungen": "Umzug", "stadt": "Hamburg", "status": "In Planung"}, confirm=true)
+     * **EXAMPLE 6**: If user says "Erstelle ein neues Projekt mit dem Namen TEST_PROJECT_INSERT in Köln", you MUST call: insertRow(tableName='t_projects', values={"name": "TEST_PROJECT_INSERT", "stadt": "Köln", "status": "In Planung"}, confirm=true)
+     * **🚨 REMEMBER: The "values" parameter MUST ALWAYS be a valid JSON object with at least the required fields!**
      * For missing optional fields, use sensible defaults:
        - For t_employees: is_active=true (default), role=null (if not specified), hourly_rate=0 (if not specified), contract_type=null (if not specified)
        - For t_projects: status='In Planung' (default, NOT 'geplant'!), stadt=null (if not specified - it's optional! NOTE: field is "stadt", NOT "ort"!), project_code=auto-generate if not provided (e.g., PRJ-YYYYMMDD-XXXXX)
@@ -2546,7 +2553,7 @@ function getToolDefinitions(): ChatCompletionTool[] {
       function: {
         name: 'insertRow',
         description:
-          'Insert a single row into an allowed table. YOU MUST CALL THIS TOOL IMMEDIATELY - DO NOT JUST SAY YOU WILL DO IT! CRITICAL RULES: 1) When user says "neues projekt" or "projekt hinzufügen" or "neuer Eintrag projekt" or "projekt erstellen" and provides ANY information (even just a name), IMMEDIATELY CALL THIS TOOL with tableName="t_projects" and values MUST be a valid object with at least name field. 2) When user says "neu mitarbeiter" or "neuer arbeiter" or "worker" with ANY information (even just a name), IMMEDIATELY CALL THIS TOOL with tableName="t_employees" and values MUST be a valid object with at least name field. 3) When user says "neues material" or "material hinzufügen" or "material erstellen" and provides ANY information (even just a name), IMMEDIATELY CALL THIS TOOL with tableName="t_materials" and values MUST be a valid object with at least name field. The material_id will be auto-generated if not provided. 4) When user says "EK [price] VK [price]" or mentions Einkaufspreis/Verkaufspreis for a material, IMMEDIATELY CALL THIS TOOL with tableName="t_material_prices". First query t_materials to find material_id by name using queryTable, then call insertRow with values containing material_id, purchase_price (EK value), and sale_price (VK value). 5) **CRITICAL FOR ADDING EMPLOYEES TO PROJECTS - INCLUDING BATCH OPERATIONS**: When user says "füge [EmployeeName] zu [ProjectName] hinzu", "mitarbeiter hinzufügen", "weise zu" or similar, you MUST: a) **BATCH OPERATIONS**: If user mentions MULTIPLE employees (e.g., "füge Achim, Ali und Björn hinzu"), extract ALL names and process EACH separately - call insertRow MULTIPLE times (once per employee). After all operations, provide a summary. b) FIRST do queries silently (don\'t announce): query v_morningplan_full with {project_name: "[ProjectName]", plan_date: "[date if mentioned]"} to get plan_id from result[0].plan_id. If no date mentioned, use today\'s date or the most recent plan_date. c) Query t_employees with {name: "[EmployeeName]"} and limit: 50 to get employee_id from result[0].employee_id for EACH employee (use limit: 50 because employees might not be in first 10 results - if still not found, try limit: 100). d) IMMEDIATELY call insertRow for EACH employee with tableName="t_morningplan_staff", values={plan_id: "[plan_id_from_step_b]", employee_id: "[employee_id_from_step_c]", sort_order: 0}, confirm=true. **For batch operations, call insertRow MULTIPLE times - once per employee!** **DO NOT announce anything - do queries silently, then call tool immediately!** **NEVER say "Ich werde", "Moment bitte", "Einen Moment" - just DO IT!** 6) NEVER ask for more information - if you have at least a name, call the tool immediately with defaults! 7) If user provides info in multiple messages, COMBINE all info from conversation history. 8) ALWAYS set confirm: true - user already provided the info. 9) Extract info from ALL previous messages. 10) YOU MUST ACTUALLY CALL THIS TOOL FUNCTION - do NOT just respond with text saying you will create it! 11) The values parameter MUST be a valid JSON object (not null, not undefined, not empty string) with at least the required fields (name for projects/employees/materials, plan_id and employee_id for t_morningplan_staff, material_id for material_prices).',
+          'Insert a single row into an allowed table. **🚨 CRITICAL: YOU MUST ALWAYS PROVIDE THE "values" PARAMETER AS A VALID JSON OBJECT! 🚨** YOU MUST CALL THIS TOOL IMMEDIATELY - DO NOT JUST SAY YOU WILL DO IT! **MANDATORY RULES:** 1) **THE "values" PARAMETER IS ALWAYS REQUIRED** - it MUST be a valid JSON object with field names and values extracted from the user message. Example: If user says "neues projekt TestProjekt in Köln", you MUST call: insertRow(tableName="t_projects", values={"name": "TestProjekt", "stadt": "Köln", "status": "In Planung"}, confirm=true). 2) When user says "neues projekt" or "projekt hinzufügen" or "neuer Eintrag projekt" or "projekt erstellen" and provides ANY information (even just a name), IMMEDIATELY CALL THIS TOOL with tableName="t_projects" and values MUST be a valid JSON object with at least {"name": "[extracted_name]", "status": "In Planung"}. Extract ALL mentioned fields: name, stadt (city), dienstleistungen (service type), project_date (date). 3) When user says "neu mitarbeiter" or "neuer arbeiter" or "worker" with ANY information (even just a name), IMMEDIATELY CALL THIS TOOL with tableName="t_employees" and values MUST be a valid JSON object with at least {"name": "[extracted_name]", "is_active": true, "hourly_rate": 0}. Extract: name, hourly_rate, contract_type, role. 4) When user says "neues material" or "material hinzufügen" or "material erstellen" and provides ANY information (even just a name), IMMEDIATELY CALL THIS TOOL with tableName="t_materials" and values MUST be a valid JSON object with at least {"name": "[extracted_name]", "is_active": true, "vat_rate": 19, "default_quantity": 1}. The material_id will be auto-generated if not provided. 5) When user says "EK [price] VK [price]" or mentions Einkaufspreis/Verkaufspreis for a material, IMMEDIATELY CALL THIS TOOL with tableName="t_material_prices". First query t_materials to find material_id by name using queryTable, then call insertRow with values containing {"material_id": "[found_id]", "cost_per_unit": [EK], "price_per_unit": [VK]}. 6) **CRITICAL FOR ADDING EMPLOYEES TO PROJECTS - INCLUDING BATCH OPERATIONS**: When user says "füge [EmployeeName] zu [ProjectName] hinzu", "mitarbeiter hinzufügen", "weise zu" or similar, you MUST: a) **BATCH OPERATIONS**: If user mentions MULTIPLE employees (e.g., "füge Achim, Ali und Björn hinzu"), extract ALL names and process EACH separately - call insertRow MULTIPLE times (once per employee). After all operations, provide a summary. b) FIRST do queries silently (don\'t announce): query v_morningplan_full with {project_name: "[ProjectName]", plan_date: "[date if mentioned]"} to get plan_id from result[0].plan_id. If no date mentioned, use today\'s date or the most recent plan_date. c) Query t_employees with {name: "[EmployeeName]"} and limit: 50 to get employee_id from result[0].employee_id for EACH employee (use limit: 50 because employees might not be in first 10 results - if still not found, try limit: 100). d) IMMEDIATELY call insertRow for EACH employee with tableName="t_morningplan_staff", values={"plan_id": "[actual_plan_id_from_query]", "employee_id": "[actual_employee_id_from_query]", "sort_order": 0}, confirm=true. **For batch operations, call insertRow MULTIPLE times - once per employee!** **DO NOT announce anything - do queries silently, then call tool immediately!** **NEVER say "Ich werde", "Moment bitte", "Einen Moment" - just DO IT!** 7) NEVER ask for more information - if you have at least a name, call the tool immediately with defaults! 8) If user provides info in multiple messages, COMBINE all info from conversation history. 9) ALWAYS set confirm: true - user already provided the info. 10) Extract info from ALL previous messages. 11) YOU MUST ACTUALLY CALL THIS TOOL FUNCTION - do NOT just respond with text saying you will create it! 12) **THE "values" PARAMETER IS MANDATORY** - it MUST be a valid JSON object (not null, not undefined, not empty string, not missing) with at least the required fields (name for projects/employees/materials, plan_id and employee_id for t_morningplan_staff, material_id for material_prices). **EXAMPLE FOR PROJECTS:** User: "Erstelle ein neues Projekt mit dem Namen TestProjekt in Köln" → You MUST call: insertRow(tableName="t_projects", values={"name": "TestProjekt", "stadt": "Köln", "status": "In Planung"}, confirm=true). **EXAMPLE FOR EMPLOYEES:** User: "Neuer Mitarbeiter Max, 30 Euro, intern" → You MUST call: insertRow(tableName="t_employees", values={"name": "Max", "hourly_rate": 30, "contract_type": "Intern", "is_active": true}, confirm=true).',
         parameters: {
           type: 'object',
           properties: {
@@ -2557,7 +2564,7 @@ function getToolDefinitions(): ChatCompletionTool[] {
             },
             values: {
               type: 'object',
-              description: 'Column/value pairs for the new row. CRITICAL: Extract ALL information from the ENTIRE conversation history, not just the last message! If user said "neues projekt named ZZZ" in one message and "Köln" in another, combine them: {name: "ZZZ", stadt: "Köln"}. For t_projects: name is required, stadt is OPTIONAL (can be null - NOTE: field is "stadt", NOT "ort"!). Use defaults for missing optional fields: t_employees (is_active=true, role=null if not specified), t_projects (status="In Planung", stadt=null if not provided, project_code=auto-generate if missing). Field mapping: "name" = project name, "stadt" = city (NOT "ort"!), "dienstleistungen" = service type, "project_date" = project date (YYYY-MM-DD). Always include at least the name field for projects.',
+              description: '🚨 MANDATORY: Column/value pairs for the new row as a JSON object. THIS PARAMETER IS ALWAYS REQUIRED - NEVER OMIT IT! CRITICAL RULES: 1) Extract ALL information from the ENTIRE conversation history, not just the last message! 2) If user said "neues projekt named ZZZ" in one message and "Köln" in another, combine them: {"name": "ZZZ", "stadt": "Köln", "status": "In Planung"}. 3) For t_projects: ALWAYS include {"name": "[extracted_name]", "status": "In Planung"} at minimum. Extract: name (required), stadt (optional, can be null - NOTE: field is "stadt", NOT "ort"!), dienstleistungen (service type), project_date (YYYY-MM-DD format). 4) For t_employees: ALWAYS include {"name": "[extracted_name]", "is_active": true, "hourly_rate": 0} at minimum. Extract: name (required), hourly_rate (default 0), contract_type (default null or "Intern" if mentioned), role (default null). 5) For t_materials: ALWAYS include {"name": "[extracted_name]", "is_active": true, "vat_rate": 19, "default_quantity": 1} at minimum. Extract: name (required), unit, category, material_id (auto-generate if not provided). 6) Field mapping for t_projects: "name" = project name, "stadt" = city (NOT "ort"!), "dienstleistungen" = service type, "project_date" = project date (YYYY-MM-DD). 7) ALWAYS provide a complete JSON object - never null, never undefined, never empty string! Example: {"name": "TestProjekt", "stadt": "Köln", "status": "In Planung"}',
               additionalProperties: true,
             },
             confirm: {
@@ -2993,8 +3000,13 @@ async function handleToolCalls(
           }
         } else if (functionArgs.tableName === 't_projects') {
           // Defaults for projects
-          if (valuesWithDefaults.status === undefined) {
-            valuesWithDefaults.status = 'geplant'
+          if (valuesWithDefaults.status === undefined || !valuesWithDefaults.status) {
+            valuesWithDefaults.status = 'In Planung'
+          }
+          // Map 'stadt' to 'ort' if 'stadt' is provided (the actual column name is 'ort', not 'stadt')
+          if (valuesWithDefaults.stadt !== undefined && valuesWithDefaults.stadt !== null) {
+            valuesWithDefaults.ort = valuesWithDefaults.stadt
+            delete valuesWithDefaults.stadt
           }
           // Auto-generate project_code if missing
           if (!valuesWithDefaults.project_code) {
@@ -3034,6 +3046,19 @@ async function handleToolCalls(
           // Note: We don't have access to req here, so we'll pass undefined for ipAddress
           // In production, you might want to pass this through the function chain
           const result = await insertRow(functionArgs.tableName, valuesWithDefaults)
+          
+          // Log the actual error in development for debugging
+          if (result.error) {
+            console.error(`[INSERT ERROR] Table: ${functionArgs.tableName}`, {
+              values: JSON.stringify(valuesWithDefaults, null, 2),
+              error: result.error,
+              tableName: functionArgs.tableName
+            })
+            // Also log the raw error from insertRow if available
+            if (result.error && typeof result.error === 'object') {
+              console.error(`[INSERT ERROR DETAILS]`, result.error)
+            }
+          }
           
           // Improve error messages for employee assignment
           if (result.error && functionArgs.tableName === 't_morningplan_staff') {

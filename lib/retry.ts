@@ -136,9 +136,20 @@ export async function retrySupabaseOperation<T>(
       ],
     })
   } catch (error) {
+    // Handle Supabase error objects (they have message, code, hint properties)
+    if (error && typeof error === 'object') {
+      const supabaseError = error as any
+      if (supabaseError.message) {
+        return {
+          data: null,
+          error: supabaseError, // Return the full error object, not just the message
+        }
+      }
+    }
+    
     return {
       data: null,
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: error instanceof Error ? error.message : (error || 'Unknown error'),
     }
   }
 }

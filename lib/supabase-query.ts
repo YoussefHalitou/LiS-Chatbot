@@ -528,21 +528,46 @@ export async function insertRow(
         .select()
         .single()
 
-    if (error) {
+      if (error) {
+        // Throw the full error object, not just the message
         throw error
       }
       return { data, error: null }
     })
 
     if (insertResult.error) {
-      const errorMessage = getUserFriendlyErrorMessage(insertResult.error, 'INSERT', tableName)
+      // Log the raw error for debugging
+      const rawError = insertResult.error as any
+      console.error(`[SUPABASE INSERT ERROR] Table: ${tableName}`, {
+        rawError: rawError,
+        errorCode: rawError?.code,
+        errorMessage: rawError?.message,
+        errorDetails: rawError?.details,
+        errorHint: rawError?.hint,
+        values: JSON.stringify(sanitizedValues, null, 2)
+      })
+      
+      // For t_projects, return raw error for debugging
+      let detailedError: string
+      if (tableName === 't_projects' && rawError?.message) {
+        // Return raw error for t_projects to help debug
+        detailedError = `Fehler beim Erstellen: ${rawError.message}${rawError.hint ? ` (Hinweis: ${rawError.hint})` : ''}${rawError.code ? ` [Code: ${rawError.code}]` : ''}`
+      } else {
+        detailedError = getUserFriendlyErrorMessage(insertResult.error, 'INSERT', tableName)
+        // Still include raw error details if available
+        if (rawError?.message) {
+          detailedError = `${detailedError}\n\nTechnische Details: ${rawError.message}${rawError.hint ? `\nHinweis: ${rawError.hint}` : ''}${rawError.code ? `\nFehlercode: ${rawError.code}` : ''}`
+        }
+      }
+      
       createAuditLog('INSERT', tableName, 'FAILURE', {
         userId: options?.userId,
         ipAddress: options?.ipAddress,
         values: sanitizedValues,
-        error: errorMessage,
+        error: detailedError,
+        rawError: insertResult.error,
       })
-      return { data: null, error: errorMessage }
+      return { data: null, error: detailedError }
     }
 
     // Log successful insert
