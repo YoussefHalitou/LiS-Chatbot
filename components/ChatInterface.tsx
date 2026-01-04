@@ -512,7 +512,7 @@ export default function ChatInterface() {
   }, [isRecording])
 
 
-  const speakText = async (text: string) => {
+  const speakText = useCallback(async (text: string) => {
     // Stop any currently playing audio
     if (audioRef.current) {
       audioRef.current.pause()
@@ -797,7 +797,8 @@ export default function ChatInterface() {
         showToast('Audio konnte nicht erzeugt oder abgespielt werden. Bitte versuch es erneut.', 'error', 4000)
       }
     }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRecording, isLoading, voiceOnlyMode]) // startRecording is stable, no need to include
 
   const stopSpeaking = useCallback(() => {
     console.log('[TTS] Stop speaking requested', { 
@@ -829,7 +830,17 @@ export default function ChatInterface() {
         }
       }, 300)
     }
-  }, [isRecording, isLoading, isPlayingAudio])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRecording, isLoading, isPlayingAudio]) // startRecording is stable, no need to include
+
+  const exitVoiceOnlyMode = useCallback(() => {
+    console.log('[Voice Mode] Exiting voice-only mode')
+    setVoiceOnlyMode(false)
+    voiceOnlyModeRef.current = false // Sync ref immediately - this stops the loop
+    stopRecording()
+    stopSpeaking()
+    stopAudioMonitoring()
+  }, [stopRecording, stopSpeaking])
 
   // Voice Activity Detection - monitor audio levels
   const startAudioMonitoring = (stream: MediaStream) => {
@@ -1137,7 +1148,7 @@ export default function ChatInterface() {
         }
       }
     }
-  }, [speakText])
+  }, [speakText]) // speakText is now memoized with useCallback
 
   const startChatRequest = useCallback(async (
     userMessage: Message,
@@ -1354,15 +1365,6 @@ export default function ChatInterface() {
     // Start recording immediately
     await startRecording()
   }
-
-  const exitVoiceOnlyMode = useCallback(() => {
-    console.log('[Voice Mode] Exiting voice-only mode')
-    setVoiceOnlyMode(false)
-    voiceOnlyModeRef.current = false // Sync ref immediately - this stops the loop
-    stopRecording()
-    stopSpeaking()
-    stopAudioMonitoring()
-  }, [stopRecording, stopSpeaking])
 
   // Cleanup on unmount
   useEffect(() => {
