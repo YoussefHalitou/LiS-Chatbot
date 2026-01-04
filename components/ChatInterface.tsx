@@ -1,20 +1,46 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
-import { Mic, MicOff, Volume2, Send, Loader2, Copy, Check, Trash2, X } from 'lucide-react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { Mic, MicOff, Volume2, Send, Loader2, Copy, Check, Trash2, X, MessageSquare, Plus, Menu } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-
-interface Message {
-  role: 'user' | 'assistant'
-  content: string
-  timestamp?: Date
-}
+import { Message, Chat } from '@/types'
+import { APP_CONFIG, AUDIO_CONFIG, ERROR_MESSAGES, UI_CONFIG } from '@/lib/constants'
+import {
+  getAllChats,
+  getChatMessages,
+  saveChatMessages,
+  createNewChat,
+  deleteChat,
+  getCurrentChatId,
+  setCurrentChatId,
+} from '@/lib/chat-management-supabase'
+import { migrateOldChatFormat } from '@/lib/chat-management'
+import {
+  delay,
+  formatTextForSpeech,
+  formatTimestamp,
+  isValidAudioBlob,
+  getFileExtensionFromMimeType,
+  getMicrophoneErrorMessage,
+  sanitizeInput,
+  sanitizeBotResponse,
+} from '@/lib/utils'
+import ConnectionStatus from '@/components/ConnectionStatus'
+import { showToast } from '@/lib/toast'
 
 export default function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [currentChatId, setCurrentChatId] = useState<string | null>(null)
+  const [chats, setChats] = useState<Chat[]>([])
+  const [showChatSidebar, setShowChatSidebar] = useState(false)
+  const [isStreamingResponse, setIsStreamingResponse] = useState(false)
+  const [showLoadingBubble, setShowLoadingBubble] = useState(false)
+  const [isQueryingDatabase, setIsQueryingDatabase] = useState(false)
+  const [isProcessingSTT, setIsProcessingSTT] = useState(false)
+  const [isGeneratingTTS, setIsGeneratingTTS] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [isPlayingAudio, setIsPlayingAudio] = useState(false)
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null)
@@ -22,6 +48,9 @@ export default function ChatInterface() {
   const [isProcessingVoice, setIsProcessingVoice] = useState(false)
   const [audioLevel, setAudioLevel] = useState(0)
   const [silenceStartTime, setSilenceStartTime] = useState<number | null>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
+  const streamTimeoutRef = useRef<number | null>(null)
+  const loadingBubbleTimeoutRef = useRef<number | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -33,34 +62,73 @@ export default function ChatInterface() {
   const streamRef = useRef<MediaStream | null>(null)
   const silenceStartTimeRef = useRef<number | null>(null)
   const voiceOnlyModeRef = useRef<boolean>(false) // Use ref to track voice-only mode reliably
-  const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+  const streamingDisabled = useMemo(
+    () =>
+      process.env.NEXT_PUBLIC_DISABLE_STREAMING === 'true' ||
+      process.env.CHAT_STREAMING_DISABLED === 'true',
+    []
+  )
 
-  // Load chat history from localStorage on mount
+  // Initialize chats on mount
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const savedMessages = localStorage.getItem('chat-history')
-      if (savedMessages) {
-        try {
-          const parsed = JSON.parse(savedMessages)
-          // Convert timestamp strings back to Date objects
-          const messagesWithDates = parsed.map((msg: Message) => ({
-            ...msg,
-            timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date(),
-          }))
-          setMessages(messagesWithDates)
-        } catch (e) {
-          console.error('Failed to load chat history:', e)
+    if (typeof window === 'undefined') return
+    
+    async function loadChats() {
+      // Migrate old format if needed (localStorage only)
+      migrateOldChatFormat()
+      
+      // Load chat list (Supabase if authenticated, localStorage otherwise)
+      const loadedChats = await getAllChats()
+      setChats(loadedChats)
+      
+      // Load current chat
+      const currentId = getCurrentChatId()
+      if (currentId) {
+        const chatExists = loadedChats.some(c => c.id === currentId)
+        if (chatExists) {
+          setCurrentChatId(currentId)
+          const chatMessages = await getChatMessages(currentId)
+          setMessages(chatMessages)
+        } else {
+          // Current chat doesn't exist, create new one
+          const newChat = await createNewChat()
+          setCurrentChatId(newChat.id)
+          setChats([newChat, ...loadedChats])
+          setMessages([])
         }
+      } else if (loadedChats.length > 0) {
+        // No current chat, use first one
+        const firstChat = loadedChats[0]
+        setCurrentChatId(firstChat.id)
+        const chatMessages = await getChatMessages(firstChat.id)
+        setMessages(chatMessages)
+      } else {
+        // No chats exist, create new one
+        const newChat = await createNewChat()
+        setCurrentChatId(newChat.id)
+        setChats([newChat])
+        setMessages([])
       }
     }
+    
+    loadChats()
   }, [])
 
-  // Save chat history to localStorage whenever messages change
+  // Save chat messages whenever they change
   useEffect(() => {
-    if (typeof window !== 'undefined' && messages.length > 0) {
-      localStorage.setItem('chat-history', JSON.stringify(messages))
+    if (typeof window === 'undefined' || !currentChatId) return
+    
+    async function saveMessages() {
+      if (messages.length > 0 && currentChatId) {
+        await saveChatMessages(currentChatId, messages)
+        // Update chat list to reflect changes
+        const updatedChats = await getAllChats()
+        setChats(updatedChats)
+      }
     }
-  }, [messages])
+    
+    saveMessages()
+  }, [messages, currentChatId])
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -83,7 +151,7 @@ export default function ChatInterface() {
     try {
       // Check if we're in the browser (not SSR)
       if (typeof window === 'undefined' || typeof navigator === 'undefined') {
-        alert('Diese Funktion benötigt eine Browser-Umgebung. Bitte lade die Seite neu.')
+        showToast('Diese Funktion benötigt eine Browser-Umgebung. Bitte lade die Seite neu.', 'error', 5000)
         return
       }
 
@@ -172,14 +240,14 @@ export default function ChatInterface() {
           errorMsg += 'Falls du Safari verwendest:\n- Stelle sicher, dass du Safari 11+ nutzt\n- Aktiviere die Mikrofonberechtigung in den Safari-Einstellungen'
         }
         errorMsg += `\n\nBrowser: ${userAgent}\nProtokoll: ${protocol}\nHostname: ${hostname}`
-        alert(errorMsg)
+        showToast(errorMsg, 'error', 6000)
         return
       }
 
       // Check if MediaRecorder is available
       if (!window.MediaRecorder) {
         const userAgent = navigator.userAgent
-        alert(`Der MediaRecorder wird von deinem Browser nicht unterstützt.\n\nNutze bitte:\n- Chrome (Desktop/Mobil)\n- Firefox (Desktop/Mobil)\n- Safari (iOS 14.3+)\n\nAktueller Browser: ${userAgent}`)
+        showToast(`Der MediaRecorder wird von deinem Browser nicht unterstützt. Nutze bitte Chrome, Firefox oder Safari (iOS 14.3+). Aktueller Browser: ${userAgent}`, 'error', 8000)
         return
       }
 
@@ -194,11 +262,7 @@ export default function ChatInterface() {
       if (finalHasMediaDevicesGetUserMedia) {
         // Modern standard API (Chrome, Firefox, Safari 11+)
         stream = await navigator.mediaDevices.getUserMedia({ 
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          }
+          audio: AUDIO_CONFIG.RECORDING_OPTIONS
         })
       } else if (hasWebkitGetUserMedia) {
         // Safari fallback (older Safari)
@@ -237,16 +301,7 @@ export default function ChatInterface() {
 
       // Try to find a supported MIME type (prioritize formats that work on mobile)
       let mimeType = ''
-      const supportedTypes = [
-        'audio/webm;codecs=opus',
-        'audio/webm',
-        'audio/mp4',
-        'audio/aac',
-        'audio/ogg;codecs=opus',
-        'audio/ogg',
-      ]
-
-      for (const type of supportedTypes) {
+      for (const type of AUDIO_CONFIG.SUPPORTED_MIME_TYPES) {
         if (MediaRecorder.isTypeSupported(type)) {
           mimeType = type
           break
@@ -277,7 +332,7 @@ export default function ChatInterface() {
         console.error('MediaRecorder error:', event.error)
         setIsRecording(false)
         stream.getTracks().forEach((track) => track.stop())
-        alert('Bei der Aufnahme ist ein Fehler aufgetreten. Bitte versuch es erneut.')
+        showToast('Bei der Aufnahme ist ein Fehler aufgetreten. Bitte versuch es erneut.', 'error', 4000)
       }
 
       mediaRecorder.onstop = async () => {
@@ -292,7 +347,7 @@ export default function ChatInterface() {
           console.warn('[STT] No audio chunks recorded')
           setIsRecording(false)
           if (!voiceOnlyModeRef.current) {
-            alert('Es wurde kein Audio aufgezeichnet. Bitte versuch es erneut.')
+            showToast('Es wurde kein Audio aufgezeichnet. Bitte versuch es erneut.', 'warning', 4000)
           }
           // In voice-only mode, restart recording if no audio was captured
           if (voiceOnlyModeRef.current) {
@@ -318,11 +373,11 @@ export default function ChatInterface() {
         })
 
         // Check if blob is too small (likely no actual audio)
-        if (audioBlob.size < 100) {
+        if (!isValidAudioBlob(audioBlob)) {
           console.warn('[STT] Audio blob too small, likely no audio captured')
           setIsRecording(false)
           if (!voiceOnlyModeRef.current) {
-            alert('Die Aufnahme war zu kurz. Bitte versuch es erneut.')
+            showToast('Die Aufnahme war zu kurz. Bitte versuch es erneut.', 'warning', 4000)
           }
           if (voiceOnlyModeRef.current) {
             setTimeout(() => {
@@ -335,25 +390,18 @@ export default function ChatInterface() {
         }
 
         // Determine file extension based on MIME type
-        let fileExtension = 'webm'
-        if (actualMimeType.includes('mp4') || actualMimeType.includes('m4a')) {
-          fileExtension = 'm4a'
-        } else if (actualMimeType.includes('ogg')) {
-          fileExtension = 'ogg'
-        } else if (actualMimeType.includes('aac')) {
-          fileExtension = 'aac'
-        }
+        const fileExtension = getFileExtensionFromMimeType(actualMimeType)
 
         try {
           setIsProcessingVoice(true)
+          setIsProcessingSTT(true)
           const formData = new FormData()
           formData.append('audio', audioBlob, `recording.${fileExtension}`)
 
-          const maxSttAttempts = 2
           let sttResponse: Response | null = null
           let sttError: Error | null = null
 
-          for (let attempt = 0; attempt < maxSttAttempts; attempt++) {
+          for (let attempt = 0; attempt < APP_CONFIG.STT_MAX_ATTEMPTS; attempt++) {
             try {
               const candidate = await fetch('/api/stt', {
                 method: 'POST',
@@ -371,8 +419,8 @@ export default function ChatInterface() {
               sttError = err instanceof Error ? err : new Error('Unbekannter STT-Fehler')
             }
 
-            if (attempt < maxSttAttempts - 1) {
-              await delay(350)
+            if (attempt < APP_CONFIG.STT_MAX_ATTEMPTS - 1) {
+              await delay(APP_CONFIG.STT_RETRY_DELAY_MS)
             }
           }
 
@@ -391,7 +439,7 @@ export default function ChatInterface() {
             }
           } else {
             if (!voiceOnlyModeRef.current) {
-              alert('Es wurde keine Sprache erkannt. Bitte sprich noch einmal.')
+              showToast('Es wurde keine Sprache erkannt. Bitte sprich noch einmal.', 'warning', 4000)
             }
             // In voice-only mode, restart recording
             if (voiceOnlyModeRef.current) {
@@ -418,9 +466,7 @@ export default function ChatInterface() {
             errorMsg += '\n\nAuf mobilen Geräten gilt:\n- Stelle eine stabile Internetverbindung sicher\n- Die Aufnahme sollte klar und nicht zu kurz sein\n- Sprich lauter oder näher am Mikrofon'
           }
           
-          if (!voiceOnlyModeRef.current) {
-            alert(errorMsg)
-          }
+          showToast(errorMsg, 'error', 6000)
           
           // In voice-only mode, restart recording after error
           if (voiceOnlyModeRef.current) {
@@ -433,6 +479,7 @@ export default function ChatInterface() {
         } finally {
           setIsRecording(false)
           setIsProcessingVoice(false)
+          setIsProcessingSTT(false)
         }
       }
 
@@ -441,59 +488,31 @@ export default function ChatInterface() {
       // Always use timeslices to ensure data is captured reliably
       // This prevents the "first recording fails" issue where ondataavailable
       // doesn't fire if recording is stopped too quickly
-      // Use 250ms timeslices for better responsiveness and reliability
-      console.log('[STT] Starting MediaRecorder with 250ms timeslices')
-      mediaRecorder.start(250)
+      console.log(`[STT] Starting MediaRecorder with ${APP_CONFIG.AUDIO_CHUNK_SIZE_MS}ms timeslices`)
+      mediaRecorder.start(APP_CONFIG.AUDIO_CHUNK_SIZE_MS)
       
       setIsRecording(true)
     } catch (error: any) {
       console.error('Error accessing microphone:', error)
       setIsRecording(false)
       
-      let errorMessage = 'Der Mikrofonzugriff wurde verweigert.'
+      const errorMessage = error instanceof Error 
+        ? getMicrophoneErrorMessage(error)
+        : ERROR_MESSAGES.MICROPHONE_ACCESS_DENIED
       
-      if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-        errorMessage = 'Der Mikrofonzugriff wurde blockiert. Bitte:\n\n1. Klicke auf das Schloss-Symbol in der Adressleiste\n2. Erlaube den Mikrofonzugriff\n3. Lade die Seite neu\n\nPrüfe ggf. auch die Systemeinstellungen deines Geräts.'
-      } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
-        errorMessage = 'Es wurde kein Mikrofon gefunden. Bitte verbinde ein Mikrofon und versuche es erneut.'
-      } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
-        errorMessage = 'Das Mikrofon wird bereits von einer anderen Anwendung verwendet. Schließe diese Anwendung und versuche es erneut.'
-      } else if (error.name === 'OverconstrainedError' || error.name === 'ConstraintNotSatisfiedError') {
-        errorMessage = 'Die Mikrofoneinstellungen konnten nicht übernommen werden. Bitte versuche es erneut.'
-      }
-      
-      alert(errorMessage)
+      showToast(errorMessage, 'error', 6000)
     }
   }
 
-  const stopRecording = () => {
+  const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop()
       // setIsRecording will be set to false in onstop handler
     }
-  }
+  }, [isRecording])
 
-  const formatTextForSpeech = (text: string) => {
-    const lines = text
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean)
-    const bulletRegex = /^(\d+\.|[-*•])\s+/
-    const bulletLines = lines.filter((line) => bulletRegex.test(line))
 
-    if (bulletLines.length >= 2 && bulletLines.length >= lines.length / 2) {
-      return bulletLines
-        .map((line, index) => {
-          const cleanLine = line.replace(bulletRegex, '')
-          return `Punkt ${index + 1}: ${cleanLine}`
-        })
-        .join('. ')
-    }
-
-    return lines.join('. ')
-  }
-
-  const speakText = async (text: string) => {
+  const speakText = useCallback(async (text: string) => {
     // Stop any currently playing audio
     if (audioRef.current) {
       audioRef.current.pause()
@@ -502,17 +521,53 @@ export default function ChatInterface() {
     }
 
     let audioUrl: string | null = null
+    let fallbackTimeout: number | null = null
+
+    const speakWithWebSpeech = (fallbackText: string) => {
+      if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+        throw new Error('Web Speech API not available')
+      }
+
+      window.speechSynthesis.cancel()
+      const utterance = new SpeechSynthesisUtterance(fallbackText)
+      utterance.lang = 'de-DE'
+      utterance.rate = APP_CONFIG.TTS_SLOW_RATE
+      utterance.pitch = 1
+      utterance.volume = 1
+
+      setIsPlayingAudio(true)
+
+      utterance.onend = () => {
+        setIsPlayingAudio(false)
+        setIsGeneratingTTS(false)
+        if (voiceOnlyModeRef.current && !isRecording && !isLoading) {
+          setTimeout(() => {
+            if (voiceOnlyModeRef.current && !isRecording && !isLoading) {
+              startRecording()
+            }
+          }, 500)
+        }
+      }
+
+      utterance.onerror = () => {
+        setIsPlayingAudio(false)
+        setIsGeneratingTTS(false)
+      }
+
+      window.speechSynthesis.speak(utterance)
+    }
 
     try {
+      setIsGeneratingTTS(true)
       const preparedText = formatTextForSpeech(text)
+      const ttsStartTime = Date.now()
       
       console.log('[TTS] Starting TTS for text length:', preparedText.length)
 
-      const maxTtsAttempts = 2
       let ttsResponse: Response | null = null
       let ttsError: Error | null = null
 
-      for (let attempt = 0; attempt < maxTtsAttempts; attempt++) {
+      for (let attempt = 0; attempt < APP_CONFIG.TTS_MAX_ATTEMPTS; attempt++) {
         try {
           const candidate = await fetch('/api/tts', {
             method: 'POST',
@@ -533,12 +588,13 @@ export default function ChatInterface() {
           ttsError = err instanceof Error ? err : new Error('Unbekannter TTS-Fehler')
         }
 
-        if (attempt < maxTtsAttempts - 1) {
-          await delay(300)
+        if (attempt < APP_CONFIG.TTS_MAX_ATTEMPTS - 1) {
+          await delay(APP_CONFIG.TTS_RETRY_DELAY_MS)
         }
       }
 
       if (!ttsResponse) {
+        setIsGeneratingTTS(false)
         throw (ttsError || new Error('Die Audioausgabe konnte nicht erzeugt werden.'))
       }
 
@@ -557,10 +613,19 @@ export default function ChatInterface() {
       
       // Set state BEFORE setting up handlers to ensure button is visible immediately
       setIsPlayingAudio(true)
+      setIsGeneratingTTS(false) // TTS generation is complete, now playing
       
       // Set up event handlers before setting source
       audio.onplay = () => {
         console.log('[TTS] Audio onplay event fired')
+        if (fallbackTimeout) {
+          window.clearTimeout(fallbackTimeout)
+          fallbackTimeout = null
+        }
+        const playbackDelayMs = Date.now() - ttsStartTime
+        if (playbackDelayMs > APP_CONFIG.TTS_FALLBACK_DELAY_MS) {
+          audio.playbackRate = APP_CONFIG.TTS_SLOW_RATE
+        }
         setIsPlayingAudio(true) // Ensure it's still true
       }
       
@@ -570,6 +635,10 @@ export default function ChatInterface() {
         audioRef.current = null
         if (urlToCleanup) {
           URL.revokeObjectURL(urlToCleanup)
+        }
+        if (fallbackTimeout) {
+          window.clearTimeout(fallbackTimeout)
+          fallbackTimeout = null
         }
         
         // In voice-only mode, restart recording after audio finishes
@@ -592,13 +661,18 @@ export default function ChatInterface() {
           src: audio.src
         })
         setIsPlayingAudio(false)
+        setIsGeneratingTTS(false)
         audioRef.current = null
         if (urlToCleanup) {
           URL.revokeObjectURL(urlToCleanup)
         }
+        if (fallbackTimeout) {
+          window.clearTimeout(fallbackTimeout)
+          fallbackTimeout = null
+        }
         // Don't show alert in voice-only mode to avoid interrupting flow
         if (!voiceOnlyMode) {
-          alert('Audio konnte nicht abgespielt werden. Bitte versuch es erneut.')
+          showToast('Audio konnte nicht abgespielt werden. Bitte versuch es erneut.', 'error', 4000)
         }
       }
       
@@ -639,8 +713,18 @@ export default function ChatInterface() {
             if (urlToCleanup) {
               URL.revokeObjectURL(urlToCleanup)
             }
+            if (fallbackTimeout) {
+              window.clearTimeout(fallbackTimeout)
+              fallbackTimeout = null
+            }
+            try {
+              speakWithWebSpeech(preparedText)
+            } catch (fallbackError) {
+              console.error('[TTS] Web Speech fallback failed:', fallbackError)
+            }
+            setIsGeneratingTTS(false)
             if (!voiceOnlyMode) {
-              alert('Die Audiowiedergabe wurde vom Browser blockiert. Bitte interagiere zuerst mit der Seite (z.B. ein Klick).')
+              showToast('Die Audiowiedergabe wurde vom Browser blockiert. Bitte interagiere zuerst mit der Seite (z.B. ein Klick).', 'warning', 5000)
             }
           } else {
             // For other errors, wait a bit and try once more
@@ -657,7 +741,7 @@ export default function ChatInterface() {
                   URL.revokeObjectURL(urlToCleanup)
                 }
                 if (!voiceOnlyMode) {
-                  alert('Audio konnte nicht abgespielt werden. Bitte versuch es erneut.')
+                  showToast('Audio konnte nicht abgespielt werden. Bitte versuch es erneut.', 'error', 4000)
                 }
               }
             }, 200)
@@ -673,23 +757,50 @@ export default function ChatInterface() {
         // Wait for canplay event (HAVE_FUTURE_DATA)
         audio.addEventListener('canplay', attemptPlay, { once: true })
       }
+
+      fallbackTimeout = window.setTimeout(() => {
+        console.warn('[TTS] Playback delay exceeded, falling back to Web Speech API')
+        try {
+          if (audioRef.current) {
+            audioRef.current.pause()
+            audioRef.current.currentTime = 0
+            audioRef.current = null
+          }
+          if (urlToCleanup) {
+            URL.revokeObjectURL(urlToCleanup)
+          }
+          speakWithWebSpeech(preparedText)
+        } catch (fallbackError) {
+          console.error('[TTS] Web Speech fallback failed:', fallbackError)
+        }
+      }, APP_CONFIG.TTS_FALLBACK_DELAY_MS)
     } catch (error) {
       console.error('TTS error:', error)
       setIsPlayingAudio(false)
+      setIsGeneratingTTS(false)
+      if (fallbackTimeout) {
+        window.clearTimeout(fallbackTimeout)
+      }
       if (audioUrl) {
         URL.revokeObjectURL(audioUrl)
       }
       if (audioRef.current) {
         audioRef.current = null
       }
+      try {
+        speakWithWebSpeech(formatTextForSpeech(text))
+      } catch (fallbackError) {
+        console.error('[TTS] Web Speech fallback failed:', fallbackError)
+      }
       // Don't show alert in voice-only mode
       if (!voiceOnlyMode) {
-        alert('Audio konnte nicht erzeugt oder abgespielt werden. Bitte versuch es erneut.')
+        showToast('Audio konnte nicht erzeugt oder abgespielt werden. Bitte versuch es erneut.', 'error', 4000)
       }
     }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRecording, isLoading, voiceOnlyMode]) // startRecording is stable, no need to include
 
-  const stopSpeaking = () => {
+  const stopSpeaking = useCallback(() => {
     console.log('[TTS] Stop speaking requested', { 
       hasAudio: !!audioRef.current, 
       isPlayingAudio,
@@ -719,7 +830,17 @@ export default function ChatInterface() {
         }
       }, 300)
     }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRecording, isLoading, isPlayingAudio]) // startRecording is stable, no need to include
+
+  const exitVoiceOnlyMode = useCallback(() => {
+    console.log('[Voice Mode] Exiting voice-only mode')
+    setVoiceOnlyMode(false)
+    voiceOnlyModeRef.current = false // Sync ref immediately - this stops the loop
+    stopRecording()
+    stopSpeaking()
+    stopAudioMonitoring()
+  }, [stopRecording, stopSpeaking])
 
   // Voice Activity Detection - monitor audio levels
   const startAudioMonitoring = (stream: MediaStream) => {
@@ -738,12 +859,12 @@ export default function ChatInterface() {
       silenceStartTimeRef.current = null // Reset silence timer
       
       const dataArray = new Uint8Array(analyser.fftSize)
-      const silenceDuration = 2000 // 2 seconds of silence to auto-stop
+      const silenceDuration = APP_CONFIG.SILENCE_DURATION_MS
       
       // Dynamic threshold: measure background noise first
       let backgroundNoiseLevel = 0
       let samplesCollected = 0
-      const calibrationSamples = 30 // Collect 30 samples (~0.5 seconds) to determine background
+      const calibrationSamples = APP_CONFIG.VAD_CALIBRATION_SAMPLES
       let hasDetectedSpeech = false // Track if we've detected any speech
       
       const monitorAudio = () => {
@@ -773,8 +894,10 @@ export default function ChatInterface() {
           samplesCollected++
         } else {
           // After calibration, use dynamic threshold (background noise + margin)
-          // Lower threshold for better sensitivity - use 1.8x instead of 2.5x
-          const dynamicThreshold = Math.max(backgroundNoiseLevel * 1.8, 5) // At least 5, or 1.8x background
+          const dynamicThreshold = Math.max(
+            backgroundNoiseLevel * APP_CONFIG.VAD_THRESHOLD_MULTIPLIER,
+            5
+          ) // At least 5, or threshold multiplier x background
           
           // Debug logging (can be removed later)
           if (samplesCollected === calibrationSamples + 1) {
@@ -841,95 +964,332 @@ export default function ChatInterface() {
     setSilenceStartTime(null)
   }
 
-  const copyToClipboard = async (text: string, index: number) => {
+  const copyToClipboard = useCallback(async (text: string, index: number) => {
     try {
       await navigator.clipboard.writeText(text)
       setCopiedIndex(index)
-      setTimeout(() => setCopiedIndex(null), 2000)
+      setTimeout(() => setCopiedIndex(null), UI_CONFIG.COPY_FEEDBACK_DURATION_MS)
     } catch (err) {
       console.error('Failed to copy:', err)
     }
-  }
+  }, [])
 
-  const clearChat = () => {
+  const clearChat = useCallback(async () => {
     if (confirm('Möchtest du den gesamten Chatverlauf wirklich löschen?')) {
       setMessages([])
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('chat-history')
+      if (currentChatId) {
+        await saveChatMessages(currentChatId, [])
+        const updatedChats = await getAllChats()
+        setChats(updatedChats)
+      }
+      showToast('Chatverlauf wurde gelöscht', 'success', 3000)
+    }
+  }, [currentChatId])
+
+  // Chat management functions
+  const handleNewChat = async () => {
+    // Save current chat before switching
+    if (currentChatId && messages.length > 0) {
+      await saveChatMessages(currentChatId, messages)
+    }
+    
+    const newChat = await createNewChat()
+    setCurrentChatId(newChat.id)
+    const updatedChats = await getAllChats()
+    setChats(updatedChats)
+    setMessages([])
+    setShowChatSidebar(false)
+  }
+
+  const handleSwitchChat = async (chatId: string) => {
+    // Save current chat before switching
+    if (currentChatId && messages.length > 0) {
+      await saveChatMessages(currentChatId, messages)
+    }
+    
+    setCurrentChatId(chatId)
+    const chatMessages = await getChatMessages(chatId)
+    setMessages(chatMessages)
+    const updatedChats = await getAllChats()
+    setChats(updatedChats)
+    setShowChatSidebar(false)
+  }
+
+  const handleDeleteChat = async (chatId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (window.confirm('Möchtest du diesen Chat wirklich löschen?')) {
+      await deleteChat(chatId)
+      const updatedChats = await getAllChats()
+      setChats(updatedChats)
+      
+      // If deleted chat was current, switch to another
+      if (chatId === currentChatId) {
+        if (updatedChats.length > 0) {
+          await handleSwitchChat(updatedChats[0].id)
+        } else {
+          await handleNewChat()
+        }
       }
     }
   }
 
-  const formatTimestamp = (date: Date) => {
-    const now = new Date()
-    const diff = now.getTime() - date.getTime()
-    const minutes = Math.floor(diff / 60000)
-    
-    if (minutes < 1) return 'Gerade eben'
-    if (minutes < 60) return `${minutes} Min.`
-    
-    const hours = Math.floor(minutes / 60)
-    if (hours < 24) return `${hours} Std.`
-    
-    return date.toLocaleDateString('de-DE', { 
-      day: 'numeric', 
-      month: 'short',
-      hour: '2-digit',
-      minute: '2-digit'
-    })
+  const clearStreamTimeout = () => {
+    if (streamTimeoutRef.current) {
+      clearTimeout(streamTimeoutRef.current)
+      streamTimeoutRef.current = null
+    }
   }
 
-  const sendMessage = async () => {
-    if (!input.trim() || isLoading) return
+  const clearLoadingBubbleTimeout = () => {
+    if (loadingBubbleTimeoutRef.current) {
+      clearTimeout(loadingBubbleTimeoutRef.current)
+      loadingBubbleTimeoutRef.current = null
+    }
+  }
 
-    const userMessage: Message = {
-      role: 'user',
-      content: input.trim(),
-      timestamp: new Date(),
+  const cancelStreaming = (message?: string) => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+      abortControllerRef.current = null
     }
 
+    clearStreamTimeout()
+    clearLoadingBubbleTimeout()
+    setShowLoadingBubble(false)
+
+    if (message) {
+      const timestamp = new Date()
+      // Sanitize message to remove JSON
+      const sanitizedMessage = sanitizeBotResponse(message)
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: sanitizedMessage,
+          timestamp,
+        },
+      ])
+    }
+  }
+
+  const readSseStream = useCallback(async (
+    response: Response,
+    assistantIndex: number,
+    { speakResponse }: { speakResponse?: boolean } = {}
+  ) => {
+    const reader = response.body?.getReader()
+    if (!reader) {
+      throw new Error('Streaming wird nicht unterstützt.')
+    }
+
+    const decoder = new TextDecoder()
+    let buffer = ''
+    const assistantTimestamp = new Date()
+    let assembledContent = ''
+
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const events = buffer.split('\n\n')
+      buffer = events.pop() || ''
+
+      for (const event of events) {
+        if (!event.trim()) continue
+        const dataLine = event
+          .split('\n')
+          .find((line) => line.startsWith('data:'))
+        if (!dataLine) continue
+
+        try {
+          const payload = JSON.parse(dataLine.replace(/^data:\s*/, ''))
+          if (payload.type === 'token' && payload.content) {
+            setIsStreamingResponse(true)
+            setShowLoadingBubble(false)
+            assembledContent += payload.content
+            // Sanitize content to remove JSON as it streams in
+            // Use functional update to get current state
+            setMessages((prev) => {
+              const currentContent = prev[assistantIndex]?.content || ''
+              const newContent = currentContent + payload.content
+              const sanitizedContent = sanitizeBotResponse(newContent)
+              return prev.map((msg, idx) =>
+                idx === assistantIndex
+                  ? { ...msg, content: sanitizedContent, timestamp: assistantTimestamp }
+                  : msg
+              )
+            })
+          } else if (payload.type === 'tool_calls' && payload.tool_calls) {
+            // Preserve tool calls in the message
+            setMessages((prev) =>
+              prev.map((msg, idx) =>
+                idx === assistantIndex
+                  ? { ...msg, tool_calls: payload.tool_calls, timestamp: assistantTimestamp }
+                  : msg
+              )
+            )
+          } else if (payload.type === 'tool_response' && payload.tool_call_id) {
+            // Tool response messages are for the AI only, not for display
+            // Don't add them to the messages array - they're internal
+            // The AI will use them to generate the final response
+          } else if (payload.type === 'done') {
+            if (speakResponse) {
+              speakText(assembledContent).catch((error) => {
+                console.error('TTS error in streaming:', error)
+              })
+            }
+            return
+          } else if (payload.type === 'error') {
+            throw new Error(payload.message || 'Streaming-Fehler')
+          }
+        } catch (err) {
+          console.error('SSE parsing error:', err)
+        }
+      }
+    }
+  }, [speakText]) // speakText is now memoized with useCallback
+
+  const startChatRequest = useCallback(async (
+    userMessage: Message,
+    { speakResponse }: { speakResponse?: boolean } = {}
+  ) => {
     setMessages((prev) => [...prev, userMessage])
-    setInput('')
     setIsLoading(true)
+    setIsQueryingDatabase(true)
+    setIsStreamingResponse(false)
+    setShowLoadingBubble(false)
+
+    clearLoadingBubbleTimeout()
+    loadingBubbleTimeoutRef.current = window.setTimeout(() => {
+      setShowLoadingBubble(true)
+    }, APP_CONFIG.LOADING_BUBBLE_DELAY_MS)
+
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+
+    const timeoutId = window.setTimeout(() => {
+      controller.abort()
+    }, APP_CONFIG.STREAM_TIMEOUT_MS)
+    streamTimeoutRef.current = timeoutId
+
+    const conversationMessages = [...messages, userMessage]
+      .filter((m) => m.role === 'user' || m.role === 'assistant' || m.role === 'tool')
+      .map((m) => ({
+        role: m.role,
+        content: m.content,
+        ...(m.tool_calls && { tool_calls: m.tool_calls }),
+        ...(m.tool_call_id && { tool_call_id: m.tool_call_id }),
+      }))
+
+    const assistantTimestamp = new Date()
+    let assistantIndex = -1
+
+    setMessages((prev) => {
+      assistantIndex = prev.length
+      return [
+        ...prev,
+        {
+          role: 'assistant',
+          content: '',
+          timestamp: assistantTimestamp,
+        },
+      ]
+    })
 
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(streamingDisabled ? { 'X-Disable-Streaming': 'true' } : {}),
         },
-        body: JSON.stringify({
-          messages: [...messages, userMessage].map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
+        body: JSON.stringify({ 
+          messages: conversationMessages,
+          chatId: currentChatId || undefined,
         }),
+        signal: controller.signal,
       })
 
       if (!response.ok) {
-        throw new Error('Antwort konnte nicht geladen werden.')
+        const errorData = await response.json().catch(() => ({}))
+        const errorMessage = errorData.error || 'Antwort konnte nicht geladen werden.'
+        showToast(errorMessage, 'error', 5000)
+        throw new Error(errorMessage)
       }
 
-      const data = await response.json()
-      const assistantMessage: Message = {
-        role: 'assistant',
-        content: data.message.content,
-        timestamp: new Date(),
-      }
+      const contentType = response.headers.get('content-type') || ''
 
-      setMessages((prev) => [...prev, assistantMessage])
+      if (!streamingDisabled && contentType.includes('text/event-stream')) {
+        await readSseStream(response, assistantIndex, { speakResponse })
+      } else {
+        const data = await response.json()
+        // Sanitize non-streaming response to remove JSON
+        const sanitizedContent = sanitizeBotResponse(data.message?.content || 'Antwort konnte nicht geladen werden.')
+        setMessages((prev) =>
+          prev.map((msg, idx) =>
+            idx === assistantIndex
+              ? {
+                  ...msg,
+                  content: sanitizedContent,
+                  timestamp: assistantTimestamp,
+                }
+              : msg
+          )
+        )
+
+        if (speakResponse) {
+          speakText(data.message?.content || '').catch((error) => {
+            console.error('TTS error in fallback:', error)
+          })
+        }
+        setShowLoadingBubble(false)
+      }
     } catch (error) {
       console.error('Error sending message:', error)
-      const errorMessage: Message = {
+      setShowLoadingBubble(false)
+      setIsQueryingDatabase(false)
+      const isAbort = error instanceof DOMException && error.name === 'AbortError'
+      
+      if (!isAbort) {
+        const errorMessage = error instanceof Error ? error.message : 'Entschuldigung, es ist ein Fehler aufgetreten. Bitte versuch es noch einmal.'
+        showToast(errorMessage, 'error', 5000)
+      }
+      
+      const assistantMessage: Message = {
         role: 'assistant',
-        content: 'Entschuldigung, es ist ein Fehler aufgetreten. Bitte versuch es noch einmal.',
+        content: isAbort
+          ? 'Die Anfrage wurde abgebrochen.'
+          : 'Entschuldigung, es ist ein Fehler aufgetreten. Bitte versuch es noch einmal.',
         timestamp: new Date(),
       }
-      setMessages((prev) => [...prev, errorMessage])
+      setMessages((prev) =>
+        prev.map((msg, idx) => (idx === assistantIndex ? assistantMessage : msg))
+      )
     } finally {
+      clearStreamTimeout()
+      clearLoadingBubbleTimeout()
+      abortControllerRef.current = null
+      setShowLoadingBubble(false)
+      setIsStreamingResponse(false)
       setIsLoading(false)
+      setIsQueryingDatabase(false)
     }
-  }
+  }, [messages, currentChatId, streamingDisabled, readSseStream, clearLoadingBubbleTimeout, clearStreamTimeout])
+
+  const sendMessage = useCallback(async () => {
+    const sanitizedInput = sanitizeInput(input)
+    if (!sanitizedInput || isLoading) return
+
+    const userMessage: Message = {
+      role: 'user',
+      content: sanitizedInput,
+      timestamp: new Date(),
+    }
+
+    setInput('')
+    await startChatRequest(userMessage)
+  }, [input, isLoading, startChatRequest])
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -938,11 +1298,53 @@ export default function ChatInterface() {
     }
   }
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyboardShortcuts = (e: KeyboardEvent) => {
+      // Ctrl/Cmd + K: Focus input field
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault()
+        textareaRef.current?.focus()
+      }
+
+      // Esc: Cancel recording or exit voice-only mode
+      if (e.key === 'Escape') {
+        if (isRecording) {
+          stopRecording()
+          showToast('Aufnahme abgebrochen', 'info', 2000)
+        }
+        if (voiceOnlyMode) {
+          exitVoiceOnlyMode()
+        }
+        // Cancel ongoing request
+        if (abortControllerRef.current) {
+          abortControllerRef.current.abort()
+        }
+      }
+
+      // Ctrl/Cmd + Enter: Send message (alternative to Enter)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault()
+        if (!isLoading && input.trim()) {
+          sendMessage()
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyboardShortcuts)
+    return () => {
+      window.removeEventListener('keydown', handleKeyboardShortcuts)
+    }
+  }, [isRecording, voiceOnlyMode, isLoading, input, sendMessage, exitVoiceOnlyMode, stopRecording])
+
   // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto'
-      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 120)}px`
+      textareaRef.current.style.height = `${Math.min(
+        textareaRef.current.scrollHeight,
+        UI_CONFIG.TEXTAREA_MAX_HEIGHT
+      )}px`
     }
   }, [input])
 
@@ -953,54 +1355,7 @@ export default function ChatInterface() {
       timestamp: new Date(),
     }
 
-    setMessages((prev) => [...prev, userMessage])
-    setIsLoading(true)
-
-    try {
-      const response = await fetch('/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          messages: [...messages, userMessage].map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error('Antwort konnte nicht geladen werden.')
-      }
-
-      const data = await response.json()
-      const assistantMessage: Message = {
-        role: 'assistant',
-        content: data.message.content,
-        timestamp: new Date(),
-      }
-
-      setMessages((prev) => [...prev, assistantMessage])
-      
-      // Automatically play the response as audio (don't await - start immediately)
-      speakText(assistantMessage.content).catch((error) => {
-        console.error('TTS error in voice-only mode:', error)
-      })
-      
-      // Wait for audio to finish, then restart recording
-      // This is handled in the audio.onended callback
-    } catch (error) {
-      console.error('Error sending message:', error)
-      const errorMessage: Message = {
-        role: 'assistant',
-        content: 'Entschuldigung, es ist ein Fehler aufgetreten. Bitte versuch es noch einmal.',
-        timestamp: new Date(),
-      }
-      setMessages((prev) => [...prev, errorMessage])
-    } finally {
-      setIsLoading(false)
-    }
+    await startChatRequest(userMessage, { speakResponse: true })
   }
 
   const enterVoiceOnlyMode = async () => {
@@ -1009,15 +1364,6 @@ export default function ChatInterface() {
     voiceOnlyModeRef.current = true // Sync ref immediately
     // Start recording immediately
     await startRecording()
-  }
-
-  const exitVoiceOnlyMode = () => {
-    console.log('[Voice Mode] Exiting voice-only mode')
-    setVoiceOnlyMode(false)
-    voiceOnlyModeRef.current = false // Sync ref immediately - this stops the loop
-    stopRecording()
-    stopSpeaking()
-    stopAudioMonitoring()
   }
 
   // Cleanup on unmount
@@ -1041,7 +1387,82 @@ export default function ChatInterface() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-white safe-area-inset">
+    <div className="flex flex-col h-screen bg-white safe-area-inset relative">
+      {/* Chat Sidebar */}
+      {showChatSidebar && (
+        <div className="fixed inset-0 z-50 flex sm:relative sm:z-auto">
+          {/* Overlay for mobile */}
+          <div 
+            className="fixed inset-0 bg-black/50 sm:hidden"
+            onClick={() => setShowChatSidebar(false)}
+          />
+          {/* Sidebar */}
+          <div className="w-80 bg-white border-r border-gray-200 flex flex-col h-full z-50 sm:z-auto">
+            <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-gray-900">Chats</h2>
+              <button
+                onClick={handleNewChat}
+                className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                title="Neuer Chat"
+              >
+                <Plus className="h-5 w-5 text-gray-600" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {chats.length === 0 ? (
+                <div className="p-4 text-center text-gray-500">
+                  <p>Noch keine Chats</p>
+                  <button
+                    onClick={handleNewChat}
+                    className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    Ersten Chat erstellen
+                  </button>
+                </div>
+              ) : (
+                <div className="p-2">
+                  {chats.map((chat) => (
+                    <div
+                      key={chat.id}
+                      onClick={() => handleSwitchChat(chat.id)}
+                      className={`p-3 rounded-lg cursor-pointer transition-colors mb-2 group ${
+                        chat.id === currentChatId
+                          ? 'bg-blue-50 border border-blue-200'
+                          : 'hover:bg-gray-50 border border-transparent'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className={`font-medium truncate ${
+                            chat.id === currentChatId ? 'text-blue-900' : 'text-gray-900'
+                          }`}>
+                            {chat.title}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {chat.messageCount} Nachrichten • {new Date(chat.updatedAt).toLocaleDateString('de-DE', {
+                              day: '2-digit',
+                              month: '2-digit',
+                              year: 'numeric',
+                            })}
+                          </p>
+                        </div>
+                        <button
+                          onClick={(e) => handleDeleteChat(chat.id, e)}
+                          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-100 text-red-600 transition-all"
+                          title="Chat löschen"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      
       {/* Header - Mobile optimized */}
       <div className={`${voiceOnlyMode ? 'bg-blue-600' : 'bg-white'} border-b ${voiceOnlyMode ? 'border-blue-700' : 'border-gray-100'} px-3 py-3 sm:px-4 sm:py-3 sticky top-0 z-10 safe-area-inset-top transition-colors`}>
         <div className="max-w-3xl mx-auto">
@@ -1060,6 +1481,17 @@ export default function ChatInterface() {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              {!voiceOnlyMode && (
+                <button
+                  onClick={() => setShowChatSidebar(!showChatSidebar)}
+                  className="p-2.5 sm:p-2 rounded-lg text-gray-500 active:bg-gray-100 transition-colors touch-manipulation flex-shrink-0"
+                  title="Chats anzeigen"
+                  aria-label="Chats anzeigen"
+                >
+                  <MessageSquare className="h-5 w-5 sm:h-5 sm:w-5" />
+                </button>
+              )}
+              {!voiceOnlyMode && <ConnectionStatus className="hidden sm:flex" />}
               {voiceOnlyMode && (
                 <button
                   onClick={exitVoiceOnlyMode}
@@ -1125,72 +1557,72 @@ export default function ChatInterface() {
                         remarkPlugins={[remarkGfm]}
                         components={{
                           // Headings
-                          h1: ({ node, ...props }) => <h1 className="text-xl font-bold mt-4 mb-2" {...props} />,
-                          h2: ({ node, ...props }) => <h2 className="text-lg font-bold mt-3 mb-2" {...props} />,
-                          h3: ({ node, ...props }) => <h3 className="text-base font-bold mt-2 mb-1" {...props} />,
+                          h1: ({ node, ...props }) => <h1 className="text-xl font-bold mt-4 mb-2 text-gray-900" {...props} />,
+                          h2: ({ node, ...props }) => <h2 className="text-lg font-bold mt-3 mb-2 text-gray-900" {...props} />,
+                          h3: ({ node, ...props }) => <h3 className="text-base font-bold mt-2 mb-1 text-gray-900" {...props} />,
                           
                           // Paragraphs
-                          p: ({ node, ...props }) => <p className="mb-2 last:mb-0" {...props} />,
+                          p: ({ node, ...props }) => <p className="mb-2 last:mb-0 text-gray-900 leading-relaxed" {...props} />,
                           
                           // Lists
-                          ul: ({ node, ...props }) => <ul className="list-disc list-outside ml-4 mb-2 space-y-1" {...props} />,
-                          ol: ({ node, ...props }) => <ol className="list-decimal list-outside ml-4 mb-2 space-y-1" {...props} />,
-                          li: ({ node, ...props }) => <li className="pl-1" {...props} />,
+                          ul: ({ node, ...props }) => <ul className="list-disc list-outside ml-5 mb-3 space-y-1.5" {...props} />,
+                          ol: ({ node, ...props }) => <ol className="list-decimal list-outside ml-5 mb-3 space-y-1.5" {...props} />,
+                          li: ({ node, ...props }) => <li className="pl-1.5 text-gray-900 leading-relaxed" {...props} />,
                           
                           // Code
                           code: ({ node, inline, className, children, ...props }: any) => {
                             return inline ? (
-                              <code className="bg-gray-100 text-gray-800 px-1.5 py-0.5 rounded text-sm font-mono" {...props}>
+                              <code className="bg-gray-100 text-blue-700 px-1.5 py-0.5 rounded text-sm font-mono border border-gray-200" {...props}>
                                 {children}
                               </code>
                             ) : (
-                              <code className="block bg-gray-100 text-gray-800 p-3 rounded-lg text-sm font-mono overflow-x-auto my-2" {...props}>
+                              <code className="block bg-gray-50 text-gray-800 p-3 rounded-lg text-sm font-mono overflow-x-auto my-3 border border-gray-200 shadow-sm" {...props}>
                                 {children}
                               </code>
                             )
                           },
-                          pre: ({ node, ...props }) => <pre className="my-2" {...props} />,
+                          pre: ({ node, ...props }) => <pre className="my-3" {...props} />,
                           
                           // Links
                           a: ({ node, ...props }) => (
                             <a 
-                              className="text-blue-600 hover:text-blue-800 underline" 
+                              className="text-blue-600 hover:text-blue-800 underline transition-colors" 
                               target="_blank" 
                               rel="noopener noreferrer" 
                               {...props} 
                             />
                           ),
                           
-                          // Tables
+                          // Tables - Enhanced styling for query results
                           table: ({ node, ...props }) => (
-                            <div className="overflow-x-auto my-2">
-                              <table className="min-w-full border-collapse border border-gray-300" {...props} />
+                            <div className="overflow-x-auto my-4 rounded-lg border border-gray-200 shadow-sm">
+                              <table className="min-w-full border-collapse bg-white" {...props} />
                             </div>
                           ),
-                          thead: ({ node, ...props }) => <thead className="bg-gray-50" {...props} />,
-                          tbody: ({ node, ...props }) => <tbody {...props} />,
-                          tr: ({ node, ...props }) => <tr className="border-b border-gray-200" {...props} />,
+                          thead: ({ node, ...props }) => <thead className="bg-gradient-to-r from-blue-50 to-blue-100" {...props} />,
+                          tbody: ({ node, ...props }) => <tbody className="divide-y divide-gray-100" {...props} />,
+                          tr: ({ node, ...props }) => <tr className="border-b border-gray-100 hover:bg-gray-50 transition-colors" {...props} />,
                           th: ({ node, ...props }) => (
-                            <th className="border border-gray-300 px-3 py-2 text-left font-semibold" {...props} />
+                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider border-b border-gray-200" {...props} />
                           ),
                           td: ({ node, ...props }) => (
-                            <td className="border border-gray-300 px-3 py-2" {...props} />
+                            <td className="px-4 py-3 text-sm text-gray-900 border-b border-gray-100" {...props} />
                           ),
                           
                           // Blockquotes
                           blockquote: ({ node, ...props }) => (
-                            <blockquote className="border-l-4 border-gray-300 pl-4 py-1 my-2 italic text-gray-700" {...props} />
+                            <blockquote className="border-l-4 border-blue-400 pl-4 py-2 my-3 italic text-gray-700 bg-blue-50 rounded-r" {...props} />
                           ),
                           
                           // Strong & Em
-                          strong: ({ node, ...props }) => <strong className="font-bold" {...props} />,
-                          em: ({ node, ...props }) => <em className="italic" {...props} />,
+                          strong: ({ node, ...props }) => <strong className="font-semibold text-gray-900" {...props} />,
+                          em: ({ node, ...props }) => <em className="italic text-gray-800" {...props} />,
                           
                           // Horizontal Rule
-                          hr: ({ node, ...props }) => <hr className="my-3 border-t border-gray-300" {...props} />,
+                          hr: ({ node, ...props }) => <hr className="my-4 border-t-2 border-gray-200" {...props} />,
                         }}
                       >
-                        {message.content}
+                        {sanitizeBotResponse(message.content)}
                       </ReactMarkdown>
                     )}
                   </div>
@@ -1211,7 +1643,7 @@ export default function ChatInterface() {
                     )}
                   </button>
                 </div>
-                {message.timestamp && (
+                    {message.timestamp && (
                   <p
                     className={`text-[11px] sm:text-xs mt-2 sm:mt-1.5 ${
                       message.role === 'user'
@@ -1226,7 +1658,7 @@ export default function ChatInterface() {
             </div>
           ))}
 
-          {isLoading && (
+          {isLoading && showLoadingBubble && !isStreamingResponse && (
             <div className="flex justify-start animate-in fade-in slide-in-from-bottom-2 duration-200">
               <div className="bg-white rounded-2xl sm:rounded-xl rounded-bl-sm px-4 py-3 sm:px-4 sm:py-2.5 border border-gray-200 shadow-sm">
                 <div className="flex items-center gap-2.5">
@@ -1282,7 +1714,7 @@ export default function ChatInterface() {
                     </p>
                     {silenceStartTime && (
                       <p className="text-blue-200 text-xs mt-1">
-                        Automatischer Stopp in {Math.max(0, Math.ceil((2000 - (Date.now() - silenceStartTime)) / 1000))}s
+                        Automatischer Stopp in {Math.max(0, Math.ceil((APP_CONFIG.SILENCE_DURATION_MS - (Date.now() - silenceStartTime)) / 1000))}s
                       </p>
                     )}
                   </div>
@@ -1371,11 +1803,15 @@ export default function ChatInterface() {
                   placeholder="Nachricht eingeben..."
                   className="w-full p-3 sm:p-3 pr-14 sm:pr-12 pb-10 sm:pb-8 border-2 border-gray-200 rounded-xl sm:rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900 placeholder-gray-400 text-[16px] sm:text-[15px] transition-all"
                   rows={1}
-                  style={{ minHeight: '48px', maxHeight: '120px' }}
+                  maxLength={APP_CONFIG.MAX_INPUT_LENGTH}
+                  style={{ 
+                    minHeight: `${UI_CONFIG.TEXTAREA_MIN_HEIGHT}px`, 
+                    maxHeight: `${UI_CONFIG.TEXTAREA_MAX_HEIGHT}px` 
+                  }}
                 />
                 <div className="absolute bottom-2 right-3 sm:bottom-1.5 sm:right-2 flex items-center gap-2">
                   <span className="text-[11px] sm:text-xs text-gray-400">
-                    {input.length} / 2000
+                    {input.length} / {APP_CONFIG.MAX_INPUT_LENGTH}
                   </span>
                 </div>
               </div>
@@ -1415,6 +1851,17 @@ export default function ChatInterface() {
                   </button>
                 )}
 
+                {isLoading && (
+                  <button
+                    onClick={() => cancelStreaming()}
+                    className="p-3 sm:p-2.5 rounded-xl sm:rounded-lg bg-red-50 text-red-600 active:bg-red-100 transition-all duration-150 touch-manipulation active:scale-95 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center"
+                    title="Anfrage abbrechen"
+                    aria-label="Anfrage abbrechen"
+                  >
+                    <X className="h-5 w-5 sm:h-5 sm:w-5" />
+                  </button>
+                )}
+
                 <button
                   onClick={sendMessage}
                   disabled={!input.trim() || isLoading}
@@ -1436,5 +1883,3 @@ export default function ChatInterface() {
     </div>
   )
 }
-
-
