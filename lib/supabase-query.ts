@@ -779,9 +779,9 @@ export async function updateRow(
         }
       } else {
         // Simple equality filter
-        // Use case-insensitive search for 'name' fields
+        // Use case-insensitive search for 'name' fields (with wildcards for partial matching)
         if (key === 'name' && typeof value === 'string') {
-          query = query.ilike(key, value)
+          query = query.ilike(key, `%${value}%`)
         } else {
           query = query.eq(key, value)
         }

@@ -3032,6 +3032,17 @@ async function handleToolCalls(
             const randomStr = Math.random().toString(36).substring(2, 5).toUpperCase()
             valuesWithDefaults.material_id = `M-${nameUpper}-${randomStr}`
           }
+        } else if (functionArgs.tableName === 't_services') {
+          // Defaults for services
+          if (valuesWithDefaults.is_active === undefined) {
+            valuesWithDefaults.is_active = true
+          }
+          // Auto-generate service_id if missing (format: SVC-[UPPERCASE_NAME]-[RANDOM])
+          if (!valuesWithDefaults.service_id && valuesWithDefaults.name) {
+            const nameUpper = String(valuesWithDefaults.name).toUpperCase().replace(/[^A-Z0-9]/g, '').substring(0, 10)
+            const randomStr = Math.random().toString(36).substring(2, 5).toUpperCase()
+            valuesWithDefaults.service_id = `SVC-${nameUpper}-${randomStr}`
+          }
         }
         
         if (!functionArgs.confirm) {
@@ -3085,9 +3096,16 @@ async function handleToolCalls(
       } else if (!functionArgs.values || typeof functionArgs.values !== 'object') {
         functionResult = { error: 'Missing values for updateRow.' }
       } else {
+        // Map 'stadt' to 'ort' for t_projects updates (same as insert)
+        const valuesToUpdate = { ...functionArgs.values }
+        if (functionArgs.tableName === 't_projects' && valuesToUpdate.stadt !== undefined && valuesToUpdate.stadt !== null) {
+          valuesToUpdate.ort = valuesToUpdate.stadt
+          delete valuesToUpdate.stadt
+        }
+        
         // Note: We don't have access to req here, so we'll pass undefined for ipAddress
         // In production, you might want to pass this through the function chain
-        const result = await updateRow(functionArgs.tableName, functionArgs.filters, functionArgs.values, {
+        const result = await updateRow(functionArgs.tableName, functionArgs.filters, valuesToUpdate, {
           requireSingleRow: true, // Require single row for safety
         })
         functionResult = result
