@@ -393,7 +393,47 @@ Rules:
        - For t_employees: is_active=true (default), role=null (if not specified), hourly_rate=0 (if not specified), contract_type=null (if not specified)
        - For t_projects: status='In Planung' (default, NOT 'geplant'!), stadt=null (if not specified - it's optional! NOTE: field is "stadt", NOT "ort"!), project_code=auto-generate if not provided (e.g., PRJ-YYYYMMDD-XXXXX)
        - For t_materials: is_active=true (default), vat_rate=19.00 (default), default_quantity=1 (if not specified)
-       - For t_vehicles: unit='Tag' (default), status='bereit' (default)
+       - For t_vehicles: vehicle_id is REQUIRED (primary key, text), nickname=null (if not provided), unit='Tag' (default), status='bereit' (default)
+       - **CRITICAL FOR VEHICLES**: vehicle_id is the PRIMARY KEY and MUST be provided! If user says "neues Fahrzeug" with a name or nickname, you can use the name/nickname as vehicle_id (or generate one like "VEH-[NAME]")
+     * **CRITICAL FOR VEHICLES**: 
+       - When user says "neues fahrzeug", "fahrzeug hinzufügen", "fahrzeug erstellen" or similar, IMMEDIATELY call insertRow!
+       - Extract ALL available information from the message (vehicle_id, nickname, etc.)
+       - Use sensible defaults for missing fields:
+         * vehicle_id: REQUIRED - use provided ID or generate from nickname/name (e.g., "VEH-[UPPERCASE_NAME]")
+         * nickname: null if not provided
+         * unit: 'Tag' (default)
+         * status: 'bereit' (default)
+         * is_deleted: false (default)
+       - **CRITICAL**: vehicle_id is a REQUIRED field - if user provides a name/nickname but no vehicle_id, generate one from the name!
+       - NEVER ask for more information - if you have at least a vehicle_id or nickname, that's enough!
+     * **EXAMPLE**: "neues fahrzeug VEH-123 nickname TestFahrzeug" → insertRow with {vehicle_id: "VEH-123", nickname: "TestFahrzeug", unit: "Tag", status: "bereit", is_deleted: false}
+     * **EXAMPLE**: "neues fahrzeug TestFahrzeug" → insertRow with {vehicle_id: "VEH-TESTFAHRZEUG", nickname: "TestFahrzeug", unit: "Tag", status: "bereit", is_deleted: false}
+     * **CRITICAL FOR MORNING PLAN**: 
+       - When user says "morgenplan", "morgen plan", "plan erstellen", "einsatz planen", "Erstelle einen Morgenplan" or similar for a project, IMMEDIATELY call insertRow for t_morningplan!
+       - Extract ALL available information from the message (project name, date, start_time, service_type, etc.)
+       - **🚨 CRITICAL WORKFLOW - YOU MUST CALL BOTH TOOLS IN THE SAME RESPONSE 🚨**:
+         1. **FIRST**: Call queryTable('t_projects', {name: '[ProjectName]'}) to get project_id from result[0].project_id
+         2. **IMMEDIATELY AFTER** (in the SAME response, do NOT wait for another user message!): Call insertRow with:
+            - tableName: 't_morningplan'
+            - values: {plan_date: '[date]', project_id: [ACTUAL_project_id_from_step1], start_time: '[time if provided]', service_type: '[type if provided]', notes: '[notes if provided]'}
+            - confirm: true
+         3. Extract plan_date from user message (format: YYYY-MM-DD) - if "am [date]" or "für [date]" is mentioned, extract it. If "um [time]" is mentioned, extract start_time in "HH:MM:SS" format.
+         4. **CRITICAL**: You MUST call BOTH queryTable AND insertRow in the SAME response - do NOT just call queryTable and wait!
+         5. **CRITICAL**: Use the ACTUAL project_id UUID from the queryTable result[0].project_id, NOT placeholder text!
+       - Use sensible defaults for missing fields:
+         * plan_date: REQUIRED - extract from message (format: YYYY-MM-DD) or use today/tomorrow
+         * project_id: REQUIRED - find by querying t_projects with {name: '[ProjectName]'}
+         * vehicle_id: null (optional)
+         * start_time: null (optional, format: "HH:MM:SS" if provided)
+         * service_type: null (optional)
+         * notes: null (optional)
+       - **DO NOT announce "I will create" - DO THE QUERIES SILENTLY, THEN CALL THE TOOL IMMEDIATELY!**
+       - **EXAMPLE**: User says "Erstelle einen Morgenplan für Projekt TestProject am 2026-01-05 um 08:00":
+         1. Query t_projects: queryTable('t_projects', {name: 'TestProject'}) to get project_id from result[0].project_id (e.g., "abc-123-def")
+         2. IMMEDIATELY call insertRow: tableName='t_morningplan', values={plan_date: '2026-01-05', project_id: 'abc-123-def', start_time: '08:00:00'}, confirm=true
+       - **CRITICAL**: Extract plan_date from message - if "am [date]" is mentioned, use that date in YYYY-MM-DD format. If "um [time]" is mentioned, extract start_time in "HH:MM:SS" format.
+       - **CRITICAL**: NEVER use placeholder text like '[found_project_id]' in the actual tool call - use the REAL UUID from the query result!
+       - **CRITICAL**: You MUST call insertRow IMMEDIATELY after finding project_id - do NOT just say you will do it!
        - For t_inspections: status='Geplant' (default)
        - For t_services: is_active=true (default)
        - For t_users: is_active=true (default)
@@ -422,20 +462,46 @@ Rules:
          * is_active: true (default)
          * vat_rate: 19 (default, 19%)
          * default_quantity: 1 (default)
-         * unit: null if not provided
+         * **unit: "Stück" if not provided (REQUIRED FIELD - cannot be null!)**
          * category: null if not provided
+       - **CRITICAL**: unit is a REQUIRED field - if user doesn't provide it, use "Stück" as default!
        - NEVER ask for more information - if you have at least a name, that's enough!
-     * **EXAMPLE**: "neues material Styro" → insertRow with {name: "Styro", unit: null, category: null, vat_rate: 19, is_active: true, default_quantity: 1, material_id: auto-generate}
+     * **EXAMPLE**: "neues material Styro" → insertRow with {name: "Styro", unit: "Stück", category: null, vat_rate: 19, is_active: true, default_quantity: 1, material_id: auto-generate}
      * **EXAMPLE**: "neues material Styro Kilogramm EK 10 VK 30" → 
        1. First insertRow with tableName='t_materials' and {name: "Styro", unit: "Kilogramm", vat_rate: 19, is_active: true, default_quantity: 1, material_id: auto-generate}
        2. Then insertRow with tableName='t_material_prices' and {material_id: [generated_material_id], purchase_price: 10, sale_price: 30}
-     * **CRITICAL FOR MATERIAL PRICES**: When user says "EK [price] VK [price]" or "Einkaufspreis [price] Verkaufspreis [price]" for a material:
+     * **CRITICAL FOR SERVICES**: 
+       - When user says "neuer service", "service hinzufügen", "service erstellen", "erstelle einen neuen service", "Erstelle einen neuen Service: Name ist X" or similar and provides ANY information (even just a name), IMMEDIATELY call insertRow!
+       - **🚨 CRITICAL**: You MUST provide the "values" parameter as a valid JSON object! Example: insertRow(tableName="t_services", values={"name": "TestService", "is_active": true}, confirm=true)
+       - Extract ALL available information from the message (name, category, etc.)
+       - Use sensible defaults for missing fields:
+         * service_id: auto-generate if not provided (format: SVC-[UPPERCASE_NAME]-[RANDOM])
+         * is_active: true (default)
+         * default_unit: null if not provided
+         * category: null if not provided
+       - **CRITICAL**: The values parameter MUST be a valid JSON object with at least {"name": "[extracted_name]", "is_active": true}!
+       - **CRITICAL**: NEVER call insertRow without the values parameter! The tool call MUST look like: insertRow(tableName="t_services", values={"name": "TestService", "is_active": true}, confirm=true)
+       - NEVER ask for more information - if you have at least a name, that's enough!
+     * **EXAMPLE**: "erstelle einen neuen service: Name ist TestService" → insertRow(tableName="t_services", values={"name": "TestService", "is_active": true}, confirm=true)
+     * **EXAMPLE**: "Erstelle einen neuen Service: Name ist MyService" → insertRow(tableName="t_services", values={"name": "MyService", "is_active": true}, confirm=true)
+     * **CRITICAL FOR MATERIAL PRICES**: When user says "EK [price] VK [price]", "Einkaufspreis [price] Verkaufspreis [price]", "Erstelle einen Preis für Material [name]", "Erstelle einen Preis für Material [name]: Einkaufspreis ist [X], Verkaufspreis ist [Y]" or similar:
        - You MUST insert into t_material_prices table, NOT t_materials!
-       - First find the material_id by querying t_materials with the material name
-       - Then call insertRow with tableName='t_material_prices', values={material_id: [found_material_id], purchase_price: [EK], sale_price: [VK]}
+       - **🚨 CRITICAL WORKFLOW - YOU MUST CALL BOTH TOOLS IN THE SAME RESPONSE 🚨**:
+         1. **FIRST**: Call queryTable('t_materials', {name: '[MaterialName]'}) to get material_id from result[0].material_id
+         2. **IMMEDIATELY AFTER** (in the SAME response, do NOT wait for another user message!): Call insertRow with tableName='t_material_prices', values={material_id: [ACTUAL_material_id_from_step1], cost_per_unit: [EK/purchase_price], price_per_unit: [VK/sale_price]}, confirm=true
+         3. Extract Einkaufspreis (purchase_price/cost_per_unit) and Verkaufspreis (sale_price/price_per_unit) from the message
+         4. **CRITICAL**: You MUST call BOTH queryTable AND insertRow in the SAME response - do NOT just call queryTable and wait!
+         5. **CRITICAL**: Use the ACTUAL material_id from the queryTable result[0].material_id, NOT placeholder text!
+       - **CRITICAL**: After calling queryTable, you MUST IMMEDIATELY call insertRow in the SAME response - do NOT just say you will do it later!
+       - **CRITICAL**: NEVER use placeholder text like '[found_material_id]' in the actual tool call - use the REAL material_id from the query result!
+       - **EXAMPLE**: User says "Erstelle einen Preis für Material Styro: Einkaufspreis ist 10, Verkaufspreis ist 20":
+         - **SAME RESPONSE**: Call queryTable('t_materials', {name: 'Styro'}) AND insertRow(tableName='t_material_prices', values={material_id: [from_query_result], cost_per_unit: 10, price_per_unit: 20}, confirm=true)
+       - **EXAMPLE**: User says "Erstelle einen Preis für Material Styro: Einkaufspreis ist 10, Verkaufspreis ist 20":
+         1. Query t_materials: queryTable('t_materials', {name: 'Styro'}) to find material_id (e.g., "M-STYRO-ABC")
+         2. IMMEDIATELY call insertRow: tableName='t_material_prices', values={material_id: 'M-STYRO-ABC', cost_per_unit: 10, price_per_unit: 20}, confirm=true
        - **EXAMPLE**: User says "10 ek 30 vk" for material "Styro":
          1. Query t_materials: queryTable('t_materials', {name: 'Styro'}) to find material_id
-         2. Call insertRow: tableName='t_material_prices', values={material_id: [found_material_id], purchase_price: 10, sale_price: 30}
+         2. IMMEDIATELY call insertRow: tableName='t_material_prices', values={material_id: [found_material_id], cost_per_unit: 10, price_per_unit: 30}, confirm=true
      * **CRITICAL FOR ADDING EMPLOYEES TO PROJECTS - INCLUDING BATCH OPERATIONS**: When user says "füge [EmployeeName] zu [ProjectName] hinzu", "mitarbeiter hinzufügen", "hinzufügen", "weise zu" or similar:
        - You MUST IMMEDIATELY call insertRow for t_morningplan_staff - DO NOT just say you will do it!
        - **BATCH OPERATIONS - CRITICAL**: If the user mentions MULTIPLE employees (e.g., "füge Achim, Ali und Björn hinzu", "füge Achim und Ali zu Projekt X hinzu"), you MUST:
@@ -472,11 +538,22 @@ Rules:
    - **UPDATE**: 
      * When user says "umbenennen", "ändern", "update", "setze", "aktualisiere", "rename", "change", "modify" or similar, you MUST:
        1. **CRITICAL CONTEXT**: If the user mentions a specific project name AND date in the current message (e.g., "für das Projekt Besichtigung am 30. Dezember"), use BOTH name AND date in your filters. If user says "Diese Informationen waren aber für das Projekt [X] am [Datum]", immediately switch to that project and date.
-       2. Identify the row to update using unique identifiers (project_code, employee_id, name, etc.). If a date is mentioned, also filter by project_date or plan_date.
-       3. Extract the new values from the user's message
-       4. **IMMEDIATELY call updateRow tool with filters and values - DO NOT announce "I will update", just DO IT!**
-       5. NEVER update a different project just because it has a similar name - always verify both name AND date match if date was mentioned.
-       6. **DO NOT say "Ich werde aktualisieren" or "Moment bitte" - just call the tool immediately!**
+       2. **CRITICAL**: Extract the identifier (name, employee_id, etc.) from the user's message to build the filters object. Example: "Ändere den Status von Projekt TestProject" → filters: {name: "TestProject"}. Example: "Setze den Stundensatz von Mitarbeiter Max auf 35" → filters: {name: "Max"}
+       3. **CRITICAL FOR EMPLOYEES**: When user says "Setze den Stundensatz von Mitarbeiter [Name] auf [Rate]" or similar, use filters: {name: "[Name]"} and values: {hourly_rate: [Rate]}
+       4. **CRITICAL FOR VEHICLES**: When user says "Setze den Status von Fahrzeug [Name/ID] auf [Status]", the identifier might be vehicle_id (primary key) or nickname. 
+          - **CRITICAL**: vehicle_id is the PRIMARY KEY (text field) - if the identifier looks like "VEH-..." or matches a vehicle_id format (e.g., "VEH-1767509746055"), use filters: {vehicle_id: "[identifier]"}
+          - If the identifier does NOT look like a vehicle_id (e.g., "TestFahrzeug", "TEST_1767509703355_Vehicle"), it's likely a nickname - use filters: {nickname: "[identifier]"}
+          - **CRITICAL**: If the identifier contains "TEST_" or looks like a test name, it's probably a nickname, NOT a vehicle_id!
+          - **IMPORTANT**: If you're not sure, try nickname first for test identifiers, then vehicle_id if that fails
+          - **EXAMPLE**: If identifier is "VEH-123" or "VEH-1767509746055" (starts with VEH- and has numbers), use filters: {vehicle_id: "VEH-123"}
+          - **EXAMPLE**: If identifier is "TestFahrzeug" or "TEST_1767509703355_Vehicle" (contains TEST_ or is a name), use filters: {nickname: "TEST_1767509703355_Vehicle"}
+       5. Identify the row to update using unique identifiers (project_code, employee_id, name, vehicle_id, nickname, etc.). If a date is mentioned, also filter by project_date or plan_date.
+       6. Extract the new values from the user's message
+       7. **IMMEDIATELY call updateRow tool with filters and values - DO NOT announce "I will update", just DO IT!**
+       8. **CRITICAL**: The filters parameter MUST be a valid JSON object with at least one field (e.g., {name: "ProjectName"} or {employee_id: "..."} or {vehicle_id: "..."} or {nickname: "..."}). NEVER call updateRow without filters!
+       9. NEVER update a different project just because it has a similar name - always verify both name AND date match if date was mentioned.
+       10. **DO NOT say "Ich werde aktualisieren" or "Moment bitte" - just call the tool immediately!**
+       11. **CRITICAL**: If you need to find an ID first (e.g., employee_id from name), do the query FIRST, then IMMEDIATELY call updateRow with the found ID. Do NOT ask the user - do it automatically!
      * **EXAMPLE**: If user says "projekt zzz umbenennen in aaaa", call updateRow with:
        - tableName: 't_projects'
        - filters: {name: 'ZZZ'} (to find the project)
@@ -491,6 +568,14 @@ Rules:
        - values: {strasse: 'Kölner Landstraße', nr: '99'}
      * **EXAMPLE**: If user corrects you: "Diese Informationen waren aber für das Projekt Besichtigung am dreißigsten Dezember", immediately switch context and use:
        - filters: {name: 'Besichtigung', project_date: '2025-12-30'}
+     * **EXAMPLE**: If user says "Setze den Stundensatz von Mitarbeiter Max auf 35", call updateRow with:
+       - tableName: 't_employees'
+       - filters: {name: 'Max'} (to find the employee)
+       - values: {hourly_rate: 35}
+     * **EXAMPLE**: If user says "Setze den Status von Fahrzeug VEH-123 auf in_repair", call updateRow with:
+       - tableName: 't_vehicles'
+       - filters: {vehicle_id: 'VEH-123'} (try vehicle_id first, as it's the primary key)
+       - values: {status: 'in_repair'}
      * **CRITICAL FOR EMPLOYEE START TIMES**: When user says "startzeit [EmployeeName] [Time]" or "startzeit [EmployeeName] [Time]" for a project:
        - This refers to the **individual_start_time** field in **t_morningplan_staff**, NOT the start_time in t_morningplan!
        - You MUST first find the correct row by:
@@ -523,14 +608,25 @@ Rules:
        2. Extract the unique identifier (e.g., employee_id, project_id, plan_id) from the query result
        3. If found: Show what will be deleted and ask for confirmation
        4. If not found: Tell user and suggest alternatives
-       5. When user confirms with "ja", "ok", "bitte", or similar, IMMEDIATELY call deleteRow with the correct filters using the unique identifier
+       5. **🚨 CRITICAL: YOU MUST CALL BOTH queryTable AND deleteRow IN THE SAME RESPONSE AFTER CONFIRMATION 🚨**:
+          - When user confirms with "ja", "ok", "bitte", "yes", "delete", "löschen", "ja bitte", "okay", "mach es", "bitte löschen" or similar (in the same message OR in conversation history), you MUST:
+            1. **FIRST**: Call queryTable to find the record (if not already done)
+            2. **IMMEDIATELY AFTER** (in the SAME response, do NOT wait!): Call deleteRow with the correct filters using the unique identifier from the query result
+          - **CRITICAL**: You MUST call BOTH tools in the SAME response - do NOT just call queryTable and wait for another message!
        6. **CRITICAL**: You MUST use the actual ID from the query result, NOT the name! Example: {employee_id: "abc-123-def"} NOT {name: "SSS"}
        7. **CRITICAL**: The queryTable call in step 1 is AUTOMATIC - do it immediately, don't ask the user!
+       8. **CRITICAL**: After user confirms deletion (in the same message or previous message), you MUST call deleteRow IMMEDIATELY in the SAME response - do not wait for another message!
+       9. **CRITICAL**: If you see a confirmation in the conversation history (e.g., previous assistant message asking "Möchtest du... wirklich löschen?" followed by user saying "ja"), you MUST call queryTable (if needed) AND deleteRow immediately in your response!
      * **Example for deleting employee "SSS"**:
        1. [AUTOMATIC] Query: queryTable('t_employees', {name: 'SSS'}) → get employee_id (no user interaction needed)
        2. Show: "Möchtest du den Mitarbeiter 'SSS' wirklich löschen?"
        3. User: "ja"
-       4. IMMEDIATELY call: deleteRow(tableName='t_employees', filters={employee_id: '...'}) with the actual employee_id from step 1
+       4. **IMMEDIATELY in the same response, call**: deleteRow(tableName='t_employees', filters={employee_id: '...'}) with the actual employee_id from step 1
+       5. **DO NOT** wait for another user message - call deleteRow immediately after seeing the confirmation!
+     * **Example for deleting with confirmation in history**:
+       - Previous messages: [user: "Lösche Mitarbeiter Max"], [assistant: "Möchtest du den Mitarbeiter 'Max' wirklich löschen?"], [user: "ja"]
+       - Current response: IMMEDIATELY call queryTable('t_employees', {name: 'Max'}) to get employee_id, then IMMEDIATELY call deleteRow(tableName='t_employees', filters={employee_id: '...'})
+       - **DO NOT** ask again - the user already confirmed!
      * **NEVER call deleteRow with just {name: "..."} - AUTOMATICALLY query first to get the ID!**
      * **NEVER ask the user for the ID - find it yourself by calling queryTable automatically!**
    - **DELETE FIELD**: When user asks to remove a field value (e.g., "lösche die Straße"), use updateRow with the field set to null.
@@ -2553,7 +2649,7 @@ function getToolDefinitions(): ChatCompletionTool[] {
       function: {
         name: 'insertRow',
         description:
-          'Insert a single row into an allowed table. **🚨 CRITICAL: YOU MUST ALWAYS PROVIDE THE "values" PARAMETER AS A VALID JSON OBJECT! 🚨** YOU MUST CALL THIS TOOL IMMEDIATELY - DO NOT JUST SAY YOU WILL DO IT! **MANDATORY RULES:** 1) **THE "values" PARAMETER IS ALWAYS REQUIRED** - it MUST be a valid JSON object with field names and values extracted from the user message. Example: If user says "neues projekt TestProjekt in Köln", you MUST call: insertRow(tableName="t_projects", values={"name": "TestProjekt", "stadt": "Köln", "status": "In Planung"}, confirm=true). 2) When user says "neues projekt" or "projekt hinzufügen" or "neuer Eintrag projekt" or "projekt erstellen" and provides ANY information (even just a name), IMMEDIATELY CALL THIS TOOL with tableName="t_projects" and values MUST be a valid JSON object with at least {"name": "[extracted_name]", "status": "In Planung"}. Extract ALL mentioned fields: name, stadt (city), dienstleistungen (service type), project_date (date). 3) When user says "neu mitarbeiter" or "neuer arbeiter" or "worker" with ANY information (even just a name), IMMEDIATELY CALL THIS TOOL with tableName="t_employees" and values MUST be a valid JSON object with at least {"name": "[extracted_name]", "is_active": true, "hourly_rate": 0}. Extract: name, hourly_rate, contract_type, role. 4) When user says "neues material" or "material hinzufügen" or "material erstellen" and provides ANY information (even just a name), IMMEDIATELY CALL THIS TOOL with tableName="t_materials" and values MUST be a valid JSON object with at least {"name": "[extracted_name]", "is_active": true, "vat_rate": 19, "default_quantity": 1}. The material_id will be auto-generated if not provided. 5) When user says "EK [price] VK [price]" or mentions Einkaufspreis/Verkaufspreis for a material, IMMEDIATELY CALL THIS TOOL with tableName="t_material_prices". First query t_materials to find material_id by name using queryTable, then call insertRow with values containing {"material_id": "[found_id]", "cost_per_unit": [EK], "price_per_unit": [VK]}. 6) **CRITICAL FOR ADDING EMPLOYEES TO PROJECTS - INCLUDING BATCH OPERATIONS**: When user says "füge [EmployeeName] zu [ProjectName] hinzu", "mitarbeiter hinzufügen", "weise zu" or similar, you MUST: a) **BATCH OPERATIONS**: If user mentions MULTIPLE employees (e.g., "füge Achim, Ali und Björn hinzu"), extract ALL names and process EACH separately - call insertRow MULTIPLE times (once per employee). After all operations, provide a summary. b) FIRST do queries silently (don\'t announce): query v_morningplan_full with {project_name: "[ProjectName]", plan_date: "[date if mentioned]"} to get plan_id from result[0].plan_id. If no date mentioned, use today\'s date or the most recent plan_date. c) Query t_employees with {name: "[EmployeeName]"} and limit: 50 to get employee_id from result[0].employee_id for EACH employee (use limit: 50 because employees might not be in first 10 results - if still not found, try limit: 100). d) IMMEDIATELY call insertRow for EACH employee with tableName="t_morningplan_staff", values={"plan_id": "[actual_plan_id_from_query]", "employee_id": "[actual_employee_id_from_query]", "sort_order": 0}, confirm=true. **For batch operations, call insertRow MULTIPLE times - once per employee!** **DO NOT announce anything - do queries silently, then call tool immediately!** **NEVER say "Ich werde", "Moment bitte", "Einen Moment" - just DO IT!** 7) NEVER ask for more information - if you have at least a name, call the tool immediately with defaults! 8) If user provides info in multiple messages, COMBINE all info from conversation history. 9) ALWAYS set confirm: true - user already provided the info. 10) Extract info from ALL previous messages. 11) YOU MUST ACTUALLY CALL THIS TOOL FUNCTION - do NOT just respond with text saying you will create it! 12) **THE "values" PARAMETER IS MANDATORY** - it MUST be a valid JSON object (not null, not undefined, not empty string, not missing) with at least the required fields (name for projects/employees/materials, plan_id and employee_id for t_morningplan_staff, material_id for material_prices). **EXAMPLE FOR PROJECTS:** User: "Erstelle ein neues Projekt mit dem Namen TestProjekt in Köln" → You MUST call: insertRow(tableName="t_projects", values={"name": "TestProjekt", "stadt": "Köln", "status": "In Planung"}, confirm=true). **EXAMPLE FOR EMPLOYEES:** User: "Neuer Mitarbeiter Max, 30 Euro, intern" → You MUST call: insertRow(tableName="t_employees", values={"name": "Max", "hourly_rate": 30, "contract_type": "Intern", "is_active": true}, confirm=true).',
+          'Insert a single row into an allowed table. **🚨 CRITICAL: YOU MUST ALWAYS PROVIDE THE "values" PARAMETER AS A VALID JSON OBJECT! 🚨** YOU MUST CALL THIS TOOL IMMEDIATELY - DO NOT JUST SAY YOU WILL DO IT! **MANDATORY RULES:** 1) **THE "values" PARAMETER IS ALWAYS REQUIRED** - it MUST be a valid JSON object with field names and values extracted from the user message. Example: If user says "neues projekt TestProjekt in Köln", you MUST call: insertRow(tableName="t_projects", values={"name": "TestProjekt", "stadt": "Köln", "status": "In Planung"}, confirm=true). 2) When user says "neues projekt" or "projekt hinzufügen" or "neuer Eintrag projekt" or "projekt erstellen" and provides ANY information (even just a name), IMMEDIATELY CALL THIS TOOL with tableName="t_projects" and values MUST be a valid JSON object with at least {"name": "[extracted_name]", "status": "In Planung"}. Extract ALL mentioned fields: name, stadt (city), dienstleistungen (service type), project_date (date). 3) When user says "neu mitarbeiter" or "neuer arbeiter" or "worker" with ANY information (even just a name), IMMEDIATELY CALL THIS TOOL with tableName="t_employees" and values MUST be a valid JSON object with at least {"name": "[extracted_name]", "is_active": true, "hourly_rate": 0}. Extract: name, hourly_rate, contract_type, role. 4) When user says "neues material" or "material hinzufügen" or "material erstellen" and provides ANY information (even just a name), IMMEDIATELY CALL THIS TOOL with tableName="t_materials" and values MUST be a valid JSON object with at least {"name": "[extracted_name]", "unit": "Stück", "is_active": true, "vat_rate": 19, "default_quantity": 1}. **CRITICAL**: unit is REQUIRED - use "Stück" as default if not provided! The material_id will be auto-generated if not provided. 5) When user says "neuer service", "service hinzufügen", "service erstellen", "erstelle einen neuen service" or similar and provides ANY information (even just a name), IMMEDIATELY CALL THIS TOOL with tableName="t_services" and values MUST be a valid JSON object with at least {"name": "[extracted_name]", "is_active": true}. The service_id will be auto-generated if not provided. 6) When user says "neues fahrzeug" or "fahrzeug hinzufügen" or "fahrzeug erstellen", IMMEDIATELY CALL THIS TOOL with tableName="t_vehicles". **CRITICAL**: vehicle_id is REQUIRED (primary key)! If user provides nickname/name but no vehicle_id, generate one (e.g., "VEH-[UPPERCASE_NAME]"). Values MUST include {"vehicle_id": "[required]", "nickname": "[if provided]", "unit": "Tag", "status": "bereit"}. 7) When user says "morgenplan", "morgen plan", "plan erstellen", "einsatz planen", "Erstelle einen Morgenplan" or similar for a project, **🚨 YOU MUST CALL BOTH queryTable AND insertRow IN THE SAME RESPONSE 🚨**: First call queryTable('t_projects', {name: '[ProjectName]'}) to find project_id, then IMMEDIATELY (in the SAME response!) call insertRow with tableName="t_morningplan" and values containing {"plan_date": "[date]", "project_id": "[ACTUAL_project_id_from_query]"}. Extract plan_date from message (format: YYYY-MM-DD) and start_time if mentioned (format: "HH:MM:SS"). **CRITICAL**: Do NOT just call queryTable and wait - call BOTH tools in the SAME response! 8) When user says "EK [price] VK [price]", "Einkaufspreis [price] Verkaufspreis [price]", "Erstelle einen Preis für Material [name]" or similar, **🚨 YOU MUST CALL BOTH queryTable AND insertRow IN THE SAME RESPONSE 🚨**: First call queryTable('t_materials', {name: '[MaterialName]'}) to find material_id, then IMMEDIATELY (in the SAME response!) call insertRow with tableName="t_material_prices" and values containing {"material_id": "[ACTUAL_material_id_from_query]", "cost_per_unit": [EK/purchase_price], "price_per_unit": [VK/sale_price]}. **CRITICAL**: Do NOT just call queryTable and wait - call BOTH tools in the SAME response! 8) **CRITICAL FOR ADDING EMPLOYEES TO PROJECTS - INCLUDING BATCH OPERATIONS**: When user says "füge [EmployeeName] zu [ProjectName] hinzu", "mitarbeiter hinzufügen", "weise zu" or similar, you MUST: a) **BATCH OPERATIONS**: If user mentions MULTIPLE employees (e.g., "füge Achim, Ali und Björn hinzu"), extract ALL names and process EACH separately - call insertRow MULTIPLE times (once per employee). After all operations, provide a summary. b) FIRST do queries silently (don\'t announce): query v_morningplan_full with {project_name: "[ProjectName]", plan_date: "[date if mentioned]"} to get plan_id from result[0].plan_id. If no date mentioned, use today\'s date or the most recent plan_date. c) Query t_employees with {name: "[EmployeeName]"} and limit: 50 to get employee_id from result[0].employee_id for EACH employee (use limit: 50 because employees might not be in first 10 results - if still not found, try limit: 100). d) IMMEDIATELY call insertRow for EACH employee with tableName="t_morningplan_staff", values={"plan_id": "[actual_plan_id_from_query]", "employee_id": "[actual_employee_id_from_query]", "sort_order": 0}, confirm=true. **For batch operations, call insertRow MULTIPLE times - once per employee!** **DO NOT announce anything - do queries silently, then call tool immediately!** **NEVER say "Ich werde", "Moment bitte", "Einen Moment" - just DO IT!** 9) NEVER ask for more information - if you have at least a name, call the tool immediately with defaults! 10) If user provides info in multiple messages, COMBINE all info from conversation history. 11) ALWAYS set confirm: true - user already provided the info. 12) Extract info from ALL previous messages. 13) YOU MUST ACTUALLY CALL THIS TOOL FUNCTION - do NOT just respond with text saying you will create it! 14) **THE "values" PARAMETER IS MANDATORY** - it MUST be a valid JSON object (not null, not undefined, not empty string, not missing) with at least the required fields (name for projects/employees/materials, vehicle_id for vehicles, plan_date and project_id for t_morningplan, plan_id and employee_id for t_morningplan_staff, material_id for material_prices). **EXAMPLE FOR PROJECTS:** User: "Erstelle ein neues Projekt mit dem Namen TestProjekt in Köln" → You MUST call: insertRow(tableName="t_projects", values={"name": "TestProjekt", "stadt": "Köln", "status": "In Planung"}, confirm=true). **EXAMPLE FOR EMPLOYEES:** User: "Neuer Mitarbeiter Max, 30 Euro, intern" → You MUST call: insertRow(tableName="t_employees", values={"name": "Max", "hourly_rate": 30, "contract_type": "Intern", "is_active": true}, confirm=true). **EXAMPLE FOR MATERIALS:** User: "neues material Styro" → You MUST call: insertRow(tableName="t_materials", values={"name": "Styro", "unit": "Stück", "is_active": true, "vat_rate": 19, "default_quantity": 1}, confirm=true). **EXAMPLE FOR VEHICLES:** User: "neues fahrzeug VEH-123 nickname TestFahrzeug" → You MUST call: insertRow(tableName="t_vehicles", values={"vehicle_id": "VEH-123", "nickname": "TestFahrzeug", "unit": "Tag", "status": "bereit"}, confirm=true). **EXAMPLE FOR MORNING PLAN:** User: "Erstelle einen Morgenplan für Projekt TestProject am 2026-01-05" → First query t_projects to find project_id, then call: insertRow(tableName="t_morningplan", values={"plan_date": "2026-01-05", "project_id": "[found_project_id]"}, confirm=true).',
         parameters: {
           type: 'object',
           properties: {
@@ -2610,7 +2706,7 @@ function getToolDefinitions(): ChatCompletionTool[] {
       function: {
         name: 'deleteRow',
         description:
-          'Delete existing row(s) from an allowed table. Use ONLY when: 1) User explicitly asks to delete/remove data (e.g., "lösche", "entferne", "delete", "remove"), 2) User confirms the deletion, AND 3) You have the unique identifier (e.g., employee_id, project_id, plan_id) from a previous query. **CRITICAL WORKFLOW - AUTOMATIC QUERY REQUIRED**: If the user provides a NAME (e.g., "lösche SSS" or "entferne Mitarbeiter Achim"), you MUST AUTOMATICALLY call queryTable FIRST to find the unique ID. Do NOT ask the user for the ID - find it yourself! Steps: 1) Call queryTable with the name filter (e.g., {name: "SSS"} for t_employees), 2) Extract the unique ID from the result (e.g., employee_id), 3) Ask for confirmation, 4) When confirmed, call deleteRow with the ID (e.g., {employee_id: "abc-123"}). **WARNING**: Deletion is permanent! Always ask for confirmation before deleting. IMMEDIATELY call this tool when user confirms deletion. Use filters with the actual ID (e.g., {employee_id: "abc-123"}), NOT the name! Do NOT say you cannot delete - AUTOMATICALLY query first to get the ID, then delete!',
+          'Delete existing row(s) from an allowed table. **🚨 CRITICAL: YOU MUST CALL queryTable AND deleteRow IN THE SAME RESPONSE AFTER CONFIRMATION! 🚨** Use ONLY when: 1) User explicitly asks to delete/remove data (e.g., "lösche", "entferne", "delete", "remove"), 2) User confirms the deletion (e.g., "ja", "ok", "bitte", "yes", "delete", "löschen", "ja bitte", "okay", "mach es", "bitte löschen"), AND 3) You have the unique identifier (e.g., employee_id, project_id, plan_id) from a previous query OR need to find it. **🚨 CRITICAL WORKFLOW - BOTH TOOLS IN SAME RESPONSE 🚨**: If the user provides a NAME (e.g., "lösche SSS" or "entferne Mitarbeiter Achim") OR if you see a confirmation in conversation history, you MUST: 1) **FIRST**: Call queryTable with the name filter (e.g., {name: "SSS"} for t_employees) to get the unique ID, 2) **IMMEDIATELY AFTER** (in the SAME response!): Call deleteRow with the ID from step 1 (e.g., {employee_id: "abc-123"}). **CRITICAL**: You MUST call BOTH queryTable AND deleteRow in the SAME response - do NOT just call queryTable and wait! **CRITICAL**: If you see a confirmation in the conversation history (e.g., previous assistant message asking "Möchtest du... wirklich löschen?" followed by user saying "ja"), you MUST call queryTable (if needed) AND deleteRow immediately in your response - do NOT ask again! **WARNING**: Deletion is permanent! Always ask for confirmation before deleting. IMMEDIATELY call this tool when user confirms deletion - do NOT wait for another message! Use filters with the actual ID (e.g., {employee_id: "abc-123"}), NOT the name! Do NOT say you cannot delete - AUTOMATICALLY query first to get the ID, then delete in the SAME response!',
         parameters: {
           type: 'object',
           properties: {
@@ -2888,7 +2984,14 @@ async function handleToolCalls(
             error: 'Fehler beim Hinzufügen des Mitarbeiters: Es fehlen erforderliche Angaben (plan_id oder employee_id). Bitte stelle sicher, dass sowohl der Mitarbeiter als auch das Projekt existieren.' 
           }
         } else {
-        functionResult = { error: 'Missing values for insertRow.' }
+          // Check if values is actually missing or just empty
+          if (!functionArgs.values || typeof functionArgs.values !== 'object' || Object.keys(functionArgs.values).length === 0) {
+            functionResult = { error: 'Missing values for insertRow.' }
+          } else {
+            // Values exists, continue with normal processing
+            // This shouldn't happen, but handle it gracefully
+            functionResult = { error: 'Invalid values format for insertRow.' }
+          }
         }
       } else if (functionArgs.tableName === 't_morningplan_staff') {
         // Validate required fields for employee assignment
@@ -3026,6 +3129,10 @@ async function handleToolCalls(
           if (valuesWithDefaults.default_quantity === undefined) {
             valuesWithDefaults.default_quantity = 1
           }
+          // CRITICAL: unit is a REQUIRED field - set default to "Stück" if not provided
+          if (!valuesWithDefaults.unit) {
+            valuesWithDefaults.unit = 'Stück'
+          }
           // Auto-generate material_id if missing (format: M-[UPPERCASE_NAME])
           if (!valuesWithDefaults.material_id && valuesWithDefaults.name) {
             const nameUpper = String(valuesWithDefaults.name).toUpperCase().replace(/[^A-Z0-9]/g, '').substring(0, 10)
@@ -3043,6 +3150,29 @@ async function handleToolCalls(
             const randomStr = Math.random().toString(36).substring(2, 5).toUpperCase()
             valuesWithDefaults.service_id = `SVC-${nameUpper}-${randomStr}`
           }
+        } else if (functionArgs.tableName === 't_vehicles') {
+          // Defaults for vehicles
+          // CRITICAL: vehicle_id is REQUIRED - if not provided, generate from nickname or name
+          if (!valuesWithDefaults.vehicle_id) {
+            const source = valuesWithDefaults.nickname || valuesWithDefaults.name || 'VEH'
+            const nameUpper = String(source).toUpperCase().replace(/[^A-Z0-9]/g, '').substring(0, 10)
+            const randomStr = Math.random().toString(36).substring(2, 5).toUpperCase()
+            valuesWithDefaults.vehicle_id = `VEH-${nameUpper}-${randomStr}`
+          }
+          if (valuesWithDefaults.unit === undefined) {
+            valuesWithDefaults.unit = 'Tag'
+          }
+          if (valuesWithDefaults.status === undefined) {
+            valuesWithDefaults.status = 'bereit'
+          }
+          if (valuesWithDefaults.is_deleted === undefined) {
+            valuesWithDefaults.is_deleted = false
+          }
+        } else if (functionArgs.tableName === 't_morningplan') {
+          // Defaults for morning plan
+          // plan_date is REQUIRED - should be provided by user or use today/tomorrow
+          // project_id is optional but usually provided
+          // No defaults needed - let it fail if required fields are missing
         }
         
         if (!functionArgs.confirm) {

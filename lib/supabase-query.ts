@@ -565,7 +565,9 @@ export async function insertRow(
         ipAddress: options?.ipAddress,
         values: sanitizedValues,
         error: detailedError,
-        rawError: insertResult.error,
+        metadata: {
+          rawError: insertResult.error,
+        },
       })
       return { data: null, error: detailedError }
     }
