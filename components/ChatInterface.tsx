@@ -1545,7 +1545,7 @@ export default function ChatInterface() {
                 className={`max-w-[90%] sm:max-w-[75%] rounded-2xl sm:rounded-xl px-4 py-3 sm:px-4 sm:py-2.5 relative ${
                   message.role === 'user'
                     ? 'bg-blue-600 text-white rounded-br-sm'
-                    : 'bg-white text-gray-900 rounded-bl-sm border border-gray-200 shadow-sm'
+                    : 'bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 rounded-bl-sm border border-gray-200 dark:border-slate-700 shadow-sm'
                 }`}
               >
                 <div className="flex items-start justify-between gap-2.5">
@@ -1557,26 +1557,26 @@ export default function ChatInterface() {
                         remarkPlugins={[remarkGfm]}
                         components={{
                           // Headings
-                          h1: ({ node, ...props }) => <h1 className="text-xl font-bold mt-4 mb-2 text-gray-900" {...props} />,
-                          h2: ({ node, ...props }) => <h2 className="text-lg font-bold mt-3 mb-2 text-gray-900" {...props} />,
-                          h3: ({ node, ...props }) => <h3 className="text-base font-bold mt-2 mb-1 text-gray-900" {...props} />,
+                          h1: ({ node, ...props }) => <h1 className="text-xl font-bold mt-4 mb-2 text-gray-900 dark:text-slate-100" {...props} />,
+                          h2: ({ node, ...props }) => <h2 className="text-lg font-bold mt-3 mb-2 text-gray-900 dark:text-slate-100" {...props} />,
+                          h3: ({ node, ...props }) => <h3 className="text-base font-bold mt-2 mb-1 text-gray-900 dark:text-slate-100" {...props} />,
                           
                           // Paragraphs
-                          p: ({ node, ...props }) => <p className="mb-2 last:mb-0 text-gray-900 leading-relaxed" {...props} />,
+                          p: ({ node, ...props }) => <p className="mb-3 last:mb-0 text-gray-900 dark:text-slate-200 leading-relaxed" {...props} />,
                           
-                          // Lists
-                          ul: ({ node, ...props }) => <ul className="list-disc list-outside ml-5 mb-3 space-y-1.5" {...props} />,
-                          ol: ({ node, ...props }) => <ol className="list-decimal list-outside ml-5 mb-3 space-y-1.5" {...props} />,
-                          li: ({ node, ...props }) => <li className="pl-1.5 text-gray-900 leading-relaxed" {...props} />,
+                          // Lists - improved spacing
+                          ul: ({ node, ...props }) => <ul className="list-disc list-outside ml-5 mb-4 space-y-2" {...props} />,
+                          ol: ({ node, ...props }) => <ol className="list-decimal list-outside ml-5 mb-4 space-y-2" {...props} />,
+                          li: ({ node, ...props }) => <li className="pl-1.5 text-gray-900 dark:text-slate-200 leading-relaxed pb-1" {...props} />,
                           
                           // Code
                           code: ({ node, inline, className, children, ...props }: any) => {
                             return inline ? (
-                              <code className="bg-gray-100 text-blue-700 px-1.5 py-0.5 rounded text-sm font-mono border border-gray-200" {...props}>
+                              <code className="bg-gray-100 dark:bg-slate-700 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded text-sm font-mono border border-gray-200 dark:border-slate-600" {...props}>
                                 {children}
                               </code>
                             ) : (
-                              <code className="block bg-gray-50 text-gray-800 p-3 rounded-lg text-sm font-mono overflow-x-auto my-3 border border-gray-200 shadow-sm" {...props}>
+                              <code className="block bg-gray-50 dark:bg-slate-800 text-gray-800 dark:text-slate-200 p-3 rounded-lg text-sm font-mono overflow-x-auto my-3 border border-gray-200 dark:border-slate-600 shadow-sm" {...props}>
                                 {children}
                               </code>
                             )
@@ -1586,7 +1586,7 @@ export default function ChatInterface() {
                           // Links
                           a: ({ node, ...props }) => (
                             <a 
-                              className="text-blue-600 hover:text-blue-800 underline transition-colors" 
+                              className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline transition-colors" 
                               target="_blank" 
                               rel="noopener noreferrer" 
                               {...props} 
@@ -1595,31 +1595,31 @@ export default function ChatInterface() {
                           
                           // Tables - Enhanced styling for query results
                           table: ({ node, ...props }) => (
-                            <div className="overflow-x-auto my-4 rounded-lg border border-gray-200 shadow-sm">
-                              <table className="min-w-full border-collapse bg-white" {...props} />
+                            <div className="overflow-x-auto my-4 rounded-lg border border-gray-200 dark:border-slate-600 shadow-sm">
+                              <table className="min-w-full border-collapse bg-white dark:bg-slate-800" {...props} />
                             </div>
                           ),
-                          thead: ({ node, ...props }) => <thead className="bg-gradient-to-r from-blue-50 to-blue-100" {...props} />,
-                          tbody: ({ node, ...props }) => <tbody className="divide-y divide-gray-100" {...props} />,
-                          tr: ({ node, ...props }) => <tr className="border-b border-gray-100 hover:bg-gray-50 transition-colors" {...props} />,
+                          thead: ({ node, ...props }) => <thead className="bg-gradient-to-r from-blue-50 to-blue-100 dark:from-slate-700 dark:to-slate-600" {...props} />,
+                          tbody: ({ node, ...props }) => <tbody className="divide-y divide-gray-100 dark:divide-slate-600" {...props} />,
+                          tr: ({ node, ...props }) => <tr className="border-b border-gray-100 dark:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors" {...props} />,
                           th: ({ node, ...props }) => (
-                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider border-b border-gray-200" {...props} />
+                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-slate-200 uppercase tracking-wider border-b border-gray-200 dark:border-slate-600" {...props} />
                           ),
                           td: ({ node, ...props }) => (
-                            <td className="px-4 py-3 text-sm text-gray-900 border-b border-gray-100" {...props} />
+                            <td className="px-4 py-3 text-sm text-gray-900 dark:text-slate-200 border-b border-gray-100 dark:border-slate-600" {...props} />
                           ),
                           
                           // Blockquotes
                           blockquote: ({ node, ...props }) => (
-                            <blockquote className="border-l-4 border-blue-400 pl-4 py-2 my-3 italic text-gray-700 bg-blue-50 rounded-r" {...props} />
+                            <blockquote className="border-l-4 border-blue-400 dark:border-blue-500 pl-4 py-2 my-3 italic text-gray-700 dark:text-slate-300 bg-blue-50 dark:bg-slate-700 rounded-r" {...props} />
                           ),
                           
                           // Strong & Em
-                          strong: ({ node, ...props }) => <strong className="font-semibold text-gray-900" {...props} />,
-                          em: ({ node, ...props }) => <em className="italic text-gray-800" {...props} />,
+                          strong: ({ node, ...props }) => <strong className="font-semibold text-gray-900 dark:text-slate-100" {...props} />,
+                          em: ({ node, ...props }) => <em className="italic text-gray-800 dark:text-slate-300" {...props} />,
                           
                           // Horizontal Rule
-                          hr: ({ node, ...props }) => <hr className="my-4 border-t-2 border-gray-200" {...props} />,
+                          hr: ({ node, ...props }) => <hr className="my-4 border-t-2 border-gray-200 dark:border-slate-600" {...props} />,
                         }}
                       >
                         {sanitizeBotResponse(message.content)}
@@ -1631,7 +1631,7 @@ export default function ChatInterface() {
                     className={`opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity p-2 sm:p-1 rounded-lg touch-manipulation active:scale-95 flex-shrink-0 ${
                       message.role === 'user'
                         ? 'active:bg-blue-700 text-white'
-                        : 'active:bg-gray-100 text-gray-600'
+                        : 'active:bg-gray-100 dark:active:bg-slate-700 text-gray-600 dark:text-slate-400'
                     }`}
                     title="Nachricht kopieren"
                     aria-label="Nachricht kopieren"
@@ -1648,7 +1648,7 @@ export default function ChatInterface() {
                     className={`text-[11px] sm:text-xs mt-2 sm:mt-1.5 ${
                       message.role === 'user'
                         ? 'text-blue-100'
-                        : 'text-gray-400'
+                        : 'text-gray-400 dark:text-slate-500'
                     }`}
                   >
                     {formatTimestamp(message.timestamp)}
@@ -1660,10 +1660,10 @@ export default function ChatInterface() {
 
           {isLoading && showLoadingBubble && !isStreamingResponse && (
             <div className="flex justify-start animate-in fade-in slide-in-from-bottom-2 duration-200">
-              <div className="bg-white rounded-2xl sm:rounded-xl rounded-bl-sm px-4 py-3 sm:px-4 sm:py-2.5 border border-gray-200 shadow-sm">
+              <div className="bg-white dark:bg-slate-800 rounded-2xl sm:rounded-xl rounded-bl-sm px-4 py-3 sm:px-4 sm:py-2.5 border border-gray-200 dark:border-slate-700 shadow-sm">
                 <div className="flex items-center gap-2.5">
-                  <Loader2 className="animate-spin h-4 w-4 sm:h-4 sm:w-4 text-blue-600" />
-                  <span className="text-sm sm:text-sm text-gray-600">Denke nach...</span>
+                  <Loader2 className="animate-spin h-4 w-4 sm:h-4 sm:w-4 text-blue-600 dark:text-blue-400" />
+                  <span className="text-sm sm:text-sm text-gray-600 dark:text-slate-300">Denke nach...</span>
                 </div>
               </div>
             </div>

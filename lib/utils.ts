@@ -418,6 +418,61 @@ export const sanitizeBotResponse = (content: string | null | undefined): string 
     return match
   })
   
+  // CRITICAL: Fix markdown list formatting issues
+  // Ensure numbered lists have proper newlines before them
+  // Pattern: "text:1. " or "text.1. " should become "text:\n\n1. " or "text.\n\n1. "
+  sanitized = sanitized.replace(/([.:!?])\s*(\d+\.)\s+/g, '$1\n\n$2 ')
+  
+  // Ensure numbered lists that start mid-text get proper line breaks
+  // Pattern: "word1. Projekt:" should become "word\n\n1. Projekt:"
+  sanitized = sanitized.replace(/([a-zA-ZäöüÄÖÜß])(\d+\.)\s+/g, '$1\n\n$2 ')
+  
+  // Fix numbered list items running together
+  // Pattern: "item1\n2. item2" should stay, but "item12. item2" should become "item1\n\n2. item2"
+  sanitized = sanitized.replace(/([^\n])(\n?)(\d+\.)\s+/g, (match, before, newline, number) => {
+    // If there's already a newline, keep it
+    if (newline) return match
+    // If the character before is a letter/word character, add double newline
+    if (/[a-zA-ZäöüÄÖÜß]/.test(before)) {
+      return `${before}\n\n${number} `
+    }
+    return match
+  })
+  
+  // Fix bold text followed immediately by text without space
+  // Pattern: "**Datum:**15" should become "**Datum:** 15"
+  sanitized = sanitized.replace(/(\*\*[^*]+:\*\*)([^\s\n])/g, '$1 $2')
+  
+  // Fix bold text followed immediately by numbers
+  // Pattern: "**Text**15" should become "**Text** 15"
+  sanitized = sanitized.replace(/(\*\*[^*]+\*\*)(\d)/g, '$1 $2')
+  
+  // Ensure bullet points have proper spacing
+  // Pattern: "- item1- item2" should become "- item1\n- item2"
+  sanitized = sanitized.replace(/-\s+([^\n-]+)-\s+/g, '- $1\n- ')
+  
+  // Ensure there's a blank line before lists that come after text
+  // Pattern: "some text\n1. item" should become "some text\n\n1. item"
+  sanitized = sanitized.replace(/([a-zA-ZäöüÄÖÜß.:!?])\n(\d+\.\s)/g, '$1\n\n$2')
+  sanitized = sanitized.replace(/([a-zA-ZäöüÄÖÜß.:!?])\n(-\s)/g, '$1\n\n$2')
+  
+  // Fix "Mitarbeiter:\n\nUnbekannt" followed immediately by next numbered item
+  // Pattern: "Unbekannt2. Projekt" should become "Unbekannt\n\n2. Projekt"
+  sanitized = sanitized.replace(/(Unbekannt)(\d+\.)/g, '$1\n\n$2')
+  
+  // Fix employee names running into next item
+  // Pattern: "Pi\nSco Thom2. Projekt" should become proper list
+  sanitized = sanitized.replace(/([A-Za-zäöüÄÖÜß]+)(\d+\.)\s+(Projekt)/g, '$1\n\n$2 $3')
+  
+  // Fix missing line break after "Mitarbeiter:" list items
+  sanitized = sanitized.replace(/(Mitarbeiter:)\s*\n\s*-\s*/g, '$1\n  - ')
+  
+  // Ensure consistent spacing in lists with sub-items (Mitarbeiter)
+  sanitized = sanitized.replace(/\n\s*-\s+/g, '\n  - ')
+  
+  // Clean up excessive whitespace but preserve intentional double newlines
+  sanitized = sanitized.replace(/\n{3,}/g, '\n\n')
+  
   // Trim whitespace
   sanitized = sanitized.trim()
   
