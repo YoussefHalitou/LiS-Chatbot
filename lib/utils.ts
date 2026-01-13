@@ -418,10 +418,34 @@ export const sanitizeBotResponse = (content: string | null | undefined): string 
     return match
   })
   
+  // CRITICAL: Fix table row separators running together
+  // Pattern: "|---|---||05. Januar |3 |" should have newlines between rows
+  // Fix double pipes that indicate missing newlines in tables
+  sanitized = sanitized.replace(/\|\s*\|\s*\|/g, '|\n|')
+  sanitized = sanitized.replace(/(\|[^|\n]+\|)\s*\|([^-\n])/g, '$1\n| $2')
+  
+  // Fix table rows that run together (pipe followed immediately by pipe-dash)
+  sanitized = sanitized.replace(/\|\s*\|(---)/g, '|\n|$1')
+  
+  // Fix table data rows running together (end of row immediately followed by start of next)
+  sanitized = sanitized.replace(/(\|)\s*\|([A-Za-zäöüÄÖÜß0-9])/g, '$1\n| $2')
+  
+  // CRITICAL: Fix missing space between German month names and years
+  // Pattern: "Januar2026" should become "Januar 2026"
+  const germanMonths = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember']
+  germanMonths.forEach(month => {
+    const regex = new RegExp(`(${month})(\\d{4})`, 'g')
+    sanitized = sanitized.replace(regex, '$1 $2')
+  })
+  
   // CRITICAL: Fix markdown list formatting issues
   // Ensure numbered lists have proper newlines before them
   // Pattern: "text:1. " or "text.1. " should become "text:\n\n1. " or "text.\n\n1. "
   sanitized = sanitized.replace(/([.:!?])\s*(\d+\.)\s+/g, '$1\n\n$2 ')
+  
+  // Fix "Einsätze: 12." pattern where number is part of count followed by list item
+  // Pattern: "Einsätze: 12. Mitarbeiter:" should become "Einsätze: 1\n\n2. Mitarbeiter:"
+  sanitized = sanitized.replace(/(\d+)\s*(\d+\.)\s+(\*\*)?([A-Za-zäöüÄÖÜß])/g, '$1\n\n$2 $3$4')
   
   // Ensure numbered lists that start mid-text get proper line breaks
   // Pattern: "word1. Projekt:" should become "word\n\n1. Projekt:"

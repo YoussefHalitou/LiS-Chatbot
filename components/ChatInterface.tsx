@@ -114,21 +114,42 @@ export default function ChatInterface() {
     loadChats()
   }, [])
 
-  // Save chat messages whenever they change
+  // Save chat messages with debounce to prevent duplicate saves during streaming
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const lastSavedMessagesRef = useRef<string>('')
+  
   useEffect(() => {
     if (typeof window === 'undefined' || !currentChatId) return
     
-    async function saveMessages() {
+    // Don't save during streaming - wait for completion
+    if (isStreamingResponse) return
+    
+    // Create a hash of current messages to prevent duplicate saves
+    const messagesHash = JSON.stringify(messages.map(m => ({ role: m.role, content: m.content })))
+    if (messagesHash === lastSavedMessagesRef.current) return
+    
+    // Clear any pending save
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current)
+    }
+    
+    // Debounce save by 500ms to batch rapid changes
+    saveTimeoutRef.current = setTimeout(async () => {
       if (messages.length > 0 && currentChatId) {
+        lastSavedMessagesRef.current = messagesHash
         await saveChatMessages(currentChatId, messages)
         // Update chat list to reflect changes
         const updatedChats = await getAllChats()
         setChats(updatedChats)
       }
-    }
+    }, 500)
     
-    saveMessages()
-  }, [messages, currentChatId])
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current)
+      }
+    }
+  }, [messages, currentChatId, isStreamingResponse])
 
   // Scroll to bottom when messages change
   useEffect(() => {
