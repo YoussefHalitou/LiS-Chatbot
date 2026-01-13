@@ -274,6 +274,15 @@ export const sanitizeBotResponse = (content: string | null | undefined): string 
     // Also fix when there's content between: "|1\t\t\nJanuar |"
     const splitDateWithTabsRegex = new RegExp(`\\|\\s*(\\d{1,2})\\s*\\t*\\s*\\n\\s*(${month})`, 'gi')
     sanitized = sanitized.replace(splitDateWithTabsRegex, '| $1. $2')
+    
+    // CRITICAL: Fix "Datum: 1\nJanuar 2026" pattern where date is split after "Datum:"
+    // This happens when the full date like "13. Januar 2026" gets truncated to just "1" + newline + "Januar"
+    const datumSplitRegex = new RegExp(`(Datum:\\s*)(\\d{1,2})\\s*\\n\\s*(${month})`, 'gi')
+    sanitized = sanitized.replace(datumSplitRegex, '$1$2. $3')
+    
+    // Also fix pattern where date is in a list item: "- Datum: 1\nJanuar 2026"
+    const listDateSplitRegex = new RegExp(`(-\\s*Datum:\\s*)(\\d{1,2})\\s*\\n\\s*(${month})`, 'gi')
+    sanitized = sanitized.replace(listDateSplitRegex, '$1$2. $3')
   })
   
   // Fix dates that appear without day part (just the number then month)
@@ -287,6 +296,10 @@ export const sanitizeBotResponse = (content: string | null | undefined): string 
       }
       return match
     })
+    
+    // Also fix dates with just day and month (no year): "Datum: 1\nJanuar" -> "Datum: 1. Januar"
+    const dateNoYearRegex = new RegExp(`(Datum:.*?)(\\d{1,2})\\s*\\n\\s*(${month})(?!\\s*\\d{4})`, 'gi')
+    sanitized = sanitized.replace(dateNoYearRegex, '$1$2. $3')
   })
   
   // First pass: Fix obvious double-pipe row breaks (| | or ||)
@@ -536,6 +549,24 @@ export const sanitizeBotResponse = (content: string | null | undefined): string 
   // Pattern: "Stundensatz:35,00" should become "Stundensatz: 35,00"
   sanitized = sanitized.replace(/([A-Za-zäöüÄÖÜß]+):([0-9])/g, '$1: $2')
   
+  // CRITICAL: Fix price/currency followed directly by list number
+  // Pattern: "25 €2. Pi" should become "25 €\n\n2. Pi"
+  // Pattern: "30 €1\nThor" is actually "30 €\n\n10. Thor" (two-digit number split)
+  sanitized = sanitized.replace(/([€$])\s*(\d+\.)\s+([A-Za-zäöüÄÖÜß])/g, '$1\n\n$2 $3')
+  
+  // Fix two-digit list numbers that got split across lines
+  // Pattern: "€1\nThor" where "1\n" is actually "10." split -> reconstruct as "10. Thor"
+  // Pattern: "€1\nDen" where "1\n" is actually "11." split
+  sanitized = sanitized.replace(/([€$])\s*1\s*\n\s*([A-Za-zäöüÄÖÜß])/g, (match, currency, name) => {
+    // This is likely "10. Name" or "11. Name" etc. that got split
+    // We'll format it as a new numbered list item
+    return `${currency}\n\n10. ${name}`
+  })
+  
+  // More general: fix any number followed by newline then name (likely split list numbers)
+  // Pattern: "€1\n0. Thor" should stay as "10. Thor" but "€1\nThor" should become "10. Thor"
+  sanitized = sanitized.replace(/([€$])\s*(\d)\s*\n\s*(\d+\.)\s+([A-Za-zäöüÄÖÜß])/g, '$1\n\n$2$3 $4')
+  
   // Fix key-value pairs running together on same line (should be separate lines)
   // Pattern: "- Name: Rika\nVertragsart: Intern" should become "- Name: Rika\n- Vertragsart: Intern"
   // First, ensure items after "- Something:" on new lines also get bullet points
@@ -552,6 +583,14 @@ export const sanitizeBotResponse = (content: string | null | undefined): string 
   // Ensure numbered lists have proper newlines before them
   // Pattern: "text:1. " or "text.1. " should become "text:\n\n1. " or "text.\n\n1. "
   sanitized = sanitized.replace(/([.:!?])\s*(\d+\.)\s+/g, '$1\n\n$2 ')
+  
+  // CRITICAL: Fix numbered list items after currency amounts
+  // Pattern: "Stundensatz: 25 €2. Name" should become "Stundensatz: 25 €\n\n2. Name"
+  // This is a very common pattern in the employee list output
+  sanitized = sanitized.replace(/(\d+\s*€)(\d+\.)\s+([A-Za-zäöüÄÖÜß])/g, '$1\n\n$2 $3')
+  
+  // Also handle without space: "25€2. Name"
+  sanitized = sanitized.replace(/(\d+€)(\d+\.)\s+([A-Za-zäöüÄÖÜß])/g, '$1\n\n$2 $3')
   
   // Fix "Einsätze: 12." pattern where number is part of count followed by list item
   // Pattern: "Einsätze: 12. Mitarbeiter:" should become "Einsätze: 1\n\n2. Mitarbeiter:"
