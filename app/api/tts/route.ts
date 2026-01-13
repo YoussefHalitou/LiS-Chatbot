@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { rateLimitMiddleware } from '@/lib/rate-limit'
 
-const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY
 const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM' // Default voice: Rachel
 const ELEVENLABS_API_URL = 'https://api.elevenlabs.io/v1/text-to-speech'
 const MAX_TEXT_LENGTH = 5000 // ElevenLabs character limit
 
-if (!ELEVENLABS_API_KEY) {
-  throw new Error('ELEVENLABS_API_KEY is not set')
+function getElevenLabsApiKey(): string {
+  const apiKey = process.env.ELEVENLABS_API_KEY
+  if (!apiKey) {
+    throw new Error('ELEVENLABS_API_KEY is not set')
+  }
+  return apiKey
 }
 
 /**
@@ -68,11 +71,10 @@ export async function POST(req: NextRequest) {
     }
 
     // Call ElevenLabs TTS API
-    // ELEVENLABS_API_KEY is checked at module level, so it's safe to use here
     const headers: HeadersInit = {
       'Accept': 'audio/mpeg',
       'Content-Type': 'application/json',
-      'xi-api-key': ELEVENLABS_API_KEY!,
+      'xi-api-key': getElevenLabsApiKey(),
     }
 
     const response = await fetch(

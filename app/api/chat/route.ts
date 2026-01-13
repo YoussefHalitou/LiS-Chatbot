@@ -15,12 +15,19 @@ import { INSERT_ALLOWED_TABLES } from '@/lib/constants'
 import { rateLimitMiddleware, getClientIdentifier } from '@/lib/rate-limit'
 import type { ChatRequest } from '@/types'
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-})
+// Initialize OpenAI client lazily to avoid build errors when env var is missing
+let openai: OpenAI | null = null
 
-if (!process.env.OPENAI_API_KEY) {
-  throw new Error('OPENAI_API_KEY is not set')
+function getOpenAIClient(): OpenAI {
+  if (!openai) {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY is not set')
+    }
+    openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    })
+  }
+  return openai
 }
 
 /**
@@ -2336,7 +2343,7 @@ async function handleNonStreamingCompletion(
   } | null
 ) {
   // Create a completion with tools (function calling) for database queries
-  const completion = await openai.chat.completions.create({
+  const completion = await getOpenAIClient().chat.completions.create({
     model: 'gpt-4o',
     messages: openaiMessages,
     tools: getToolDefinitions(),
@@ -2362,7 +2369,7 @@ async function handleNonStreamingCompletion(
     )
 
     // Get the final response from OpenAI after tool execution
-    const finalCompletion = await openai.chat.completions.create({
+    const finalCompletion = await getOpenAIClient().chat.completions.create({
       model: 'gpt-4o',
       messages: openaiMessages,
       temperature: 0.3, // Lower temperature to reduce hallucinations and be more factual
@@ -3155,7 +3162,7 @@ async function handleStreamingCompletion(
   const stream = new ReadableStream<Uint8Array>({
     start: async (controller) => {
       try {
-        const initialStream = await openai.chat.completions.create({
+        const initialStream = await getOpenAIClient().chat.completions.create({
           model: 'gpt-4o',
           messages: openaiMessages,
           tools: getToolDefinitions(),
@@ -3246,7 +3253,7 @@ async function handleStreamingCompletion(
             }))
           }
 
-          const finalStream = await openai.chat.completions.create({
+          const finalStream = await getOpenAIClient().chat.completions.create({
             model: 'gpt-4o',
             messages: openaiMessages,
             temperature: 0.3,

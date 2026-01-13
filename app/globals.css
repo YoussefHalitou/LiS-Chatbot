@@ -7,6 +7,11 @@
   --background-rgb: 255, 255, 255;
 }
 
+.dark {
+  --foreground-rgb: 226, 232, 240;
+  --background-rgb: 15, 23, 42;
+}
+
 body {
   color: rgb(var(--foreground-rgb));
   background: rgb(var(--background-rgb));
@@ -36,6 +41,15 @@ html {
 
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(156, 163, 175, 0.5);
+}
+
+/* Dark mode scrollbar */
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.4);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.6);
 }
 
 /* Touch-friendly interactions */
@@ -93,6 +107,48 @@ html {
   animation: fade-in 0.3s ease-out;
 }
 
+@keyframes skeleton-wave {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgb(var(--skeleton-base)) 0%,
+    rgb(var(--skeleton-highlight)) 50%,
+    rgb(var(--skeleton-base)) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-wave 1.5s ease-in-out infinite;
+  --skeleton-base: 229, 231, 235;
+  --skeleton-highlight: 243, 244, 246;
+}
+
+.dark .skeleton {
+  --skeleton-base: 51, 65, 85;
+  --skeleton-highlight: 71, 85, 105;
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in-up 0.3s ease-out;
+}
+
 .fade-in {
   animation: fade-in 0.3s ease-out;
 }
@@ -138,6 +194,12 @@ html {
   word-wrap: normal;
 }
 
+.dark .markdown-content pre code {
+  background: #1e293b;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+
 /* Inline code */
 .markdown-content :not(pre) > code {
   background: #f6f8fa;
@@ -145,6 +207,12 @@ html {
   border-radius: 3px;
   font-size: 0.9em;
   border: 1px solid #e1e4e8;
+}
+
+.dark .markdown-content :not(pre) > code {
+  background: #1e293b;
+  border-color: #334155;
+  color: #e2e8f0;
 }
 
 /* Tables - Enhanced for query results */
@@ -194,6 +262,30 @@ html {
   vertical-align: top;
 }
 
+/* Dark mode table styles */
+.dark .markdown-content table th,
+.dark .markdown-content table td {
+  border-color: #334155;
+}
+
+.dark .markdown-content table th {
+  background: linear-gradient(to right, #1e293b, #0f172a);
+  color: #93c5fd;
+  border-bottom-color: #3b82f6;
+}
+
+.dark .markdown-content table tbody tr:nth-child(even) {
+  background: #1e293b;
+}
+
+.dark .markdown-content table tbody tr:hover {
+  background: #334155;
+}
+
+.dark .markdown-content table td {
+  color: #e2e8f0;
+}
+
 /* Lists */
 .markdown-content ul,
 .markdown-content ol {
@@ -225,6 +317,11 @@ html {
   margin: 0.25rem 0;
 }
 
+.dark .markdown-content blockquote {
+  border-left-color: #475569;
+  color: #94a3b8;
+}
+
 /* Headings */
 .markdown-content h1,
 .markdown-content h2,
@@ -247,11 +344,23 @@ html {
   color: #1d4ed8;
 }
 
+.dark .markdown-content a {
+  color: #60a5fa;
+}
+
+.dark .markdown-content a:hover {
+  color: #93c5fd;
+}
+
 /* Horizontal rules */
 .markdown-content hr {
   border: none;
   border-top: 2px solid #e5e7eb;
   margin: 1.5rem 0;
+}
+
+.dark .markdown-content hr {
+  border-top-color: #334155;
 }
 
 /* Task lists (GitHub-style checkboxes) */
@@ -264,5 +373,9 @@ html {
 .markdown-content del {
   text-decoration: line-through;
   color: #6b7280;
+}
+
+.dark .markdown-content del {
+  color: #94a3b8;
 }
 
