@@ -794,6 +794,12 @@ When answering:
        - Tables MUST be on their own lines with proper spacing
        - **NEVER** put the table on the same line as the intro sentence - Markdown won't recognize it!
        - For multiple items, ALWAYS use tables - they are much more readable!
+       - **CRITICAL: EACH TABLE ROW MUST BE ON ITS OWN LINE!**
+         * CORRECT: "| Header1 | Header2 |\n|---|---|\n| Row1Col1 | Row1Col2 |\n| Row2Col1 | Row2Col2 |"
+         * WRONG: "| Header1 | Header2 | | Row1Col1 | Row1Col2 |" (rows on same line!)
+       - **NEVER put multiple table rows on the same line separated by pipes**
+       - **ALWAYS add a newline character (\n) before each new table row**
+       - **Format dates properly: "13. Januar 2026" not "13.Januar2026" or "13.\nJanuar 2026"**
      
      * **For 1 record or detailed view:** Use a structured Markdown list:
        - Use bold labels for clarity

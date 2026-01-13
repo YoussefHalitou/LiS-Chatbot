@@ -192,6 +192,9 @@ export const sanitizeBotResponse = (content: string | null | undefined): string 
   
   let sanitized = content
   
+  // Define German month names for use throughout the function
+  const germanMonths = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember']
+  
   // Remove internal tool result instructions (handle both single-line and multi-line)
   sanitized = sanitized.replace(/\[INTERNAL TOOL RESULT[^\]]*\][\s\n]*/gi, '')
   // Also remove if it spans multiple lines or has extra whitespace
@@ -254,6 +257,60 @@ export const sanitizeBotResponse = (content: string | null | undefined): string 
   })
   sanitized = filteredLines.join('\n')
   
+  // =========================================================================
+  // CRITICAL: Fix malformed markdown tables where rows run together
+  // The LLM often generates tables like: "| A | B | | C | D |" instead of
+  // proper rows on separate lines
+  // =========================================================================
+  
+  // Fix split dates where day number is on one line and month on next
+  // Pattern: "|1\nJanuar |" or "| 1 \nJanuar |" -> "| 1. Januar |"
+  // This happens when streaming breaks up the date
+  germanMonths.forEach(month => {
+    // Fix pattern: "| N\nMonth" where N is a day number (1-31)
+    const splitDateRegex = new RegExp(`\\|\\s*(\\d{1,2})\\s*\\n\\s*(${month})\\s*\\|`, 'gi')
+    sanitized = sanitized.replace(splitDateRegex, '| $1. $2 |')
+    
+    // Also fix when there's content between: "|1\t\t\nJanuar |"
+    const splitDateWithTabsRegex = new RegExp(`\\|\\s*(\\d{1,2})\\s*\\t*\\s*\\n\\s*(${month})`, 'gi')
+    sanitized = sanitized.replace(splitDateWithTabsRegex, '| $1. $2')
+  })
+  
+  // Fix dates that appear without day part (just the number then month)
+  // Pattern: "| 1 \nJanuar 2026" -> "| 1. Januar 2026"
+  germanMonths.forEach(month => {
+    const dateNoDoRegex = new RegExp(`(\\d{1,2})\\s+(${month})\\s+(\\d{4})`, 'g')
+    sanitized = sanitized.replace(dateNoDoRegex, (match, day, m, year) => {
+      // Only add dot if not already there
+      if (!day.endsWith('.')) {
+        return `${day}. ${m} ${year}`
+      }
+      return match
+    })
+  })
+  
+  // First pass: Fix obvious double-pipe row breaks (| | or ||)
+  // Pattern: "| value | value | | next row |" -> "| value | value |\n| next row |"
+  sanitized = sanitized.replace(/\|\s*\|\s*\|/g, '|\n|')
+  sanitized = sanitized.replace(/\|\s*\|([A-Za-zäöüÄÖÜß0-9])/g, '|\n| $1')
+  
+  // Fix pattern where pipe is followed by space, pipe, then content
+  // "| value | | next |" -> "| value |\n| next |"
+  sanitized = sanitized.replace(/(\|[^|\n]+)\s*\|\s*\|/g, '$1 |\n|')
+  
+  // Fix table rows that have content | | content pattern (missing newline between rows)
+  sanitized = sanitized.replace(/(\|[^|\n]+\|)\s*\|\s*([A-Za-zäöüÄÖÜß])/g, '$1\n| $2')
+  
+  // Fix cases where table row ends with "|" followed immediately by "|" and new row
+  sanitized = sanitized.replace(/\|\s*\n?\s*\|([^-\n|])/g, '|\n| $1')
+  
+  // Fix the specific pattern where table cell ends with "|" then newline then month
+  // This happens when the LLM generates: "| 13. |\nJanuar 2026 |" 
+  germanMonths.forEach(month => {
+    const pipeMonthRegex = new RegExp(`\\|\\s*\\n(${month})\\s*(\\d{4})?\\s*\\|`, 'gi')
+    sanitized = sanitized.replace(pipeMonthRegex, ' $1 $2 |')
+  })
+  
   // Clean up multiple newlines (but preserve table spacing)
   sanitized = sanitized.replace(/\n{4,}/g, '\n\n\n')
   
@@ -289,6 +346,44 @@ export const sanitizeBotResponse = (content: string | null | undefined): string 
   sanitized = sanitized.replace(/(\|[^|\n]+\|)\|\s*([-|]{2,})\s*\|/g, '$1\n|$2|')
   // Fix cases where multiple table rows are on same line (header and data row)
   sanitized = sanitized.replace(/(\|[^|\n]+\|)\s*\|([^|\n]+)\|/g, '$1\n|$2|')
+  
+  // =========================================================================
+  // CRITICAL: Advanced table row splitting
+  // Detect lines that contain multiple complete table rows and split them
+  // =========================================================================
+  const splitTableRows = (text: string): string => {
+    const lines = text.split('\n')
+    const result: string[] = []
+    
+    for (const line of lines) {
+      // Skip if line doesn't look like a table or is a separator
+      if (!line.includes('|') || line.match(/^[\s|:-]+$/)) {
+        result.push(line)
+        continue
+      }
+      
+      // Count pipes - a valid single table row should have balanced pipes
+      const pipes = (line.match(/\|/g) || []).length
+      
+      // If we have many pipes (more than ~10), this line likely contains multiple rows
+      // Split on pattern: "| content |" followed by "| content |"
+      if (pipes > 8) {
+        // Try to split by finding repeated row patterns
+        // Pattern: end of row (|) followed by start of row (|) with optional space
+        const splitLine = line.replace(/\|\s*\|(?=[A-Za-zäöüÄÖÜß0-9])/g, '|\n|')
+        if (splitLine.includes('\n')) {
+          result.push(...splitLine.split('\n'))
+          continue
+        }
+      }
+      
+      result.push(line)
+    }
+    
+    return result.join('\n')
+  }
+  
+  sanitized = splitTableRows(sanitized)
   
   // Normalize separator rows - ensure they match header column count
   const tableLines = sanitized.split('\n')
@@ -432,11 +527,26 @@ export const sanitizeBotResponse = (content: string | null | undefined): string 
   
   // CRITICAL: Fix missing space between German month names and years
   // Pattern: "Januar2026" should become "Januar 2026"
-  const germanMonths = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember']
   germanMonths.forEach(month => {
     const regex = new RegExp(`(${month})(\\d{4})`, 'g')
     sanitized = sanitized.replace(regex, '$1 $2')
   })
+  
+  // Fix missing space after colon in key-value pairs
+  // Pattern: "Stundensatz:35,00" should become "Stundensatz: 35,00"
+  sanitized = sanitized.replace(/([A-Za-zäöüÄÖÜß]+):([0-9])/g, '$1: $2')
+  
+  // Fix key-value pairs running together on same line (should be separate lines)
+  // Pattern: "- Name: Rika\nVertragsart: Intern" should become "- Name: Rika\n- Vertragsart: Intern"
+  // First, ensure items after "- Something:" on new lines also get bullet points
+  sanitized = sanitized.replace(/(-\s+[^:\n]+:[^\n]+)\n([A-Za-zäöüÄÖÜß]+:)/g, '$1\n- $2')
+  
+  // Fix pattern where key-value list items run together without newlines
+  // Pattern: "- Name: Rika Vertragsart: Intern" should split into separate items
+  sanitized = sanitized.replace(/(-\s+[^:\n]+:\s*[^\n]+?)\s+([A-Za-zäöüÄÖÜß]+:\s*[^\n]+)/g, '$1\n- $2')
+  
+  // Ensure blank line before bullet lists that follow text ending with period or colon
+  sanitized = sanitized.replace(/([.:])\s*\n(-\s+[A-Za-zäöüÄÖÜß]+:)/g, '$1\n\n$2')
   
   // CRITICAL: Fix markdown list formatting issues
   // Ensure numbered lists have proper newlines before them
