@@ -280,9 +280,22 @@ export const sanitizeBotResponse = (content: string | null | undefined): string 
     const datumSplitRegex = new RegExp(`(Datum:\\s*)(\\d{1,2})\\s*\\n\\s*(${month})`, 'gi')
     sanitized = sanitized.replace(datumSplitRegex, '$1$2. $3')
     
+    // CRITICAL: Fix "Datum:\n1\n\nJanuar" pattern (day on its own line with extra newlines)
+    const datumDoubleSplitRegex = new RegExp(`(Datum:\\s*)\\n\\s*(\\d{1,2})\\s*\\n+\\s*(${month})`, 'gi')
+    sanitized = sanitized.replace(datumDoubleSplitRegex, '$1$2. $3')
+    
+    // CRITICAL: Fix "Datum:\nJanuar" pattern (day number completely missing)
+    // In this case, we can't recover the day, but we should clean up the formatting
+    const datumNoDay = new RegExp(`(Datum:\\s*)\\n\\s*(${month})`, 'gi')
+    sanitized = sanitized.replace(datumNoDay, '$1$2')
+    
     // Also fix pattern where date is in a list item: "- Datum: 1\nJanuar 2026"
     const listDateSplitRegex = new RegExp(`(-\\s*Datum:\\s*)(\\d{1,2})\\s*\\n\\s*(${month})`, 'gi')
     sanitized = sanitized.replace(listDateSplitRegex, '$1$2. $3')
+    
+    // Fix "Datum:\n1\nJanuar" in list items
+    const listDateDoubleSplitRegex = new RegExp(`(-\\s*Datum:\\s*)\\n\\s*(\\d{1,2})\\s*\\n+\\s*(${month})`, 'gi')
+    sanitized = sanitized.replace(listDateDoubleSplitRegex, '$1$2. $3')
   })
   
   // Fix dates that appear without day part (just the number then month)
@@ -300,6 +313,21 @@ export const sanitizeBotResponse = (content: string | null | undefined): string 
     // Also fix dates with just day and month (no year): "Datum: 1\nJanuar" -> "Datum: 1. Januar"
     const dateNoYearRegex = new RegExp(`(Datum:.*?)(\\d{1,2})\\s*\\n\\s*(${month})(?!\\s*\\d{4})`, 'gi')
     sanitized = sanitized.replace(dateNoYearRegex, '$1$2. $3')
+    
+    // Fix pattern where day is on separate line: "Datum:\n9.\nJanuar" -> "Datum: 9. Januar"
+    const daySeparateLineRegex = new RegExp(`(Datum:\\s*)\\n\\s*(\\d{1,2}\\.?)\\s*\\n\\s*(${month})`, 'gi')
+    sanitized = sanitized.replace(daySeparateLineRegex, (match, prefix, day, m) => {
+      const dayNum = day.endsWith('.') ? day : day + '.'
+      return `${prefix}${dayNum} ${m}`
+    })
+    
+    // CRITICAL: Fix "Datum:\n\n1\n\nJanuar" pattern with multiple newlines
+    const multiNewlineDate = new RegExp(`(Datum:\\s*)\\n+\\s*(\\d{1,2})\\.?\\s*\\n+\\s*(${month})`, 'gi')
+    sanitized = sanitized.replace(multiNewlineDate, '$1$2. $3')
+    
+    // Also fix in project listings: "Datum:\n1\n\nJanuar 2026 -"
+    const projectDatePattern = new RegExp(`(Datum:\\s*)\\n+\\s*(\\d{1,2})\\s*\\n+\\s*(${month})\\s+(\\d{4})`, 'gi')
+    sanitized = sanitized.replace(projectDatePattern, '$1$2. $3 $4')
   })
   
   // First pass: Fix obvious double-pipe row breaks (| | or ||)
