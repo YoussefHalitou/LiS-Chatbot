@@ -1,128 +1,160 @@
-# LiS Chatbot
+# LiS Operations Assistant
 
-Ein vollständiger Chatbot mit Text- und Sprach-Ein-/Ausgabe, verbunden mit Supabase und OpenAI.
+Ein intelligenter Chatbot für Projektplanung, Mitarbeiterverwaltung und Einsatzkoordination bei Land in Sicht.
 
-## Features
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/YoussefHalitou/LiS-Chatbot)
 
-- 💬 Text-Chat mit OpenAI GPT-4o
-- 🎤 Sprach-Eingabe (Speech-to-Text) mit Deepgram
-- 🔊 Sprach-Ausgabe (Text-to-Speech) mit ElevenLabs
-- 🗄️ Supabase Datenbank-Integration
-- 📱 Mobile-optimiertes Design
+## ✨ Features
 
-## Technologie-Stack
+- 💬 **Text-Chat** mit OpenAI GPT-4o - intelligente Datenbankabfragen in natürlicher Sprache
+- 🎤 **Sprach-Eingabe** (Speech-to-Text) mit Deepgram
+- 🔊 **Sprach-Ausgabe** (Text-to-Speech) mit ElevenLabs
+- 🗄️ **Supabase Datenbank-Integration** - Projekte, Mitarbeiter, Einsatzplanung
+- 🌙 **Dark/Light Mode** - systemweite Theme-Unterstützung
+- 📱 **Mobile-optimiert** - responsives Design für alle Geräte
+- 🔒 **Authentifizierung** - Supabase Auth mit E-Mail/Passwort
 
-- **Next.js 14** - React Framework
-- **TypeScript** - Type Safety
-- **Tailwind CSS** - Styling
-- **OpenAI API** - LLM für Chat
-- **Supabase** - Datenbank
-- **Deepgram** - Speech-to-Text
-- **ElevenLabs** - Text-to-Speech
+## 🛠️ Technologie-Stack
 
-## Lokale Entwicklung
+| Technologie | Verwendung |
+|-------------|-----------|
+| **Next.js 14** | React Framework mit App Router |
+| **TypeScript** | Type-sichere Entwicklung |
+| **Tailwind CSS** | Utility-first Styling |
+| **OpenAI API** | GPT-4o für natürliche Sprachverarbeitung |
+| **Supabase** | PostgreSQL Datenbank & Authentifizierung |
+| **Deepgram** | Speech-to-Text (optional) |
+| **ElevenLabs** | Text-to-Speech (optional) |
 
-1. **Dependencies installieren:**
+## 🚀 Schnellstart
+
+### Voraussetzungen
+
+- Node.js 18.17 oder höher
+- npm oder yarn
+- Supabase Account
+- OpenAI API Key
+
+### Installation
+
+1. **Repository klonen:**
+   ```bash
+   git clone https://github.com/YoussefHalitou/LiS-Chatbot.git
+   cd LiS-Chatbot
+   ```
+
+2. **Dependencies installieren:**
    ```bash
    npm install
    ```
 
-2. **Umgebungsvariablen einrichten:**
-   Erstelle eine `.env.local` Datei mit folgenden Variablen:
+3. **Umgebungsvariablen einrichten:**
+   
+   Kopiere `env.example` nach `.env.local`:
+   ```bash
+   cp env.example .env.local
+   ```
+   
+   Fülle die erforderlichen Werte aus:
    ```env
-   OPENAI_API_KEY=dein_openai_key
-   NEXT_PUBLIC_SUPABASE_URL=deine_supabase_url
-   NEXT_PUBLIC_SUPABASE_ANON_KEY=dein_supabase_anon_key
-   SUPABASE_SERVICE_ROLE_KEY=dein_service_role_key
-   DEEPGRAM_API_KEY=dein_deepgram_key
-   ELEVENLABS_API_KEY=dein_elevenlabs_key
-   ELEVENLABS_VOICE_ID=deine_voice_id (optional, Standard: Rachel)
+   # Erforderlich
+   OPENAI_API_KEY=sk-...
+   NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
+   
+   # Empfohlen
+   SUPABASE_SERVICE_ROLE_KEY=eyJ...
+   
+   # Optional (für Sprach-Features)
+   DEEPGRAM_API_KEY=...
+   ELEVENLABS_API_KEY=...
    ```
 
-3. **Supabase E-Mail-Bestätigung deaktivieren (für Entwicklung):**
-   - Siehe [SUPABASE_SETUP.md](./SUPABASE_SETUP.md) für detaillierte Anleitung
-   - Kurz: Supabase Dashboard → Authentication → Settings → "Enable email confirmations" deaktivieren
-   - Dies ermöglicht sofortiges Login nach Registrierung ohne E-Mail-Bestätigung
+4. **Supabase einrichten:**
+   - Erstelle ein neues Projekt auf [supabase.com](https://supabase.com)
+   - Führe die Migration in `supabase/migrations/` aus
+   - Deaktiviere E-Mail-Bestätigung für Entwicklung (Auth → Settings)
 
-4. **Development Server starten:**
+5. **Development Server starten:**
    ```bash
    npm run dev
    ```
 
-5. **Öffne** [http://localhost:3000](http://localhost:3000)
+6. **Öffne** [http://localhost:3000](http://localhost:3000)
 
-## Deployment auf Vercel
+## 📦 Deployment
 
-### Option 1: Via Vercel CLI (Empfohlen)
+### Vercel (Empfohlen)
 
-1. **Vercel CLI installieren** (falls noch nicht installiert):
-   ```bash
-   npm install -g vercel
-   ```
+1. **Verbinde dein Repository mit Vercel:**
+   - Besuche [vercel.com/new](https://vercel.com/new)
+   - Importiere das GitHub Repository
+   - Vercel erkennt Next.js automatisch
 
-2. **Login:**
-   ```bash
-   vercel login
-   ```
+2. **Umgebungsvariablen setzen:**
+   - Im Vercel Dashboard → Settings → Environment Variables
+   - Füge alle Variablen aus `.env.local` hinzu
 
 3. **Deploy:**
-   ```bash
-   vercel
-   ```
+   - Automatisch bei jedem Push zu `main`
+   - Oder manuell via Vercel CLI: `vercel --prod`
 
-4. **Umgebungsvariablen setzen:**
-   Gehe zu [Vercel Dashboard](https://vercel.com/dashboard) → Dein Projekt → Settings → Environment Variables
-   
-   Füge alle Variablen aus `.env.local` hinzu:
-   - `OPENAI_API_KEY` (erforderlich)
-   - `NEXT_PUBLIC_SUPABASE_URL` (erforderlich)
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY` (erforderlich)
-   - `SUPABASE_SERVICE_ROLE_KEY` (erforderlich)
-   - `DEEPGRAM_API_KEY` (optional, für Sprach-Eingabe)
-   - `ELEVENLABS_API_KEY` (optional, für Sprach-Ausgabe)
-   - `ELEVENLABS_VOICE_ID` (optional, Standard: Rachel)
+### Andere Plattformen
 
-5. **Production Deploy:**
-   ```bash
-   vercel --prod
-   ```
+Die App kann auf jeder Plattform deployed werden, die Next.js unterstützt:
+- Netlify
+- Railway
+- AWS Amplify
+- Self-hosted mit `npm run build && npm run start`
 
-### Option 2: Via GitHub Integration
+## 🔧 Verfügbare Scripts
 
-1. **Code zu GitHub pushen:**
-   ```bash
-   git add .
-   git commit -m "Ready for deployment"
-   git push origin main
-   ```
+```bash
+npm run dev        # Development Server
+npm run build      # Production Build
+npm run start      # Production Server starten
+npm run lint       # Linting prüfen
+npm run lint:fix   # Linting automatisch fixen
+npm run type-check # TypeScript Typen prüfen
+npm run validate   # Lint + Type-Check
+npm run clean      # Build Cache löschen
+```
 
-2. **Vercel Dashboard:**
-   - Gehe zu [vercel.com](https://vercel.com)
-   - Klicke auf "New Project"
-   - Verbinde dein GitHub Repository
-   - Vercel erkennt automatisch Next.js
+## 📊 Health Check
 
-3. **Umgebungsvariablen setzen:**
-   - Im Vercel Dashboard → Settings → Environment Variables
-   - Füge alle Variablen hinzu (siehe oben)
+Die App bietet einen Health-Check-Endpoint:
 
-4. **Deploy:**
-   - Vercel deployed automatisch bei jedem Push zu `main`
+```
+GET /api/health
+```
 
-## Wichtige Hinweise
+Gibt den Status aller Services zurück:
+- OpenAI API
+- Supabase Verbindung
+- Deepgram (optional)
+- ElevenLabs (optional)
 
-- **HTTPS erforderlich:** Die Mikrofon-API funktioniert nur über HTTPS (oder localhost). Daher ist Hosting auf Vercel empfohlen.
-- **API Keys:** Stelle sicher, dass alle API Keys in Vercel gesetzt sind.
-- **Supabase:** Verwende den Service Role Key für Admin-Zugriff auf die Datenbank.
+## 🔒 Sicherheit
 
-## Browser-Unterstützung
+- **Rate Limiting** - Schutz vor API-Missbrauch
+- **Input Validation** - SQL-Injection-Schutz
+- **Security Headers** - HSTS, CSP, X-Frame-Options
+- **Environment Variables** - Keine Secrets im Code
 
-- ✅ Chrome (Desktop & Mobile)
-- ✅ Firefox (Desktop & Mobile)
-- ✅ Safari (iOS 14.3+, macOS Safari 11+)
-- ⚠️ Safari auf macOS benötigt HTTPS für Mikrofon-Zugriff
+## 📱 Browser-Unterstützung
 
-## Lizenz
+| Browser | Status | Hinweise |
+|---------|--------|----------|
+| Chrome (Desktop & Mobile) | ✅ | Vollständig unterstützt |
+| Firefox (Desktop & Mobile) | ✅ | Vollständig unterstützt |
+| Safari (iOS 14.3+) | ✅ | Vollständig unterstützt |
+| Safari (macOS) | ⚠️ | HTTPS für Mikrofon erforderlich |
+| Edge | ✅ | Vollständig unterstützt |
 
-Private Projekt
+## 📄 Lizenz
 
+Privates Projekt - © Land in Sicht
+
+## 🤝 Support
+
+Bei Fragen oder Problemen erstelle ein [Issue](https://github.com/YoussefHalitou/LiS-Chatbot/issues).

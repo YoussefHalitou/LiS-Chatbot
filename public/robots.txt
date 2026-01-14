@@ -1,0 +1,12 @@
+# LiS Chatbot - Robots.txt
+# https://www.robotstxt.org/
+
+User-agent: *
+Allow: /
+
+# Disallow API routes from being crawled
+Disallow: /api/
+
+# Sitemap location (if you add one later)
+# Sitemap: https://your-domain.com/sitemap.xml
+
