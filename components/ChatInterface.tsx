@@ -1633,6 +1633,8 @@ export default function ChatInterface() {
           )}
 
           {messages.map((message, index) => (
+            // Skip rendering empty assistant messages (they show while streaming starts)
+            message.role === 'assistant' && !message.content ? null : (
             <div
               key={index}
               className={`flex ${
@@ -1754,6 +1756,7 @@ export default function ChatInterface() {
                 )}
               </div>
             </div>
+            )
           ))}
 
           {isLoading && showLoadingBubble && !isStreamingResponse && (
