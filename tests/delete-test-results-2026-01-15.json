@@ -1,0 +1,132 @@
+{
+  "testSession": {
+    "date": "2026-01-15T23:30:00Z",
+    "description": "Delete functionality verification - cleanup of test entries",
+    "status": "ALL PASSED"
+  },
+  "tests": [
+    {
+      "testId": 1,
+      "table": "t_projects",
+      "testCase": "Delete project by ID",
+      "input": "Lösche Projekt mit project_id c1e6c49f-378d-48ac-951c-503933bc6eca",
+      "chatId": "delete-by-id-confirm",
+      "result": "SUCCESS",
+      "deletedData": {
+        "project_id": "c1e6c49f-378d-48ac-951c-503933bc6eca",
+        "name": "BetaTest",
+        "deleted_count": 1
+      }
+    },
+    {
+      "testId": 2,
+      "table": "t_vehicles",
+      "testCase": "Delete vehicle by ID",
+      "input": "Lösche Fahrzeug mit vehicle_id V-SPRINTER99-4B1",
+      "chatId": "delete-veh-confirm",
+      "result": "SUCCESS",
+      "deletedData": {
+        "vehicle_id": "V-SPRINTER99-4B1",
+        "nickname": "Sprinter99",
+        "deleted_count": 1
+      }
+    },
+    {
+      "testId": 3,
+      "table": "t_employees",
+      "testCase": "Delete employee by ID",
+      "input": "Lösche Mitarbeiter mit employee_id ca1396c8-ac2c-45be-a601-5822eb9c74cf",
+      "chatId": "delete-emp-confirm",
+      "result": "SUCCESS",
+      "deletedData": {
+        "employee_id": "ca1396c8-ac2c-45be-a601-5822eb9c74cf",
+        "name": "Weber",
+        "deleted_count": 1
+      }
+    },
+    {
+      "testId": 4,
+      "table": "t_services",
+      "testCase": "Delete service by ID",
+      "input": "Lösche Service mit service_id S-ENTRÜMPELU-3YG",
+      "chatId": "delete-serv",
+      "result": "SUCCESS",
+      "deletedData": {
+        "service_id": "S-ENTRÜMPELU-3YG",
+        "name": "Entrümpelung",
+        "deleted_count": 1
+      }
+    },
+    {
+      "testId": 5,
+      "table": "t_materials",
+      "testCase": "Delete material by ID",
+      "input": "Lösche Material mit material_id M-UMZUGSKART-JKMUU",
+      "chatId": "delete-mat1",
+      "result": "SUCCESS",
+      "deletedData": {
+        "material_id": "M-UMZUGSKART-JKMUU",
+        "name": "Umzugskarton-Groß",
+        "deleted_count": 1
+      }
+    },
+    {
+      "testId": 6,
+      "table": "t_materials",
+      "testCase": "Delete material by ID",
+      "input": "Lösche Material mit material_id M-KARTONAGE-TZLFM",
+      "chatId": "delete-mat2",
+      "result": "SUCCESS",
+      "deletedData": {
+        "material_id": "M-KARTONAGE-TZLFM",
+        "name": "Kartonage",
+        "deleted_count": 1
+      }
+    },
+    {
+      "testId": 7,
+      "table": "t_projects",
+      "testCase": "Delete project by ID",
+      "input": "Lösche Projekt mit project_id 2dcd2250-9913-49cb-80e0-ce89d41c5c9c",
+      "chatId": "delete-proj2",
+      "result": "SUCCESS",
+      "deletedData": {
+        "project_id": "2dcd2250-9913-49cb-80e0-ce89d41c5c9c",
+        "name": "Müller Umzug",
+        "deleted_count": 1
+      }
+    },
+    {
+      "testId": 8,
+      "table": "t_projects",
+      "testCase": "Delete project by ID",
+      "input": "Lösche Projekt mit project_id 3c5db462-2855-4687-b164-c8db255a9759",
+      "chatId": "delete-proj3",
+      "result": "SUCCESS",
+      "deletedData": {
+        "project_id": "3c5db462-2855-4687-b164-c8db255a9759",
+        "name": "Große-Übersiedlung",
+        "deleted_count": 1
+      }
+    }
+  ],
+  "summary": {
+    "totalTests": 8,
+    "passed": 8,
+    "failed": 0,
+    "tablesTestedSuccessfully": [
+      "t_projects",
+      "t_vehicles",
+      "t_employees",
+      "t_services",
+      "t_materials"
+    ],
+    "features": [
+      "Delete by primary key ID",
+      "Confirmation required before delete",
+      "Returns deleted_count and deleted_rows",
+      "Works across all table types"
+    ],
+    "note": "All test entries created during insert/update testing were successfully cleaned up"
+  }
+}
