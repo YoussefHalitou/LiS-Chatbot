@@ -467,8 +467,14 @@ export async function insertRow(
     ipAddress?: string
   }
 ) {
+  // #region agent log
+  fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase-query.ts:insertRow',message:'insertRow called',data:{tableName,valueKeys:Object.keys(values||{})},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H6'})}).catch(()=>{});
+  // #endregion
   try {
     if (!supabaseAdmin) {
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase-query.ts:insertRow-no-admin',message:'No supabaseAdmin configured',data:{tableName},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H7'})}).catch(()=>{});
+      // #endregion
       return {
         data: null,
         error: 'Service role key not configured'
@@ -536,6 +542,9 @@ export async function insertRow(
 
     if (insertResult.error) {
       const errorMessage = getUserFriendlyErrorMessage(insertResult.error, 'INSERT', tableName)
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase-query.ts:insertRow-db-error',message:'Database insert error',data:{tableName,rawError:String(insertResult.error),friendlyError:errorMessage,sanitizedValues},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H15'})}).catch(()=>{});
+      // #endregion
       createAuditLog('INSERT', tableName, 'FAILURE', {
         userId: options?.userId,
         ipAddress: options?.ipAddress,
@@ -551,10 +560,16 @@ export async function insertRow(
       ipAddress: options?.ipAddress,
       values: sanitizedValues,
     })
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase-query.ts:insertRow-success',message:'Insert successful',data:{tableName,insertedData:insertResult.data},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H6'})}).catch(()=>{});
+    // #endregion
 
     return { data: insertResult.data, error: null }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : 'Unknown error'
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase-query.ts:insertRow-error',message:'Insert failed',data:{tableName,error:errorMessage},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H6'})}).catch(()=>{});
+    // #endregion
     createAuditLog('INSERT', tableName, 'FAILURE', {
       userId: options?.userId,
       ipAddress: options?.ipAddress,
@@ -578,8 +593,14 @@ export async function updateRow(
     requireSingleRow?: boolean
   }
 ) {
+  // #region agent log
+  fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase-query.ts:updateRow',message:'updateRow called',data:{tableName,filterKeys:Object.keys(filters||{}),valueKeys:Object.keys(values||{})},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H8'})}).catch(()=>{});
+  // #endregion
   try {
     if (!supabaseAdmin) {
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase-query.ts:updateRow-no-admin',message:'No supabaseAdmin configured',data:{tableName},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H7'})}).catch(()=>{});
+      // #endregion
       return {
         data: null,
         error: 'Service role key not configured'
@@ -791,10 +812,16 @@ export async function updateRow(
       filters: sanitizedFilters,
       values: sanitizedValues,
     })
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase-query.ts:updateRow-success',message:'Update successful',data:{tableName,updatedData:updateResult.data},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H8'})}).catch(()=>{});
+    // #endregion
 
     return { data: updateResult.data, error: null }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : 'Unknown error'
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase-query.ts:updateRow-error',message:'Update failed',data:{tableName,error:errorMessage},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H8'})}).catch(()=>{});
+    // #endregion
     createAuditLog('UPDATE', tableName, 'FAILURE', {
       userId: options?.userId,
       ipAddress: options?.ipAddress,
@@ -818,8 +845,14 @@ export async function deleteRow(
     requireSingleRow?: boolean
   }
 ) {
+  // #region agent log
+  fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase-query.ts:deleteRow',message:'deleteRow called',data:{tableName,filterKeys:Object.keys(filters||{})},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H9'})}).catch(()=>{});
+  // #endregion
   try {
     if (!supabaseAdmin) {
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase-query.ts:deleteRow-no-admin',message:'No supabaseAdmin configured',data:{tableName},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H7'})}).catch(()=>{});
+      // #endregion
       return {
         data: null,
         error: 'Service role key not configured'
@@ -1003,6 +1036,9 @@ export async function deleteRow(
       filters: sanitizedFilters,
       metadata: { deleted_count: deletedCount },
     })
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase-query.ts:deleteRow-success',message:'Delete successful',data:{tableName,deletedCount},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H9'})}).catch(()=>{});
+    // #endregion
 
     return { 
       data: { deleted_count: deletedCount, deleted_rows: deleteResult.data || [] }, 
@@ -1010,6 +1046,9 @@ export async function deleteRow(
     }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : 'Unknown error'
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase-query.ts:deleteRow-error',message:'Delete failed',data:{tableName,error:errorMessage},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H9'})}).catch(()=>{});
+    // #endregion
     createAuditLog('DELETE', tableName, 'FAILURE', {
       userId: options?.userId,
       ipAddress: options?.ipAddress,

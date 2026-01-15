@@ -1779,17 +1779,29 @@ const applyProjectFilters = (
 }
 
 export async function POST(req: NextRequest) {
+  // #region agent log
+  fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'app/api/chat/route.ts:POST',message:'Chat API called',data:{method:'POST'},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
+  // #endregion
   // Apply rate limiting
   const rateLimitResult = rateLimitMiddleware(req, '/api/chat')
   if (!rateLimitResult.allowed) {
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'app/api/chat/route.ts:rate-limit',message:'Rate limit hit',data:{allowed:false},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
+    // #endregion
     return rateLimitResult.response!
   }
 
   try {
     const body: ChatRequest = await req.json()
     const { messages, chatId } = body
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'app/api/chat/route.ts:body-parsed',message:'Request body parsed',data:{messageCount:messages?.length,hasChatId:!!chatId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
+    // #endregion
 
     if (!messages || !Array.isArray(messages)) {
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'app/api/chat/route.ts:invalid-messages',message:'Invalid messages array',data:{messages},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+      // #endregion
       return NextResponse.json(
         { error: 'Messages array is required' },
         { status: 400 }
@@ -1808,6 +1820,30 @@ export async function POST(req: NextRequest) {
       [...messages].reverse().find((message) => message.role === 'assistant')?.content || ''
 
     // Check for recent insertRow, updateRow, or deleteRow tool calls in message history
+    // #region agent log
+    const messagesWithToolCalls = messages.filter((m:any) => m.tool_calls && m.tool_calls.length > 0);
+    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:tool-calls-check',message:'Checking for tool calls in messages',data:{totalMessages:messages.length,messagesWithToolCalls:messagesWithToolCalls.length,toolCallNames:messagesWithToolCalls.flatMap((m:any)=>m.tool_calls?.map((tc:any)=>tc.function?.name)||[])},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H11'})}).catch(()=>{});
+    // #endregion
+
+    // Helper to check if a tool call was already executed (success message exists after it)
+    const wasToolCallExecuted = (toolCallMessage: any, successPatterns: string[]): boolean => {
+      if (!toolCallMessage) return false
+      const toolCallIndex = messages.indexOf(toolCallMessage)
+      if (toolCallIndex === -1) return false
+      
+      // Check if there's an assistant message AFTER the tool call that contains a success indicator
+      for (let i = toolCallIndex + 1; i < messages.length; i++) {
+        const msg = messages[i]
+        if (msg.role === 'assistant' && msg.content) {
+          const content = msg.content.toLowerCase()
+          if (successPatterns.some(pattern => content.includes(pattern.toLowerCase()))) {
+            return true
+          }
+        }
+      }
+      return false
+    }
+
     const recentInsertToolCall = [...messages]
       .reverse()
       .find((message) => {
@@ -1835,10 +1871,88 @@ export async function POST(req: NextRequest) {
         )
       })
 
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:confirmation-check',message:'Checking confirmation',data:{lastUserMessage,isConfirmation:isConfirmationMessage(lastUserMessage),hasInsertToolCall:!!recentInsertToolCall,hasUpdateToolCall:!!recentUpdateToolCall,hasDeleteToolCall:!!recentDeleteToolCall},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H10'})}).catch(()=>{});
+    // #endregion
     if (isConfirmationMessage(lastUserMessage)) {
+      // Check if all pending tool calls are already executed
+      const deleteAlreadyExecuted = wasToolCallExecuted(recentDeleteToolCall, ['erfolgreich gelöscht', 'wurde gelöscht', 'entfernt'])
+      const updateAlreadyExecuted = wasToolCallExecuted(recentUpdateToolCall, ['erfolgreich aktualisiert', 'wurde aktualisiert', 'geändert'])
+      const insertAlreadyExecuted = wasToolCallExecuted(recentInsertToolCall, ['erfolgreich erstellt', 'erfolgreich angelegt', 'wurde erstellt'])
+      
+      // If there are tool calls but ALL are already executed, skip confirmation handling
+      // This prevents re-execution loops when user says "ja" to "Soll ich dir die Details anzeigen?"
+      const hasAnyToolCall = !!(recentDeleteToolCall || recentUpdateToolCall || recentInsertToolCall)
+      const allAlreadyExecuted = 
+        (!recentDeleteToolCall || deleteAlreadyExecuted) &&
+        (!recentUpdateToolCall || updateAlreadyExecuted) &&
+        (!recentInsertToolCall || insertAlreadyExecuted)
+      
+      if (hasAnyToolCall && allAlreadyExecuted) {
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:all-executed-skip',message:'All tool calls already executed, skipping confirmation',data:{lastUserMessage},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H16'})}).catch(()=>{});
+        // #endregion
+        // User said "ja" after success - likely wants to see details
+        // Return early with a message to avoid OpenAI generating new tool calls
+        // If there was an insert, try to show the created entry
+        if (insertAlreadyExecuted && recentInsertToolCall?.tool_calls) {
+          const insertToolCall = recentInsertToolCall.tool_calls.find(
+            (tc: any) => tc.function?.name === 'insertRow'
+          )
+          if (insertToolCall) {
+            try {
+              const functionArgs = JSON.parse(insertToolCall.function.arguments || '{}')
+              const tableName = functionArgs.tableName
+              // Extract the name from conversation to query
+              const userMessages = messages
+                .filter((m: any) => m.role === 'user')
+                .map((m: any) => m.content)
+                .join(' ')
+              const nameMatch = userMessages.match(/(?:namens?|projekt|genannt|name)\s*['"´`]([^'"´`]+)['"´`]/i) ||
+                                userMessages.match(/(?:neues?\s+projekt|erstelle.*projekt)\s+(\w+)/i)
+              
+              if (tableName && nameMatch) {
+                const { queryTable } = await import('@/lib/supabase-query')
+                const queryResult = await queryTable(tableName, { name: nameMatch[1].trim() }, { limit: 1 })
+                if (queryResult.data && queryResult.data.length > 0) {
+                  const entry = queryResult.data[0]
+                  const detailLines = Object.entries(entry)
+                    .filter(([key, value]) => value !== null && !key.includes('created_at') && !key.includes('updated_at'))
+                    .map(([key, value]) => `- **${key}**: ${value}`)
+                    .join('\n')
+                  return NextResponse.json(
+                    {
+                      message: {
+                        role: 'assistant',
+                        content: `Hier sind die Details des erstellten Eintrags:\n\n${detailLines}`,
+                      },
+                    },
+                    { headers: NO_CACHE_HEADERS }
+                  )
+                }
+              }
+            } catch (e) {
+              // Fall through to generic response
+            }
+          }
+        }
+        // Generic response when we can't show details
+        return NextResponse.json(
+          {
+            message: {
+              role: 'assistant',
+              content: 'Der Vorgang wurde bereits erfolgreich abgeschlossen. Wie kann ich dir weiter helfen?',
+            },
+          },
+          { headers: NO_CACHE_HEADERS }
+        )
+      } else {
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:is-confirmation',message:'Confirmation detected',data:{lastUserMessage,recentInsertToolCall:recentInsertToolCall?.tool_calls?.map((tc:any)=>tc.function?.name),recentUpdateToolCall:recentUpdateToolCall?.tool_calls?.map((tc:any)=>tc.function?.name),recentDeleteToolCall:recentDeleteToolCall?.tool_calls?.map((tc:any)=>tc.function?.name)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H10'})}).catch(()=>{});
+        // #endregion
       // Priority: delete > update > insert
       // First, check for delete confirmation
-      if (recentDeleteToolCall?.tool_calls) {
+      if (recentDeleteToolCall?.tool_calls && !deleteAlreadyExecuted) {
         const deleteToolCall = recentDeleteToolCall.tool_calls.find(
           (tc: any) => tc.function?.name === 'deleteRow'
         )
@@ -1904,7 +2018,7 @@ export async function POST(req: NextRequest) {
       }
 
       // Then, check for update confirmation
-      if (recentUpdateToolCall?.tool_calls) {
+      if (recentUpdateToolCall?.tool_calls && !updateAlreadyExecuted) {
         const updateToolCall = recentUpdateToolCall.tool_calls.find(
           (tc: any) => tc.function?.name === 'updateRow'
         )
@@ -1972,15 +2086,89 @@ export async function POST(req: NextRequest) {
       }
 
       // Finally, try to use a recent insert tool call if available
-      if (recentInsertToolCall?.tool_calls) {
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:insert-block-start',message:'Entering insert confirmation block',data:{hasToolCalls:!!recentInsertToolCall?.tool_calls,toolCallsCount:recentInsertToolCall?.tool_calls?.length,alreadyExecuted:insertAlreadyExecuted},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H12'})}).catch(()=>{});
+      // #endregion
+      if (recentInsertToolCall?.tool_calls && !insertAlreadyExecuted) {
         const insertToolCall = recentInsertToolCall.tool_calls.find(
           (tc: any) => tc.function?.name === 'insertRow'
         )
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:insert-tool-call-found',message:'Looking for insertRow tool call',data:{found:!!insertToolCall,functionName:insertToolCall?.function?.name,hasArguments:!!insertToolCall?.function?.arguments},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H12'})}).catch(()=>{});
+        // #endregion
         if (insertToolCall) {
           try {
+            // #region agent log
+            fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:insert-raw-args',message:'Raw insert arguments',data:{rawArguments:insertToolCall.function.arguments},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H13'})}).catch(()=>{});
+            // #endregion
             const functionArgs = JSON.parse(insertToolCall.function.arguments || '{}')
+            // #region agent log
+            fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:insert-args-parsed',message:'Parsed insert arguments',data:{tableName:functionArgs.tableName,hasValues:!!functionArgs.values,valueKeys:Object.keys(functionArgs.values||{}),fullArgs:functionArgs},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H12'})}).catch(()=>{});
+            // #endregion
+            
+            // FALLBACK: If AI didn't include values, try to extract from conversation
+            if (functionArgs.tableName && !functionArgs.values) {
+              // #region agent log
+              fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:insert-fallback-start',message:'Values missing, attempting fallback extraction',data:{tableName:functionArgs.tableName},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H14'})}).catch(()=>{});
+              // #endregion
+              
+              // Get all user messages to extract values
+              const userMessages = messages
+                .filter((m: any) => m.role === 'user')
+                .map((m: any) => m.content)
+                .join(' ');
+              
+              if (functionArgs.tableName === 't_projects') {
+                // Extract project name from various patterns
+                // Priority: quoted names > "namens X" > "Projekt X"
+                const nameMatch = 
+                  // Quoted: namens 'X', name "X", genannt 'X'
+                  userMessages.match(/(?:namens?|genannt|name)\s*['"´`]([^'"´`]+)['"´`]/i) ||
+                  // Unquoted: namens X, namens XYZ123
+                  userMessages.match(/namens\s+([A-Za-z0-9äöüÄÖÜß_-]+)/i) ||
+                  // Pattern: erstelle Projekt X, neues Projekt X
+                  userMessages.match(/(?:erstelle|neues?)\s+(?:ein\s+)?(?:neues\s+)?Projekt\s+(?:namens\s+)?([A-Za-z0-9äöüÄÖÜß_-]+)/i) ||
+                  // Simple: Projekt X (but not "Projekt namens")
+                  userMessages.match(/Projekt\s+(?!namens)([A-Za-z0-9äöüÄÖÜß_-]+)/i);
+                // Extract city from patterns like "in München", "in Berlin"
+                const cityMatch = userMessages.match(/\bin\s+([A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+)?)\b/);
+                
+                if (nameMatch) {
+                  // Only include columns that are guaranteed to exist
+                  // Note: 'stadt' column may not exist in the actual database schema
+                  functionArgs.values = {
+                    name: nameMatch[1].trim(),
+                    status: 'In Planung'
+                  };
+                  // #region agent log
+                  fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:insert-fallback-success',message:'Extracted values from conversation',data:{extractedValues:functionArgs.values},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H14'})}).catch(()=>{});
+                  // #endregion
+                }
+              } else if (functionArgs.tableName === 't_employees') {
+                // Extract employee name - handle various patterns
+                const nameMatch = 
+                  // Quoted: namens 'X', name "X"
+                  userMessages.match(/(?:namens?|genannt|name)\s*['"´`]([^'"´`]+)['"´`]/i) ||
+                  // Unquoted with namens: Mitarbeiter namens X
+                  userMessages.match(/(?:mitarbeiter|arbeiter|worker)\s+namens\s+([A-Za-z0-9äöüÄÖÜß_-]+)/i) ||
+                  // Direct: neuer Mitarbeiter X (where X is not "namens")
+                  userMessages.match(/(?:neuer?|neu)\s+(?:mitarbeiter|arbeiter|worker)\s+(?!namens)([A-Za-z0-9äöüÄÖÜß_-]+)/i) ||
+                  // Simple: Mitarbeiter X (where X is not "namens" or "neu")
+                  userMessages.match(/(?:mitarbeiter|arbeiter|worker)\s+(?!namens|neu)([A-Za-z0-9äöüÄÖÜß_-]+)/i);
+                if (nameMatch) {
+                  functionArgs.values = {
+                    name: nameMatch[1].trim(),
+                    is_active: true
+                  };
+                }
+              }
+            }
+            
             if (functionArgs.tableName && functionArgs.values) {
               // Re-execute the insert with confirm: true
+              // #region agent log
+              fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:insert-table-check',message:'Checking if table is allowed',data:{tableName:functionArgs.tableName,isAllowed:INSERT_ALLOWED_TABLES.has(functionArgs.tableName)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H12'})}).catch(()=>{});
+              // #endregion
               if (!INSERT_ALLOWED_TABLES.has(functionArgs.tableName)) {
                 return NextResponse.json(
                   {
@@ -2001,6 +2189,9 @@ export async function POST(req: NextRequest) {
               const insertResult = await insertRow(functionArgs.tableName, functionArgs.values, {
                 ipAddress: clientId,
               })
+              // #region agent log
+              fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chat/route.ts:insert-result',message:'Insert result received',data:{hasError:!!insertResult.error,error:insertResult.error,hasData:!!insertResult.data},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H15'})}).catch(()=>{});
+              // #endregion
 
               if (insertResult.error) {
                 console.error('Insert error:', insertResult.error)
@@ -2029,6 +2220,12 @@ export async function POST(req: NextRequest) {
             console.error('Error parsing tool call arguments:', error)
           }
         }
+      } else if (recentInsertToolCall?.tool_calls && insertAlreadyExecuted) {
+        // Tool call was already executed - don't re-execute or fall through to OpenAI
+        // Return early to prevent loop behavior
+        // The user is likely responding to "Soll ich dir die Details anzeigen?" with "ja"
+        // We should acknowledge and not try to create again
+        // Skip confirmation handling entirely - let the request go to OpenAI without confirmation logic
       }
 
       // Fallback to extracting from assistant message text
@@ -2121,6 +2318,7 @@ export async function POST(req: NextRequest) {
         )
         }
       }
+      } // end else block for tool call handling
     }
 
     const now = new Date()
@@ -2888,13 +3086,134 @@ async function handleToolCalls(
           error: `Insert not allowed for table: ${functionArgs.tableName}`,
         }
       } else if (!functionArgs.values || typeof functionArgs.values !== 'object') {
-        // Provide specific error message for employee assignment
-        if (functionArgs.tableName === 't_morningplan_staff') {
+        // FALLBACK: Try to extract values from conversation if AI didn't include them
+        const userMessages = openaiMessages
+          .filter((m: any) => m.role === 'user')
+          .map((m: any) => m.content)
+          .join(' ')
+        
+        if (functionArgs.tableName === 't_projects') {
+          // Extract project name from various patterns
+          // Priority: quoted names > "namens X" > "Projekt X"
+          const nameMatch = 
+            // Quoted: namens 'X', name "X", genannt 'X'
+            userMessages.match(/(?:namens?|genannt|name)\s*['"´`]([^'"´`]+)['"´`]/i) ||
+            // Unquoted: namens X, namens XYZ123
+            userMessages.match(/namens\s+([A-Za-z0-9äöüÄÖÜß_-]+)/i) ||
+            // Pattern: erstelle Projekt X, neues Projekt X
+            userMessages.match(/(?:erstelle|neues?)\s+(?:ein\s+)?(?:neues\s+)?Projekt\s+(?:namens\s+)?([A-Za-z0-9äöüÄÖÜß_-]+)/i) ||
+            // Simple: Projekt X (but not "Projekt namens")
+            userMessages.match(/Projekt\s+(?!namens)([A-Za-z0-9äöüÄÖÜß_-]+)/i)
+          
+          if (nameMatch) {
+            functionArgs.values = {
+              name: nameMatch[1].trim(),
+              status: 'In Planung'
+            }
+            // Execute the insert directly with extracted values
+            const result = await insertRow(functionArgs.tableName, functionArgs.values)
+            functionResult = result
+          } else {
+            functionResult = { error: 'Missing values for insertRow.' }
+          }
+        } else if (functionArgs.tableName === 't_employees') {
+          // Extract employee name - handle various patterns
+          const nameMatch = 
+            // Quoted: namens 'X', name "X"
+            userMessages.match(/(?:namens?|genannt|name)\s*['"´`]([^'"´`]+)['"´`]/i) ||
+            // Unquoted with namens: Mitarbeiter namens X
+            userMessages.match(/(?:mitarbeiter|arbeiter|worker)\s+namens\s+([A-Za-z0-9äöüÄÖÜß_-]+)/i) ||
+            // Direct: neuer Mitarbeiter X (where X is not "namens")
+            userMessages.match(/(?:neuer?|neu)\s+(?:mitarbeiter|arbeiter|worker)\s+(?!namens)([A-Za-z0-9äöüÄÖÜß_-]+)/i) ||
+            // Simple: Mitarbeiter X (where X is not "namens" or "neu")
+            userMessages.match(/(?:mitarbeiter|arbeiter|worker)\s+(?!namens|neu)([A-Za-z0-9äöüÄÖÜß_-]+)/i)
+          if (nameMatch) {
+            functionArgs.values = {
+              name: nameMatch[1].trim(),
+              is_active: true
+            }
+            // Execute the insert directly with extracted values
+            const result = await insertRow(functionArgs.tableName, functionArgs.values)
+            functionResult = result
+          } else {
+            functionResult = { error: 'Missing values for insertRow.' }
+          }
+        } else if (functionArgs.tableName === 't_materials') {
+          // Extract material name
+          const nameMatch = 
+            // Quoted: namens 'X', name "X"
+            userMessages.match(/(?:namens?|genannt|name)\s*['"´`]([^'"´`]+)['"´`]/i) ||
+            // Unquoted with namens: Material namens X
+            userMessages.match(/(?:material)\s+namens\s+([A-Za-z0-9äöüÄÖÜß_-]+)/i) ||
+            // Direct: neues Material X
+            userMessages.match(/(?:neues?)\s+(?:material)\s+(?:namens\s+)?([A-Za-z0-9äöüÄÖÜß_-]+)/i) ||
+            // Simple: Material X
+            userMessages.match(/(?:material)\s+(?!namens|neu)([A-Za-z0-9äöüÄÖÜß_-]+)/i)
+          if (nameMatch) {
+            // Generate a material_id
+            const materialId = `M-${nameMatch[1].trim().toUpperCase().substring(0, 10)}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`
+            functionArgs.values = {
+              material_id: materialId,
+              name: nameMatch[1].trim(),
+              unit: 'Stück',  // Default unit (required field)
+              is_active: true,
+              vat_rate: 19,
+              default_quantity: 1
+            }
+            // Execute the insert directly with extracted values
+            const result = await insertRow(functionArgs.tableName, functionArgs.values)
+            functionResult = result
+          } else {
+            functionResult = { error: 'Missing values for insertRow.' }
+          }
+        } else if (functionArgs.tableName === 't_vehicles') {
+          // Extract vehicle name/nickname
+          const nameMatch = 
+            // Quoted: namens 'X', name "X"
+            userMessages.match(/(?:namens?|genannt|name)\s*['"´`]([^'"´`]+)['"´`]/i) ||
+            // Unquoted: Fahrzeug namens X
+            userMessages.match(/(?:fahrzeug|auto|lkw|transporter)\s+namens\s+([A-Za-z0-9äöüÄÖÜß_-]+)/i) ||
+            // Direct: neues Fahrzeug X
+            userMessages.match(/(?:neues?)\s+(?:fahrzeug|auto|lkw|transporter)\s+(?:namens\s+)?([A-Za-z0-9äöüÄÖÜß_-]+)/i)
+          if (nameMatch) {
+            // Generate a vehicle_id
+            const vehicleId = `V-${nameMatch[1].trim().toUpperCase().substring(0, 10)}-${Math.random().toString(36).substring(2, 5).toUpperCase()}`
+            functionArgs.values = {
+              vehicle_id: vehicleId,
+              nickname: nameMatch[1].trim(),
+              unit: 'Tag',
+              status: 'bereit',
+              is_deleted: false
+            }
+            const result = await insertRow(functionArgs.tableName, functionArgs.values)
+            functionResult = result
+          } else {
+            functionResult = { error: 'Missing values for insertRow.' }
+          }
+        } else if (functionArgs.tableName === 't_services') {
+          // Extract service name
+          const nameMatch = 
+            userMessages.match(/(?:namens?|genannt|name)\s*['"´`]([^'"´`]+)['"´`]/i) ||
+            userMessages.match(/(?:service|dienstleistung)\s+namens\s+([A-Za-z0-9äöüÄÖÜß_-]+)/i) ||
+            userMessages.match(/(?:neues?|neue)\s+(?:service|dienstleistung)\s+(?:namens\s+)?([A-Za-z0-9äöüÄÖÜß_-]+)/i)
+          if (nameMatch) {
+            const serviceId = `S-${nameMatch[1].trim().toUpperCase().substring(0, 10)}-${Math.random().toString(36).substring(2, 5).toUpperCase()}`
+            functionArgs.values = {
+              service_id: serviceId,
+              name: nameMatch[1].trim(),
+              is_active: true
+            }
+            const result = await insertRow(functionArgs.tableName, functionArgs.values)
+            functionResult = result
+          } else {
+            functionResult = { error: 'Missing values for insertRow.' }
+          }
+        } else if (functionArgs.tableName === 't_morningplan_staff') {
           functionResult = { 
             error: 'Fehler beim Hinzufügen des Mitarbeiters: Es fehlen erforderliche Angaben (plan_id oder employee_id). Bitte stelle sicher, dass sowohl der Mitarbeiter als auch das Projekt existieren.' 
           }
         } else {
-        functionResult = { error: 'Missing values for insertRow.' }
+          functionResult = { error: 'Missing values for insertRow.' }
         }
       } else if (functionArgs.tableName === 't_morningplan_staff') {
         // Validate required fields for employee assignment

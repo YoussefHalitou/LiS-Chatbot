@@ -1248,6 +1248,9 @@ export default function ChatInterface() {
       }
 
       const contentType = response.headers.get('content-type') || ''
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:response-received',message:'Chat response received',data:{status:response.status,contentType,streaming:!streamingDisabled&&contentType.includes('text/event-stream')},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
+      // #endregion
 
       if (!streamingDisabled && contentType.includes('text/event-stream')) {
         await readSseStream(response, assistantIndex, { speakResponse })
@@ -1276,6 +1279,9 @@ export default function ChatInterface() {
       }
     } catch (error) {
       console.error('Error sending message:', error)
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:startChatRequest-error',message:'Chat request error',data:{error:error instanceof Error?error.message:String(error)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
+      // #endregion
       setShowLoadingBubble(false)
       setIsQueryingDatabase(false)
       const isAbort = error instanceof DOMException && error.name === 'AbortError'
@@ -1307,6 +1313,9 @@ export default function ChatInterface() {
   }, [messages, currentChatId, streamingDisabled, readSseStream, clearLoadingBubbleTimeout, clearStreamTimeout])
 
   const sendMessage = useCallback(async () => {
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:sendMessage',message:'sendMessage called',data:{inputLength:input?.length,isLoading},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
+    // #endregion
     const sanitizedInput = sanitizeInput(input)
     if (!sanitizedInput || isLoading) return
 
@@ -1315,6 +1324,9 @@ export default function ChatInterface() {
       content: sanitizedInput,
       timestamp: new Date(),
     }
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:sendMessage-prepared',message:'User message prepared',data:{content:sanitizedInput.substring(0,50)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
+    // #endregion
 
     setInput('')
     await startChatRequest(userMessage)

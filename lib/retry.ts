@@ -135,10 +135,24 @@ export async function retrySupabaseOperation<T>(
         'network',
       ],
     })
-  } catch (error) {
+  } catch (error: any) {
+    // Handle different error formats:
+    // - Error instance: use error.message
+    // - Supabase error object: has message, code, details, hint properties
+    // - String: use directly
+    // - Other: stringify or use 'Unknown error'
+    let errorMessage = 'Unknown error'
+    if (error instanceof Error) {
+      errorMessage = error.message
+    } else if (error && typeof error === 'object') {
+      // Supabase error objects have message, code, details, hint
+      errorMessage = error.message || error.error || error.details || JSON.stringify(error)
+    } else if (typeof error === 'string') {
+      errorMessage = error
+    }
     return {
       data: null,
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: errorMessage,
     }
   }
 }
