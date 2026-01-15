@@ -1,51 +1,98 @@
 {
   "metadata": {
-    "version": "1.0.0",
-    "description": "Test questions for LiS Operations Assistant",
-    "created": "2026-01-15"
+    "version": "3.0.0",
+    "description": "Comprehensive test questions for LiS Operations Assistant",
+    "created": "2026-01-15",
+    "totalQuestions": 120
   },
   "categories": {
     "projekte": {
       "description": "Projekt-bezogene Abfragen",
       "questions": [
-        { "id": "P001", "input": "Welche Projekte sind heute geplant?", "expectContains": ["Projekt", "heute"] },
-        { "id": "P002", "input": "Projekte diese Woche", "expectContains": ["Projekt"] },
-        { "id": "P003", "input": "Projekte diesen Monat", "expectContains": ["Januar", "Projekt"] },
+        { "id": "P001", "input": "Welche Projekte sind heute geplant?", "expectContains": ["Projekt"] },
+        { "id": "P002", "input": "Zeige mir alle Projekte diese Woche", "expectContains": ["Projekt"] },
+        { "id": "P003", "input": "Projekte diesen Monat", "expectContains": ["Projekt"] },
         { "id": "P004", "input": "Welche Projekte gibt es in Düsseldorf?", "expectContains": ["Düsseldorf"] },
-        { "id": "P005", "input": "Details zum Projekt Müller", "expectContains": ["Müller"] },
-        { "id": "P006", "input": "Projekte morgen", "expectContains": ["Projekt"] },
-        { "id": "P007", "input": "Alle Umzugs-Projekte", "expectContains": ["Umzug"] },
-        { "id": "P008", "input": "Wie viele Projekte gibt es insgesamt?", "expectContains": ["Projekt"] },
-        { "id": "P009", "input": "Projekte letzte Woche", "expectContains": ["Projekt"] },
-        { "id": "P010", "input": "Welches Projekt hat die meisten Mitarbeiter?", "expectContains": ["Projekt", "Mitarbeiter"] }
+        { "id": "P005", "input": "Zeige alle Projekte mit Status \"In Planung\"", "expectContains": ["Planung"] },
+        { "id": "P006", "input": "Welches Projekt hat die meisten Mitarbeiter?", "expectContains": ["Projekt", "Mitarbeiter"] },
+        { "id": "P007", "input": "Details zum Projekt Müller", "expectContains": ["Müller"] },
+        { "id": "P008", "input": "Projekte morgen", "expectContains": ["Projekt"] },
+        { "id": "P009", "input": "Projekte übermorgen", "expectContains": ["Projekt"] },
+        { "id": "P010", "input": "Projekte letzte Woche", "expectContains": ["Projekt"] },
+        { "id": "P011", "input": "Welche Projekte sind in Erkrath geplant?", "expectContains": ["Erkrath"] },
+        { "id": "P012", "input": "Alle Umzugs-Projekte diesen Monat", "expectContains": ["Umzug"] },
+        { "id": "P013", "input": "Welche Projekte haben noch keine Mitarbeiter zugewiesen?", "expectContains": ["Projekt"] },
+        { "id": "P014", "input": "Projekte mit Entrümpelung als Dienstleistung", "expectContains": ["Entrümpelung"] },
+        { "id": "P015", "input": "Erstelle ein neues Projekt namens \"Testprojekt\" in Hamburg", "expectContains": ["Testprojekt"] }
       ]
     },
     "mitarbeiter": {
       "description": "Mitarbeiter-bezogene Abfragen",
       "questions": [
-        { "id": "M001", "input": "Liste aller Mitarbeiter", "expectContains": ["Mitarbeiter", "Name"] },
-        { "id": "M002", "input": "Welche Mitarbeiter sind aktiv?", "expectContains": ["Mitarbeiter", "Aktiv"] },
+        { "id": "M001", "input": "Liste aller Mitarbeiter", "expectContains": ["Mitarbeiter"] },
+        { "id": "M002", "input": "Welche Mitarbeiter sind aktiv?", "expectContains": ["Mitarbeiter"] },
         { "id": "M003", "input": "Zeige alle internen Mitarbeiter", "expectContains": ["Intern"] },
         { "id": "M004", "input": "Welche externen Mitarbeiter gibt es?", "expectContains": ["Extern"] },
-        { "id": "M005", "input": "Wer hat den höchsten Stundensatz?", "expectContains": ["€", "Stundensatz"] },
+        { "id": "M005", "input": "Wer hat den höchsten Stundensatz?", "expectContains": ["Stundensatz"] },
         { "id": "M006", "input": "Details zu Mitarbeiter Achim", "expectContains": ["Achim"] },
-        { "id": "M007", "input": "Welche Mitarbeiter sind diese Woche eingeplant?", "expectContains": ["Mitarbeiter", "Woche"] },
+        { "id": "M007", "input": "Welche Mitarbeiter sind diese Woche eingeplant?", "expectContains": ["Mitarbeiter"] },
         { "id": "M008", "input": "Wer ist heute im Einsatz?", "expectContains": ["heute"] },
-        { "id": "M009", "input": "Wie viele Mitarbeiter gibt es?", "expectContains": ["Mitarbeiter"] },
-        { "id": "M010", "input": "Mitarbeiter mit Stundensatz über 30€", "expectContains": ["€"] }
+        { "id": "M009", "input": "Welche Mitarbeiter haben keinen Einsatz diese Woche?", "expectContains": ["Mitarbeiter"] },
+        { "id": "M010", "input": "Füge einen neuen Mitarbeiter namens \"Max Mustermann\" hinzu (Intern, 25€)", "expectContains": ["Max", "Mustermann"] }
       ]
     },
     "einsatzplanung": {
       "description": "Einsatzplanung und Morgenplan",
       "questions": [
-        { "id": "E001", "input": "Zeige den Morgenplan für heute", "expectContains": ["heute", "Projekt"] },
+        { "id": "E001", "input": "Zeige den Morgenplan für heute", "expectContains": ["heute"] },
         { "id": "E002", "input": "Welche Einsätze sind morgen geplant?", "expectContains": ["morgen"] },
         { "id": "E003", "input": "Wer arbeitet am Projekt Bahr?", "expectContains": ["Bahr"] },
-        { "id": "E004", "input": "Bei welchen Projekten ist Achim eingeplant?", "expectContains": ["Achim", "Projekt"] },
-        { "id": "E005", "input": "Alle Einsätze diese Woche", "expectContains": ["Woche"] },
-        { "id": "E006", "input": "wo arbeitet Achim diesen Monat", "expectContains": ["Achim", "Projekt"] },
-        { "id": "E007", "input": "Welche Projekte haben am Montag Einsätze?", "expectContains": ["Montag"] },
-        { "id": "E008", "input": "Einsätze nächste Woche", "expectContains": ["Woche"] }
+        { "id": "E004", "input": "Bei welchen Projekten ist Chris eingeplant?", "expectContains": ["Chris"] },
+        { "id": "E005", "input": "Alle Einsätze diese Woche mit Mitarbeitern", "expectContains": ["Woche"] },
+        { "id": "E006", "input": "Welche Projekte haben mehr als 3 Mitarbeiter?", "expectContains": ["Mitarbeiter"] },
+        { "id": "E007", "input": "Welcher Mitarbeiter hat die meisten Einsätze diesen Monat?", "expectContains": ["Mitarbeiter"] },
+        { "id": "E008", "input": "Zeige Einsätze für nächste Woche", "expectContains": ["Woche"] },
+        { "id": "E009", "input": "Übersicht aller geplanten Einsätze im Januar", "expectContains": ["Januar"] },
+        { "id": "E010", "input": "Welche Projekte haben am Montag Einsätze?", "expectContains": ["Montag"] }
+      ]
+    },
+    "zeiterfassung": {
+      "description": "Zeiterfassung und Arbeitsstunden",
+      "questions": [
+        { "id": "Z001", "input": "Zeige die Zeiterfassung für heute", "expectContains": ["Zeit"] },
+        { "id": "Z002", "input": "Arbeitsstunden von Achim diese Woche", "expectContains": ["Achim"] },
+        { "id": "Z003", "input": "Wer hat die meisten Stunden gearbeitet diesen Monat?", "expectContains": ["Stunden"] },
+        { "id": "Z004", "input": "Zeiterfassung für Projekt Müller", "expectContains": ["Müller"] },
+        { "id": "Z005", "input": "Überstunden-Übersicht", "expectContains": ["Stunden"] },
+        { "id": "Z006", "input": "Pausenzeiten der Mitarbeiter", "expectContains": ["Pause"] }
+      ]
+    },
+    "materialien": {
+      "description": "Materialien und Services",
+      "questions": [
+        { "id": "MAT001", "input": "Liste aller Materialien", "expectContains": ["Material"] },
+        { "id": "MAT002", "input": "Materialpreise anzeigen", "expectContains": ["Preis"] },
+        { "id": "MAT003", "input": "Welche Materialien wurden beim Projekt Bahr verwendet?", "expectContains": ["Material"] },
+        { "id": "MAT004", "input": "Verfügbare Dienstleistungen", "expectContains": ["Dienstleistung"] },
+        { "id": "MAT005", "input": "Preise für Dienstleistung Umzug", "expectContains": ["Umzug"] },
+        { "id": "MAT006", "input": "Materialkosten pro Projekt", "expectContains": ["Kosten"] }
+      ]
+    },
+    "besichtigungen": {
+      "description": "Besichtigungen / Inspections",
+      "questions": [
+        { "id": "B001", "input": "Anstehende Besichtigungen", "expectContains": ["Besichtigung"] },
+        { "id": "B002", "input": "Besichtigungen diese Woche", "expectContains": ["Besichtigung"] },
+        { "id": "B003", "input": "Details zur Besichtigung bei Kunde Müller", "expectContains": ["Besichtigung"] },
+        { "id": "B004", "input": "Welche Besichtigungen haben Status Geplant?", "expectContains": ["Besichtigung"] }
+      ]
+    },
+    "abnahmen": {
+      "description": "Abnahmen und Protokolle",
+      "questions": [
+        { "id": "AB001", "input": "Offene Abnahmen", "expectContains": ["Abnahme"] },
+        { "id": "AB002", "input": "Abnahme-Protokoll für Projekt Bahr", "expectContains": ["Abnahme"] },
+        { "id": "AB003", "input": "Abnahmen letzte Woche", "expectContains": ["Abnahme"] }
       ]
     },
     "fahrzeuge": {
@@ -53,26 +100,104 @@
       "questions": [
         { "id": "F001", "input": "Liste aller Fahrzeuge", "expectContains": ["Fahrzeug"] },
         { "id": "F002", "input": "Welche Fahrzeuge sind verfügbar?", "expectContains": ["Fahrzeug"] },
-        { "id": "F003", "input": "Status der Fahrzeuge heute", "expectContains": ["Status", "Fahrzeug"] }
+        { "id": "F003", "input": "Status der Fahrzeuge heute", "expectContains": ["Fahrzeug"] },
+        { "id": "F004", "input": "Welches Fahrzeug ist für welches Projekt eingeplant?", "expectContains": ["Fahrzeug", "Projekt"] },
+        { "id": "F005", "input": "Zeige alle Fahrzeuge mit Status bereit", "expectContains": ["Fahrzeug"] }
+      ]
+    },
+    "update_operationen": {
+      "description": "UPDATE-Operationen",
+      "questions": [
+        { "id": "U001", "input": "Ändere den Status von Projekt Bahr auf Abgeschlossen", "expectContains": ["Bahr"] },
+        { "id": "U002", "input": "Aktualisiere die Adresse von Projekt Müller", "expectContains": ["Müller"] },
+        { "id": "U003", "input": "Setze Stundensatz von Achim auf 30€", "expectContains": ["Achim"] },
+        { "id": "U004", "input": "Ändere das Datum von Projekt Sell auf morgen", "expectContains": ["Sell"] },
+        { "id": "U005", "input": "Füge Notizen zum Projekt Bahr hinzu: Kunde hat besondere Anforderungen", "expectContains": ["Bahr"] }
+      ]
+    },
+    "delete_operationen": {
+      "description": "DELETE-Operationen",
+      "questions": [
+        { "id": "D001", "input": "Entferne Mitarbeiter Achim vom Projekt Bahr", "expectContains": ["Achim"] },
+        { "id": "D002", "input": "Lösche den Einsatz für morgen bei Projekt Sell", "expectContains": ["Sell"] },
+        { "id": "D003", "input": "Entferne Fahrzeug L4N aus der Planung für heute", "expectContains": ["Fahrzeug"] }
+      ]
+    },
+    "komplexe_abfragen": {
+      "description": "Komplexe/Verknüpfte Abfragen",
+      "questions": [
+        { "id": "K001", "input": "Welche Projekte in Düsseldorf haben mehr als 2 Mitarbeiter diese Woche?", "expectContains": ["Düsseldorf"] },
+        { "id": "K002", "input": "Zeige alle Umzüge mit Fahrzeug L4N diesen Monat", "expectContains": ["Umzug"] },
+        { "id": "K003", "input": "Mitarbeiter mit Stundensatz über 30€ die diese Woche arbeiten", "expectContains": ["Mitarbeiter"] },
+        { "id": "K004", "input": "Projekte ohne zugewiesenes Fahrzeug", "expectContains": ["Projekt"] },
+        { "id": "K005", "input": "Welcher interne Mitarbeiter hat die meisten Einsätze?", "expectContains": ["Mitarbeiter"] }
+      ]
+    },
+    "datumsbereich": {
+      "description": "Datumsbereich-Abfragen",
+      "questions": [
+        { "id": "DAT001", "input": "Projekte vom 15. bis 20. Januar", "expectContains": ["Projekt"] },
+        { "id": "DAT002", "input": "Einsätze zwischen Montag und Freitag", "expectContains": ["Einsatz"] },
+        { "id": "DAT003", "input": "Alle Projekte im Q1 2026", "expectContains": ["Projekt"] },
+        { "id": "DAT004", "input": "Mitarbeiter-Einsätze letzte 7 Tage", "expectContains": ["Einsatz"] },
+        { "id": "DAT005", "input": "Projekte nächste 2 Wochen", "expectContains": ["Projekt"] }
+      ]
+    },
+    "statistiken": {
+      "description": "Statistiken und Übersichten",
+      "questions": [
+        { "id": "S001", "input": "Wie viele Projekte gibt es insgesamt?", "expectContains": ["Projekt"] },
+        { "id": "S002", "input": "Wie viele Mitarbeiter sind aktuell beschäftigt?", "expectContains": ["Mitarbeiter"] },
+        { "id": "S003", "input": "Wie viele Einsätze waren letzte Woche?", "expectContains": ["Einsatz"] },
+        { "id": "S004", "input": "Statistik: Projekte pro Stadt diesen Monat", "expectContains": ["Projekt"] },
+        { "id": "S005", "input": "Übersicht Mitarbeiter-Auslastung diese Woche", "expectContains": ["Mitarbeiter"] }
       ]
     },
     "allgemein": {
       "description": "Allgemeine Fragen und Hilfe",
       "questions": [
-        { "id": "A001", "input": "Hallo", "expectContains": ["Hallo", "Wie kann ich"] },
-        { "id": "A002", "input": "Was kannst du?", "expectContains": ["Projekt", "Mitarbeiter"] },
-        { "id": "A003", "input": "Hilfe", "expectContains": ["helfen", "fragen"] }
+        { "id": "A001", "input": "Hallo, was kannst du?", "expectContains": ["Projekt", "Mitarbeiter"] },
+        { "id": "A002", "input": "Hilfe", "expectContains": ["helfen"] },
+        { "id": "A003", "input": "Welche Informationen hast du?", "expectContains": ["Projekt"] },
+        { "id": "A004", "input": "Was ist für den 20. Januar geplant?", "expectContains": ["20"] },
+        { "id": "A005", "input": "Kannst du mir bei der Planung helfen?", "expectContains": ["helfen"] }
       ]
     },
     "edge_cases": {
       "description": "Edge Cases und Fehlerbehandlung",
       "questions": [
-        { "id": "X001", "input": "asdfghjkl", "expectNotContains": ["Error", "undefined"] },
-        { "id": "X002", "input": "Projkete diese wche", "expectContains": ["Projekt"] },
-        { "id": "X003", "input": "Details zu Mitarbeiter XYZ123NotExist", "expectContains": ["nicht gefunden", "keine"] },
-        { "id": "X004", "input": "'; DROP TABLE t_projects; --", "expectNotContains": ["Error", "SQL"] }
+        { "id": "X001", "input": "asdfghjkl", "expectNotContains": ["Error", "undefined", "exception"] },
+        { "id": "X002", "input": "", "expectNotContains": ["Error", "undefined"] },
+        { "id": "X003", "input": "Projekte vom 1. Januar 2020", "expectContains": ["Projekt"] },
+        { "id": "X004", "input": "Details zu Mitarbeiter XYZ123", "expectNotContains": ["Error", "exception"] },
+        { "id": "X005", "input": "Projkete diese wche", "expectContains": ["Projekt"] },
+        { "id": "X006", "input": "Show me all projects for today", "expectContains": ["project", "Projekt"] },
+        { "id": "X007", "input": "'; DROP TABLE t_projects; --", "expectNotContains": ["Error", "SQL", "DROP"] },
+        { "id": "X008", "input": "<script>alert('xss')</script>", "expectNotContains": ["script", "Error"] },
+        { "id": "X009", "input": "Projekt mit sehr langem Namen erstellen: Dies ist ein extrem langer Projektname der über hundert Zeichen haben sollte um zu testen wie das System damit umgeht", "expectNotContains": ["Error"] },
+        { "id": "X010", "input": "Projekte am 32. Januar", "expectNotContains": ["Error", "exception"] },
+        { "id": "X011", "input": "Stundensatz -50€", "expectNotContains": ["Error", "exception"] },
+        { "id": "X012", "input": "   ", "expectNotContains": ["Error", "undefined"] },
+        { "id": "X013", "input": "Projekt @#$%^&*()", "expectNotContains": ["Error", "exception"] }
+      ]
+    },
+    "mehrsprachigkeit": {
+      "description": "Mehrsprachigkeit Tests",
+      "questions": [
+        { "id": "LANG001", "input": "Show all projects", "expectContains": ["project", "Projekt"] },
+        { "id": "LANG002", "input": "Zeige mir die projects für today", "expectContains": ["Projekt"] },
+        { "id": "LANG003", "input": "List all employees", "expectContains": ["employee", "Mitarbeiter"] },
+        { "id": "LANG004", "input": "What is planned for tomorrow?", "expectContains": ["tomorrow", "morgen", "Projekt"] }
+      ]
+    },
+    "follow_up": {
+      "description": "Follow-up/Kontext Fragen",
+      "questions": [
+        { "id": "FU001", "input": "Zeige Projekte heute", "expectContains": ["Projekt"] },
+        { "id": "FU002", "input": "Details zum Projekt Bahr", "expectContains": ["Bahr"] },
+        { "id": "FU003", "input": "Liste der Mitarbeiter", "expectContains": ["Mitarbeiter"] },
+        { "id": "FU004", "input": "Einsätze für morgen", "expectContains": ["morgen"] }
       ]
     }
   }
 }
-

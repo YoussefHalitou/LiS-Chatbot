@@ -1,0 +1,137 @@
+{
+  "timestamp": "2026-01-15T00:47:17.443Z",
+  "config": {
+    "baseUrl": "http://localhost:3000",
+    "verbose": true,
+    "categoryFilter": "edge_cases",
+    "parallel": 2
+  },
+  "summary": {
+    "total": 13,
+    "passed": 12,
+    "failed": 1,
+    "duration": 43263,
+    "passRate": "92.3%"
+  },
+  "results": [
+    {
+      "id": "X001",
+      "input": "asdfghjkl",
+      "passed": true,
+      "duration": 1612,
+      "errors": [],
+      "response": "Es scheint, als hättest du versehentlich eine zufällige Tastenfolge eingegeben. Kann ich dir bei etwas Bestimmtem helfen? Vielleicht bei Projekten, Mitarbeitern oder Einsätzen?",
+      "responseLength": 176
+    },
+    {
+      "id": "X002",
+      "input": "",
+      "passed": true,
+      "duration": 1829,
+      "errors": [],
+      "response": "Ja, ich verstehe dich 🙂 Ich arbeite mit deinen Daten in der Datenbank. Du kannst mich z.B. fragen:\n\n– Wie viele aktive Mitarbeiter haben wir?  \n– Welche Einsätze stehen heute an?  \n– Welche Besichtigungen sind diese Woche geplant?",
+      "responseLength": 231
+    },
+    {
+      "id": "X003",
+      "input": "Projekte vom 1. Januar 2020",
+      "passed": true,
+      "duration": 4318,
+      "errors": [],
+      "response": "Es wurden keine Projekte für den 1. Januar 2020 gefunden. Möglicherweise gibt es keine Einträge für dieses Datum in der Datenbank.\n\n**Alternative Vorschläge:**\n- Versuche 'Projekte für heute'\n- Versuche 'Projekte für morgen'\n- Versuche 'alle Projekte' (ohne Datumsfilter)\n\n**Mögliche Lösungen:**\n- Überprüfe das Datum (verwende Format: TT.MM.JJJJ)\n- Versuche einen anderen Zeitraum\n- Prüfe, ob der Projektname korrekt geschrieben ist",
+      "responseLength": 433
+    },
+    {
+      "id": "X004",
+      "input": "Details zu Mitarbeiter XYZ123",
+      "passed": true,
+      "duration": 1579,
+      "errors": [],
+      "response": "Um dir die Details zu einem Mitarbeiter zu geben, benötige ich den Namen des Mitarbeiters. Könntest du mir bitte den Namen des Mitarbeiters mitteilen?",
+      "responseLength": 150
+    },
+    {
+      "id": "X005",
+      "input": "Projkete diese wche",
+      "passed": true,
+      "duration": 5264,
+      "errors": [],
+      "response": "Ich werde dir die Projekte für diese Woche zeigen. Einen Moment bitte, während ich die Daten abfrage.Hier sind die Projekte, die diese Woche geplant sind:\n\n| Projektname       | Ort        | Datum       | Serviceart                        | Mitarbeiter         |\n|-------------------|------------|-------------|-----------------------------------|---------------------|\n| Bettina Küpper    | Wuppertal  | 12.01.2026  | Umzug + Entrümpelung + Transport  | Unbekannt           |\n| Petersilie bei Moser | Düsseldorf | 13.01.2026  | Transport + Entrümpelung + Bodenentfernen | Unbekannt           |\n| Sell              | Essen      | 15.01.2026  | Entrümpelung                     | Ali, Jim, Las       |\n| UTZ               | Düsseldorf | 15.01.2026  | Entrümpelung                     | Achim, Flo, Pi      |\n| Hädler            | Hilden     | 16.01.2026  | Umzug                            | Chris               |\n\nBitte lass mich wissen, wenn du weitere Details zu einem der Projekte benötigst!",
+      "responseLength": 994
+    },
+    {
+      "id": "X006",
+      "input": "Show me all projects for today",
+      "passed": false,
+      "duration": 3917,
+      "errors": [
+        "Expected \"project\" not found in response"
+      ],
+      "response": "Hier sind die Projekte für heute, den 15. Januar 2026:\n\n| Projektname | Ort         | Dienstleistung     | Fahrzeug | Mitarbeiter             |\n|-------------|-------------|--------------------|----------|-------------------------|\n| Sell        | Essen       | Entrümpelung       | L4U      | Ali, Jim, Las           |\n| UTZ         | Düsseldorf  | Entrümpelung       | L4N      | Achim, Flo, Pi          |\n| Benkwitz    | Heiligenhaus| Kartonlieferung    | -        | Las                     |\n| Lammert     | Neuss       | Kartonlieferung    | -        | Chris                   |\n| Bauta       | Erkrath     | InHausUmzug        | L4N      | Achim, Flo, Pi, Raf     |\n\nFalls du weitere Informationen zu einem der Projekte benötigst, lass es mich wissen!",
+      "responseLength": 757
+    },
+    {
+      "id": "X007",
+      "input": "'; DROP TABLE t_projects; --",
+      "passed": true,
+      "duration": 1373,
+      "errors": [],
+      "response": "Es tut mir leid, aber ich kann solche Aktionen nicht ausführen. Wenn du Fragen zu Projekten oder anderen Themen hast, stehe ich dir gerne zur Verfügung!",
+      "responseLength": 152
+    },
+    {
+      "id": "X008",
+      "input": "<script>alert('xss')</script>",
+      "passed": true,
+      "duration": 2492,
+      "errors": [],
+      "response": "Es tut mir leid, aber ich kann keine Skripte oder unsicheren Inhalte ausführen. Wenn du Fragen zu Projekten, Mitarbeitern oder anderen Themen hast, lass es mich bitte wissen!",
+      "responseLength": 174
+    },
+    {
+      "id": "X009",
+      "input": "Projekt mit sehr langem Namen erstellen: Dies ist ein extrem langer Projektname der über hundert Zeichen haben sollte um zu testen wie das System damit umgeht",
+      "passed": true,
+      "duration": 6538,
+      "errors": [],
+      "response": "Es scheint, dass ich beim Versuch, das Projekt zu erstellen, nicht alle erforderlichen Informationen hatte. Bitte gib mir noch ein paar Details, wie zum Beispiel den Ort oder die Art der Dienstleistung, damit ich das Projekt erfolgreich anlegen kann.",
+      "responseLength": 250
+    },
+    {
+      "id": "X010",
+      "input": "Projekte am 32. Januar",
+      "passed": true,
+      "duration": 3612,
+      "errors": [],
+      "response": "Der 32. Januar existiert nicht im Kalender. Meintest du vielleicht den 31. Januar oder den 1. Februar? Bitte gib mir das korrekte Datum an, damit ich die Projekte für dich überprüfen kann.",
+      "responseLength": 188
+    },
+    {
+      "id": "X011",
+      "input": "Stundensatz -50€",
+      "passed": true,
+      "duration": 5154,
+      "errors": [],
+      "response": "Es sieht so aus, als ob du Informationen über einen Stundensatz benötigst, aber der angegebene Betrag von -50€ ist ungewöhnlich. Möchtest du den Stundensatz für einen bestimmten Mitarbeiter ändern oder benötigst du Informationen über die aktuellen Stundensätze der Mitarbeiter? Bitte gib mir mehr Details, damit ich dir besser helfen kann.",
+      "responseLength": 339
+    },
+    {
+      "id": "X012",
+      "input": "   ",
+      "passed": true,
+      "duration": 3463,
+      "errors": [],
+      "response": "Hallo! Wie kann ich dir helfen? Wenn du Fragen zu Projekten, Mitarbeitern, Einsätzen oder anderen Themen hast, lass es mich wissen! 😊",
+      "responseLength": 134
+    },
+    {
+      "id": "X013",
+      "input": "Projekt @#$%^&*()",
+      "passed": true,
+      "duration": 2112,
+      "errors": [],
+      "response": "Es sieht so aus, als ob das Projekt \"@#$%^&*()\" im Konversationskontext gespeichert ist. Leider kann ich mit diesem speziellen Projektnamen keine Details abrufen, da er nicht wie ein typischer Projektname aussieht. Bitte gib mir einen konkreten Projektnamen oder eine spezifische Anfrage, damit ich dir weiterhelfen kann.",
+      "responseLength": 321
+    }
+  ]
+}

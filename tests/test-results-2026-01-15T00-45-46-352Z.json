@@ -1,0 +1,65 @@
+{
+  "timestamp": "2026-01-15T00:45:46.355Z",
+  "config": {
+    "baseUrl": "http://localhost:3000",
+    "verbose": true,
+    "categoryFilter": "komplexe_abfragen",
+    "parallel": 2
+  },
+  "summary": {
+    "total": 5,
+    "passed": 4,
+    "failed": 1,
+    "duration": 21106,
+    "passRate": "80.0%"
+  },
+  "results": [
+    {
+      "id": "K001",
+      "input": "Welche Projekte in Düsseldorf haben mehr als 2 Mitarbeiter diese Woche?",
+      "passed": true,
+      "duration": 3525,
+      "errors": [],
+      "response": "Diese Woche gibt es keine Projekte in Düsseldorf, die mehr als 2 Mitarbeiter haben. Die meisten Projekte haben entweder 1 oder 2 Mitarbeiter. Wenn du weitere Informationen benötigst oder nach anderen Kriterien filtern möchtest, lass es mich wissen!",
+      "responseLength": 248
+    },
+    {
+      "id": "K002",
+      "input": "Zeige alle Umzüge mit Fahrzeug L4N diesen Monat",
+      "passed": false,
+      "duration": 5100,
+      "errors": [
+        "Expected \"Umzug\" not found in response"
+      ],
+      "response": "Hier sind die Umzüge mit dem Fahrzeug L4N in diesem Monat:\n\n1. **Projekt:** UTZ\n   - **Ort:** Düsseldorf\n   - **Datum:** 15. Januar 2026\n   - **Mitarbeiter:**\n     - Achim\n     - Flo\n     - Pi\n\n2. **Projekt:** Bauta\n   - **Ort:** Erkrath\n   - **Datum:** 15. Januar 2026\n   - **Mitarbeiter:**\n     - Achim\n     - Flo\n     - Pi\n     - Raf\n\nBitte lass mich wissen, wenn du weitere Informationen benötigst!",
+      "responseLength": 402
+    },
+    {
+      "id": "K003",
+      "input": "Mitarbeiter mit Stundensatz über 30€ die diese Woche arbeiten",
+      "passed": true,
+      "duration": 3285,
+      "errors": [],
+      "response": "Diese Woche gibt es keine Mitarbeiter mit einem Stundensatz über 30 €, die eingeplant sind. Es gibt jedoch 15 Einsätze, bei denen die Mitarbeiter nicht eindeutig identifiziert wurden. Wenn du weitere Informationen benötigst oder eine andere Abfrage wünschst, lass es mich wissen!",
+      "responseLength": 279
+    },
+    {
+      "id": "K004",
+      "input": "Projekte ohne zugewiesenes Fahrzeug",
+      "passed": true,
+      "duration": 4324,
+      "errors": [],
+      "response": "Hier sind einige Projekte, die derzeit keinem Fahrzeug zugewiesen sind:\n\n1. **Projekt:** Volke\n   - **Ort:** Neuss\n   - **Datum:** 19. Februar 2026\n   - **Dienstleistung:** Umzug\n   - **Mitarbeiter:** Unbekannt\n\n2. **Projekt:** MIchel\n   - **Ort:** Düsseldorf\n   - **Datum:** 20. Januar 2026\n   - **Dienstleistung:** Entrümpelung ohne Küche\n   - **Mitarbeiter:** Unbekannt\n\n3. **Projekt:** Seier\n   - **Ort:** Remscheid\n   - **Datum:** 17. Februar 2026\n   - **Dienstleistung:** Umzug\n   - **Mitarbeiter:** Unbekannt\n\n4. **Projekt:** Dworak\n   - **Ort:** Mühltal\n   - **Datum:** 5. Januar 2026\n   - **Dienstleistung:** Umzug\n   - **Mitarbeiter:** Unbekannt\n\n5. **Projekt:** Bettina Küpper\n   - **Ort:** Wuppertal\n   - **Datum:** 12. Januar 2026\n   - **Dienstleistung:** Umzug + Entrümpelung + Transport\n   - **Mitarbeiter:** Unbekannt\n\nBitte lass mich wissen, wenn du weitere Informationen benötigst oder andere Projekte sehen möchtest!",
+      "responseLength": 935
+    },
+    {
+      "id": "K005",
+      "input": "Welcher interne Mitarbeiter hat die meisten Einsätze?",
+      "passed": true,
+      "duration": 4872,
+      "errors": [],
+      "response": "Es scheint, dass die Datenbank derzeit keine klaren Informationen darüber liefert, welcher interne Mitarbeiter die meisten Einsätze hat. Der häufigste Eintrag ist \"Unbekannt\", was darauf hindeutet, dass die Zuordnung der Einsätze zu den Mitarbeitern möglicherweise nicht vollständig oder korrekt erfasst wurde.\n\nMögliche Lösungen:\n- Überprüfe, ob die Mitarbeiter korrekt im System eingetragen sind.\n- Stelle sicher, dass die Einsätze den richtigen Mitarbeitern zugeordnet sind.\n\nWenn du weitere Fragen hast oder eine andere Auswertung benötigst, lass es mich bitte wissen!",
+      "responseLength": 572
+    }
+  ]
+}

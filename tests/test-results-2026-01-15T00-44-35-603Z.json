@@ -1,0 +1,54 @@
+{
+  "timestamp": "2026-01-15T00:44:35.607Z",
+  "config": {
+    "baseUrl": "http://localhost:3000",
+    "verbose": true,
+    "categoryFilter": "besichtigungen",
+    "parallel": 2
+  },
+  "summary": {
+    "total": 4,
+    "passed": 4,
+    "failed": 0,
+    "duration": 27255,
+    "passRate": "100.0%"
+  },
+  "results": [
+    {
+      "id": "B001",
+      "input": "Anstehende Besichtigungen",
+      "passed": true,
+      "duration": 5966,
+      "errors": [],
+      "response": "Hier sind einige der anstehenden Besichtigungen:\n\n1. **Musterkunde**\n   - **Status:** Geplant\n   - **Adresse:** Berliner Str. 74, 44793 Bochum\n   - **Notizen:** Testanlage\n\n2. **TEST_1767514945598_Project**\n   - **Status:** Neu\n   - **Ort:** Berlin\n\n3. **TestProjektMinimal**\n   - **Status:** Neu\n\n4. **TEST_1767506491997_Project**\n   - **Status:** Neu\n   - **Ort:** Berlin\n\n5. **TEST**\n   - **Status:** Geplant\n   - **Adresse:** Testingstreet 111, 12345 Teststadt\n   - **Telefon:** +49122111111\n   - **E-Mail:** testfirma@testmail.de\n   - **Notizen:** testexxtranotizen\n\n6. **Montag**\n   - **Status:** Neu\n   - **Datum:** 14. Januar 2026\n   - **Von:** Krefelder Str. 52, 40549 Düsseldorf\n   - **Nach:** Aldeckerstr. 33, 40549 Düsseldorf\n   - **Dienstleistungsart:** Umzug + Entrümpelung, Festpreis\n\n7. **Seier**\n   - **Status:** Neu\n   - **Von:** Remscheider Str. 217, 42855 Remscheid\n   - **Nach:** Rosenhof App. A-404 Düsseldorfer Str. 8-10, 40699 Erkrath\n   - **Dienstleistungsart:** Umzug, Koste...",
+      "responseLength": 1103
+    },
+    {
+      "id": "B002",
+      "input": "Besichtigungen diese Woche",
+      "passed": true,
+      "duration": 5865,
+      "errors": [],
+      "response": "Hier sind die Besichtigungen, die für diese Woche geplant sind:\n\n1. **Besichtigungscode:** INSP-20260106121104-730a6016\n   - **Kunde:** Herr Montag\n   - **Adresse:** Krefelder Str. 52, 40549 Düsseldorf\n   - **Ziel:** Aldeckerstr. 33, 40549 Düsseldorf\n   - **Dienstleistung:** Umzug + Entrümpelung\n   - **Status:** Neu\n   - **Projektcode:** PRJ-20260106-7387A\n   - **Datum:** 14. Januar 2026\n\n2. **Besichtigungscode:** INSP-20260106132735-a4327da6\n   - **Kunde:** Frau Seier\n   - **Adresse:** Remscheider Str. 217, 42855 Remscheid\n   - **Ziel:** Rosenhof App. A-404 Düsseldorfer Str. 8-10, 40699 Erkrath\n   - **Dienstleistung:** Umzug\n   - **Status:** Neu\n   - **Projektcode:** PRJ-20260106-78898\n\nBitte beachte, dass einige Besichtigungen noch keinen festen Termin haben. Wenn du weitere Details benötigst, lass es mich wissen!",
+      "responseLength": 827
+    },
+    {
+      "id": "B003",
+      "input": "Details zur Besichtigung bei Kunde Müller",
+      "passed": true,
+      "duration": 10232,
+      "errors": [],
+      "response": "Ich habe keine spezifische Besichtigung für einen Kunden namens \"Müller\" in den aktuellen Daten gefunden. Es gibt jedoch mehrere Besichtigungen, die geplant oder neu sind. Hier sind einige Details zu den vorhandenen Besichtigungen:\n\n1. **Besichtigung bei Musterkunde**\n   - **Status:** Geplant\n   - **Adresse:** Berliner Str. 74, 44793 Bochum\n   - **Notizen:** Testanlage\n\n2. **Besichtigung bei Montag**\n   - **Status:** Neu\n   - **Von:** Krefelder Str. 52, 40549 Düsseldorf\n   - **Nach:** Aldeckerstr. 33, 40549 Düsseldorf\n   - **Dienstleistungsart:** Umzug + Entrümpelung\n\n3. **Besichtigung bei Seier**\n   - **Status:** Neu\n   - **Von:** Remscheider Str. 217, 42855 Remscheid\n   - **Nach:** Rosenhof App. A-404 Düsseldorfer Str. 8-10, 40699 Erkrath\n   - **Dienstleistungsart:** Umzug\n\nFalls du spezifische Informationen zu einem anderen Kunden benötigst oder wenn der Name anders geschrieben ist, lass es mich bitte wissen! Alternativ kannst du auch die Details überprüfen oder mir weitere Informat...",
+      "responseLength": 1040
+    },
+    {
+      "id": "B004",
+      "input": "Welche Besichtigungen haben Status Geplant?",
+      "passed": true,
+      "duration": 5192,
+      "errors": [],
+      "response": "Hier sind die Besichtigungen mit dem Status \"Geplant\":\n\n1. **Musterkunde**\n   - Adresse: Berliner Str. 74, 44793 Bochum\n   - Notizen: Testanlage\n\n2. **TEST**\n   - Adresse: Testingstreet 111, 12345 Teststadt\n   - Notizen: testexxtranotizen\n\n3. **LIS Verkehr**\n   - Adresse: Klever Str. 66, 40477 Düsseldorf\n\n4. **Schultze**\n   - Adresse: Bahlenstr. 128, 40589 Düsseldorf\n\n5. **Müller**\n   - Adresse: Düsseldorfer Str. 8-10, 40699 Erkrath\n\n6. **Boppel**\n   - Adresse: Kaiserswertherstr. 55, 40474 Düsseldorf\n\nWenn du weitere Informationen zu einer bestimmten Besichtigung benötigst, lass es mich wissen!",
+      "responseLength": 601
+    }
+  ]
+}

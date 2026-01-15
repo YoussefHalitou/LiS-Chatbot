@@ -1,0 +1,45 @@
+{
+  "timestamp": "2026-01-15T00:45:29.950Z",
+  "config": {
+    "baseUrl": "http://localhost:3000",
+    "verbose": true,
+    "categoryFilter": "delete_operationen",
+    "parallel": 2
+  },
+  "summary": {
+    "total": 3,
+    "passed": 3,
+    "failed": 0,
+    "duration": 19713,
+    "passRate": "100.0%"
+  },
+  "results": [
+    {
+      "id": "D001",
+      "input": "Entferne Mitarbeiter Achim vom Projekt Bahr",
+      "passed": true,
+      "duration": 11859,
+      "errors": [],
+      "response": "Ich habe den Mitarbeiter Achim in der Datenbank gefunden. Ich werde nun die Zuordnung von Achim zum Projekt Bahr entfernen.",
+      "responseLength": 123
+    },
+    {
+      "id": "D002",
+      "input": "Lösche den Einsatz für morgen bei Projekt Sell",
+      "passed": true,
+      "duration": 3794,
+      "errors": [],
+      "response": "Ich habe den Einsatz für das Projekt \"Sell\" am 16. Januar 2026 gefunden. Möchtest du diesen Einsatz wirklich löschen?",
+      "responseLength": 117
+    },
+    {
+      "id": "D003",
+      "input": "Entferne Fahrzeug L4N aus der Planung für heute",
+      "passed": true,
+      "duration": 4060,
+      "errors": [],
+      "response": "Ich habe zwei Einsätze für heute gefunden, bei denen das Fahrzeug \"L4N\" eingeplant ist. Hier sind die Details:\n\n1. **Projekt UTZ**\n   - Ort: Düsseldorf\n   - Fahrzeug: L4N\n   - Mitarbeiter:\n     - Achim\n     - Flo\n     - Pi\n\n2. **Projekt Bauta**\n   - Ort: Erkrath\n   - Fahrzeug: L4N\n   - Mitarbeiter:\n     - Achim\n     - Flo\n     - Pi\n     - Raf\n\nMöchtest du das Fahrzeug \"L4N\" aus beiden Einsätzen entfernen?",
+      "responseLength": 408
+    }
+  ]
+}
