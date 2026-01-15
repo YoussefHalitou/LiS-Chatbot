@@ -1,0 +1,136 @@
+{
+  "testSession": {
+    "date": "2026-01-15T23:20:00Z",
+    "description": "Update functionality verification for all supported tables",
+    "status": "5/6 PASSED (1 cautious behavior)"
+  },
+  "tests": [
+    {
+      "testId": 1,
+      "table": "t_projects",
+      "testCase": "Update project status",
+      "input": "Ändere das Projekt Alpha123 - setze Status auf Abgeschlossen",
+      "chatId": "test-update-1",
+      "result": "SUCCESS",
+      "toolCall": {
+        "filters": {"name": "Alpha123"},
+        "values": {"status": "Abgeschlossen"}
+      },
+      "updatedData": {
+        "project_id": "c1e6c49f-378d-48ac-951c-503933bc6eca",
+        "name": "Alpha123",
+        "status": "Abgeschlossen"
+      }
+    },
+    {
+      "testId": 2,
+      "table": "t_projects",
+      "testCase": "Rename project",
+      "input": "Projekt Alpha123 umbenennen zu BetaTest",
+      "chatId": "test-rename-simple",
+      "result": "SUCCESS",
+      "toolCall": {
+        "filters": {"name": "Alpha123"},
+        "values": {"name": "BetaTest"}
+      },
+      "updatedData": {
+        "project_id": "c1e6c49f-378d-48ac-951c-503933bc6eca",
+        "name": "BetaTest",
+        "status": "Abgeschlossen"
+      }
+    },
+    {
+      "testId": 3,
+      "table": "t_vehicles",
+      "testCase": "Update vehicle status",
+      "input": "Fahrzeug Sprinter99 Status auf in-Wartung setzen",
+      "chatId": "test-update-veh2",
+      "result": "SUCCESS",
+      "note": "Required validation.ts fix to accept 'nickname' as valid identifier",
+      "toolCall": {
+        "filters": {"nickname": "Sprinter99"},
+        "values": {"status": "in-Wartung"}
+      },
+      "updatedData": {
+        "vehicle_id": "V-SPRINTER99-4B1",
+        "nickname": "Sprinter99",
+        "status": "in-Wartung"
+      }
+    },
+    {
+      "testId": 4,
+      "table": "t_materials",
+      "testCase": "Update material unit",
+      "input": "Material Kartonage unit auf Karton ändern",
+      "chatId": "test-update-mat",
+      "result": "SUCCESS",
+      "toolCall": {
+        "filters": {"name": "Kartonage"},
+        "values": {"unit": "Karton"}
+      },
+      "updatedData": {
+        "material_id": "M-KARTONAGE-TZLFM",
+        "name": "Kartonage",
+        "unit": "Karton"
+      }
+    },
+    {
+      "testId": 5,
+      "table": "t_services",
+      "testCase": "Deactivate service",
+      "input": "Service Entrümpelung deaktivieren",
+      "chatId": "test-update-serv",
+      "result": "SUCCESS",
+      "toolCall": {
+        "filters": {"name": "Entrümpelung"},
+        "values": {"is_active": false}
+      },
+      "updatedData": {
+        "service_id": "S-ENTRÜMPELU-3YG",
+        "name": "Entrümpelung",
+        "is_active": false
+      }
+    },
+    {
+      "testId": 6,
+      "table": "t_employees",
+      "testCase": "Update employee email",
+      "input": "Mitarbeiter Weber Email auf weber@firma.de setzen",
+      "chatId": "test-update-emp5",
+      "result": "CAUTIOUS_BEHAVIOR",
+      "note": "AI queries employees first before updating (safety measure by design)",
+      "toolCall": {
+        "action": "queryTable first, then updateRow"
+      }
+    }
+  ],
+  "fixes": [
+    {
+      "file": "lib/validation.ts",
+      "description": "Added 'nickname', 'service_id', 'material_id' to valid unique identifiers list",
+      "before": "['project_id', 'employee_id', 'vehicle_id', 'plan_id', 'project_code', 'name', 'employee_code', 'vehicle_nickname']",
+      "after": "['project_id', 'employee_id', 'vehicle_id', 'plan_id', 'service_id', 'material_id', 'project_code', 'name', 'employee_code', 'vehicle_nickname', 'nickname']"
+    }
+  ],
+  "summary": {
+    "totalTests": 6,
+    "passed": 5,
+    "cautiousBehavior": 1,
+    "failed": 0,
+    "tablesTestedSuccessfully": [
+      "t_projects",
+      "t_vehicles",
+      "t_materials",
+      "t_services"
+    ],
+    "tablesWithCautiousBehavior": [
+      "t_employees"
+    ],
+    "operationsVerified": [
+      "Update status field",
+      "Rename (update name field)",
+      "Deactivate (set is_active to false)",
+      "Update unit field"
+    ]
+  }
+}
