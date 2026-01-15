@@ -1,0 +1,78 @@
+{
+  "metadata": {
+    "version": "1.0.0",
+    "description": "Test questions for LiS Operations Assistant",
+    "created": "2026-01-15"
+  },
+  "categories": {
+    "projekte": {
+      "description": "Projekt-bezogene Abfragen",
+      "questions": [
+        { "id": "P001", "input": "Welche Projekte sind heute geplant?", "expectContains": ["Projekt", "heute"] },
+        { "id": "P002", "input": "Projekte diese Woche", "expectContains": ["Projekt"] },
+        { "id": "P003", "input": "Projekte diesen Monat", "expectContains": ["Januar", "Projekt"] },
+        { "id": "P004", "input": "Welche Projekte gibt es in Düsseldorf?", "expectContains": ["Düsseldorf"] },
+        { "id": "P005", "input": "Details zum Projekt Müller", "expectContains": ["Müller"] },
+        { "id": "P006", "input": "Projekte morgen", "expectContains": ["Projekt"] },
+        { "id": "P007", "input": "Alle Umzugs-Projekte", "expectContains": ["Umzug"] },
+        { "id": "P008", "input": "Wie viele Projekte gibt es insgesamt?", "expectContains": ["Projekt"] },
+        { "id": "P009", "input": "Projekte letzte Woche", "expectContains": ["Projekt"] },
+        { "id": "P010", "input": "Welches Projekt hat die meisten Mitarbeiter?", "expectContains": ["Projekt", "Mitarbeiter"] }
+      ]
+    },
+    "mitarbeiter": {
+      "description": "Mitarbeiter-bezogene Abfragen",
+      "questions": [
+        { "id": "M001", "input": "Liste aller Mitarbeiter", "expectContains": ["Mitarbeiter", "Name"] },
+        { "id": "M002", "input": "Welche Mitarbeiter sind aktiv?", "expectContains": ["Mitarbeiter", "Aktiv"] },
+        { "id": "M003", "input": "Zeige alle internen Mitarbeiter", "expectContains": ["Intern"] },
+        { "id": "M004", "input": "Welche externen Mitarbeiter gibt es?", "expectContains": ["Extern"] },
+        { "id": "M005", "input": "Wer hat den höchsten Stundensatz?", "expectContains": ["€", "Stundensatz"] },
+        { "id": "M006", "input": "Details zu Mitarbeiter Achim", "expectContains": ["Achim"] },
+        { "id": "M007", "input": "Welche Mitarbeiter sind diese Woche eingeplant?", "expectContains": ["Mitarbeiter", "Woche"] },
+        { "id": "M008", "input": "Wer ist heute im Einsatz?", "expectContains": ["heute"] },
+        { "id": "M009", "input": "Wie viele Mitarbeiter gibt es?", "expectContains": ["Mitarbeiter"] },
+        { "id": "M010", "input": "Mitarbeiter mit Stundensatz über 30€", "expectContains": ["€"] }
+      ]
+    },
+    "einsatzplanung": {
+      "description": "Einsatzplanung und Morgenplan",
+      "questions": [
+        { "id": "E001", "input": "Zeige den Morgenplan für heute", "expectContains": ["heute", "Projekt"] },
+        { "id": "E002", "input": "Welche Einsätze sind morgen geplant?", "expectContains": ["morgen"] },
+        { "id": "E003", "input": "Wer arbeitet am Projekt Bahr?", "expectContains": ["Bahr"] },
+        { "id": "E004", "input": "Bei welchen Projekten ist Achim eingeplant?", "expectContains": ["Achim", "Projekt"] },
+        { "id": "E005", "input": "Alle Einsätze diese Woche", "expectContains": ["Woche"] },
+        { "id": "E006", "input": "wo arbeitet Achim diesen Monat", "expectContains": ["Achim", "Projekt"] },
+        { "id": "E007", "input": "Welche Projekte haben am Montag Einsätze?", "expectContains": ["Montag"] },
+        { "id": "E008", "input": "Einsätze nächste Woche", "expectContains": ["Woche"] }
+      ]
+    },
+    "fahrzeuge": {
+      "description": "Fahrzeug-bezogene Abfragen",
+      "questions": [
+        { "id": "F001", "input": "Liste aller Fahrzeuge", "expectContains": ["Fahrzeug"] },
+        { "id": "F002", "input": "Welche Fahrzeuge sind verfügbar?", "expectContains": ["Fahrzeug"] },
+        { "id": "F003", "input": "Status der Fahrzeuge heute", "expectContains": ["Status", "Fahrzeug"] }
+      ]
+    },
+    "allgemein": {
+      "description": "Allgemeine Fragen und Hilfe",
+      "questions": [
+        { "id": "A001", "input": "Hallo", "expectContains": ["Hallo", "Wie kann ich"] },
+        { "id": "A002", "input": "Was kannst du?", "expectContains": ["Projekt", "Mitarbeiter"] },
+        { "id": "A003", "input": "Hilfe", "expectContains": ["helfen", "fragen"] }
+      ]
+    },
+    "edge_cases": {
+      "description": "Edge Cases und Fehlerbehandlung",
+      "questions": [
+        { "id": "X001", "input": "asdfghjkl", "expectNotContains": ["Error", "undefined"] },
+        { "id": "X002", "input": "Projkete diese wche", "expectContains": ["Projekt"] },
+        { "id": "X003", "input": "Details zu Mitarbeiter XYZ123NotExist", "expectContains": ["nicht gefunden", "keine"] },
+        { "id": "X004", "input": "'; DROP TABLE t_projects; --", "expectNotContains": ["Error", "SQL"] }
+      ]
+    }
+  }
+}
+

@@ -10,7 +10,13 @@
     "lint:fix": "next lint --fix",
     "type-check": "tsc --noEmit",
     "validate": "npm run lint && npm run type-check",
-    "clean": "rm -rf .next out node_modules/.cache"
+    "clean": "rm -rf .next out node_modules/.cache",
+    "test": "npx ts-node tests/run-tests.ts",
+    "test:verbose": "npx ts-node tests/run-tests.ts --verbose",
+    "test:category": "npx ts-node tests/run-tests.ts --category",
+    "test:e2e": "npx playwright test",
+    "test:e2e:ui": "npx playwright test --ui",
+    "test:e2e:headed": "npx playwright test --headed"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.0",
@@ -24,6 +30,7 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.48.0",
     "@types/node": "^20.17.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
@@ -31,9 +38,9 @@
     "dotenv": "^17.2.3",
     "eslint": "^8.57.1",
     "eslint-config-next": "^14.2.35",
-    "playwright": "^1.48.0",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
+    "ts-node": "^10.9.2",
     "typescript": "^5.7.2"
   }
 }
