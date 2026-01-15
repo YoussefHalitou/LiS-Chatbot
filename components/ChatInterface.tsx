@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { Mic, MicOff, Volume2, Send, Loader2, Copy, Check, Trash2, X, MessageSquare, Plus, Menu } from 'lucide-react'
+import { Mic, MicOff, Volume2, Send, Loader2, Copy, Check, Trash2, X, MessageSquare, Plus, Menu, Search, Download, Keyboard, Moon, Sun } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Message, Chat } from '@/types'
@@ -27,6 +27,10 @@ import {
   sanitizeBotResponse,
 } from '@/lib/utils'
 import ConnectionStatus from '@/components/ConnectionStatus'
+import SearchModal from '@/components/SearchModal'
+import ExportChatModal from '@/components/ExportChatModal'
+import KeyboardShortcutsModal from '@/components/KeyboardShortcutsModal'
+import { useTheme } from '@/lib/theme-context'
 import { showToast } from '@/lib/toast'
 
 export default function ChatInterface() {
@@ -48,6 +52,10 @@ export default function ChatInterface() {
   const [isProcessingVoice, setIsProcessingVoice] = useState(false)
   const [audioLevel, setAudioLevel] = useState(0)
   const [silenceStartTime, setSilenceStartTime] = useState<number | null>(null)
+  const [showSearchModal, setShowSearchModal] = useState(false)
+  const [showExportModal, setShowExportModal] = useState(false)
+  const [showShortcutsModal, setShowShortcutsModal] = useState(false)
+  const { theme, toggleTheme } = useTheme()
   const abortControllerRef = useRef<AbortController | null>(null)
   const streamTimeoutRef = useRef<number | null>(null)
   const loadingBubbleTimeoutRef = useRef<number | null>(null)
@@ -1350,6 +1358,24 @@ export default function ChatInterface() {
           sendMessage()
         }
       }
+
+      // Ctrl/Cmd + F: Open search modal
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault()
+        setShowSearchModal(true)
+      }
+
+      // Ctrl/Cmd + E: Open export modal
+      if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
+        e.preventDefault()
+        setShowExportModal(true)
+      }
+
+      // Ctrl/Cmd + /: Open keyboard shortcuts modal
+      if ((e.ctrlKey || e.metaKey) && e.key === '/') {
+        e.preventDefault()
+        setShowShortcutsModal(true)
+      }
     }
 
     window.addEventListener('keydown', handleKeyboardShortcuts)
@@ -1501,16 +1527,55 @@ export default function ChatInterface() {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 sm:gap-2">
               {!voiceOnlyMode && (
-                <button
-                  onClick={() => setShowChatSidebar(!showChatSidebar)}
-                  className="p-2.5 sm:p-2 rounded-lg text-gray-500 active:bg-gray-100 transition-colors touch-manipulation flex-shrink-0"
-                  title="Chats anzeigen"
-                  aria-label="Chats anzeigen"
-                >
-                  <MessageSquare className="h-5 w-5 sm:h-5 sm:w-5" />
-                </button>
+                <>
+                  <button
+                    onClick={() => setShowSearchModal(true)}
+                    className="p-2 sm:p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors touch-manipulation flex-shrink-0 hidden sm:flex"
+                    title="Suchen (Ctrl+F)"
+                    aria-label="Suchen"
+                  >
+                    <Search className="h-4 w-4 sm:h-5 sm:w-5" />
+                  </button>
+                  <button
+                    onClick={() => setShowExportModal(true)}
+                    className="p-2 sm:p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors touch-manipulation flex-shrink-0 hidden sm:flex"
+                    title="Exportieren (Ctrl+E)"
+                    aria-label="Chat exportieren"
+                  >
+                    <Download className="h-4 w-4 sm:h-5 sm:w-5" />
+                  </button>
+                  <button
+                    onClick={() => setShowShortcutsModal(true)}
+                    className="p-2 sm:p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors touch-manipulation flex-shrink-0 hidden sm:flex"
+                    title="Tastenkürzel (Ctrl+/)"
+                    aria-label="Tastenkürzel anzeigen"
+                  >
+                    <Keyboard className="h-4 w-4 sm:h-5 sm:w-5" />
+                  </button>
+                  <button
+                    onClick={toggleTheme}
+                    className="p-2 sm:p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors touch-manipulation flex-shrink-0"
+                    title={theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+                    aria-label="Theme umschalten"
+                  >
+                    {theme === 'dark' ? (
+                      <Sun className="h-4 w-4 sm:h-5 sm:w-5" />
+                    ) : (
+                      <Moon className="h-4 w-4 sm:h-5 sm:w-5" />
+                    )}
+                  </button>
+                  <div className="w-px h-5 bg-gray-200 dark:bg-slate-700 mx-1 hidden sm:block" />
+                  <button
+                    onClick={() => setShowChatSidebar(!showChatSidebar)}
+                    className="p-2 sm:p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors touch-manipulation flex-shrink-0"
+                    title="Chats anzeigen"
+                    aria-label="Chats anzeigen"
+                  >
+                    <MessageSquare className="h-4 w-4 sm:h-5 sm:w-5" />
+                  </button>
+                </>
               )}
               {!voiceOnlyMode && <ConnectionStatus className="hidden sm:flex" />}
               {voiceOnlyMode && (
@@ -1526,11 +1591,11 @@ export default function ChatInterface() {
               {!voiceOnlyMode && messages.length > 0 && (
                 <button
                   onClick={clearChat}
-                  className="p-2.5 sm:p-2 rounded-lg text-gray-500 active:text-red-600 active:bg-red-50 transition-colors touch-manipulation flex-shrink-0"
+                  className="p-2 sm:p-2 rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors touch-manipulation flex-shrink-0"
                   title="Chatverlauf löschen"
                   aria-label="Chatverlauf löschen"
                 >
-                  <Trash2 className="h-5 w-5 sm:h-5 sm:w-5" />
+                  <Trash2 className="h-4 w-4 sm:h-5 sm:w-5" />
                 </button>
               )}
             </div>
@@ -1901,6 +1966,26 @@ export default function ChatInterface() {
           </div>
         </div>
       )}
+
+      {/* Modals */}
+      <SearchModal
+        isOpen={showSearchModal}
+        onClose={() => setShowSearchModal(false)}
+        messages={messages}
+        onSelectMessage={(index) => {
+          const element = document.querySelector(`[data-message-index="${index}"]`)
+          element?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }}
+      />
+      <ExportChatModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        messages={messages}
+      />
+      <KeyboardShortcutsModal
+        isOpen={showShortcutsModal}
+        onClose={() => setShowShortcutsModal(false)}
+      />
     </div>
   )
 }
