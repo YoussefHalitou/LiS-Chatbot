@@ -1913,7 +1913,7 @@ export async function POST(req: NextRequest) {
               
               if (tableName && nameMatch) {
                 const { queryTable } = await import('@/lib/supabase-query')
-                const queryResult = await queryTable(tableName, { name: nameMatch[1].trim() }, { limit: 1 })
+                const queryResult = await queryTable(tableName, { name: nameMatch[1].trim() }, 1)
                 if (queryResult.data && queryResult.data.length > 0) {
                   const entry = queryResult.data[0]
                   const detailLines = Object.entries(entry)
