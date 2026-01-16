@@ -184,8 +184,51 @@ export const throttle = <T extends (...args: any[]) => any>(
 }
 
 /**
+ * Helper function to find matching closing brace for nested JSON objects
+ * Returns the index of the matching closing brace, or -1 if not found
+ */
+const findMatchingBrace = (str: string, startIndex: number): number => {
+  let depth = 0
+  let inString = false
+  let escapeNext = false
+  
+  for (let i = startIndex; i < str.length; i++) {
+    const char = str[i]
+    
+    if (escapeNext) {
+      escapeNext = false
+      continue
+    }
+    
+    if (char === '\\' && inString) {
+      escapeNext = true
+      continue
+    }
+    
+    if (char === '"' && !escapeNext) {
+      inString = !inString
+      continue
+    }
+    
+    if (!inString) {
+      if (char === '{') {
+        depth++
+      } else if (char === '}') {
+        depth--
+        if (depth === 0) {
+          return i
+        }
+      }
+    }
+  }
+  
+  return -1
+}
+
+/**
  * Removes JSON and internal tool result messages from bot responses
  * This prevents the bot from showing raw JSON or internal instructions to users
+ * Handles both complete responses and streaming content
  */
 export const sanitizeBotResponse = (content: string | null | undefined): string => {
   if (!content) return ''
@@ -195,10 +238,64 @@ export const sanitizeBotResponse = (content: string | null | undefined): string 
   // Define German month names for use throughout the function
   const germanMonths = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember']
   
+  // CRITICAL: Handle streaming case - if content starts with [INTERNAL or partial [INT
+  // and we haven't finished the JSON yet, return empty/loading
+  const toolResultPattern = /^\[INTERNAL TOOL RESULT/i
+  const partialToolResultPattern = /^\[INT(E(R(N(A(L)?)?)?)?)?$/i
+  
+  if (toolResultPattern.test(sanitized) || partialToolResultPattern.test(sanitized.trim())) {
+    // Check if the JSON is complete by looking for balanced braces
+    const jsonStartIndex = sanitized.indexOf('{')
+    if (jsonStartIndex !== -1) {
+      const closeBraceIndex = findMatchingBrace(sanitized, jsonStartIndex)
+      if (closeBraceIndex === -1) {
+        // JSON is incomplete - we're still streaming, show loading state
+        return ''
+      }
+      // JSON is complete, extract everything after it
+      const afterJson = sanitized.substring(closeBraceIndex + 1).trim()
+      if (afterJson) {
+        sanitized = afterJson
+      } else {
+        // Only JSON, nothing else yet - still loading
+        return ''
+      }
+    } else {
+      // No JSON started yet - still streaming the header, return empty
+      return ''
+    }
+  }
+  
   // Remove internal tool result instructions (handle both single-line and multi-line)
   sanitized = sanitized.replace(/\[INTERNAL TOOL RESULT[^\]]*\][\s\n]*/gi, '')
   // Also remove if it spans multiple lines or has extra whitespace
   sanitized = sanitized.replace(/\[INTERNAL TOOL RESULT[\s\S]*?DO NOT SHOW THIS JSON TO THE USER!\]\s*/gi, '')
+  
+  // CRITICAL: Remove nested JSON objects with proper brace matching
+  // Find { followed by "data" and remove the entire balanced JSON object
+  let searchIndex = 0
+  while (searchIndex < sanitized.length) {
+    const openBrace = sanitized.indexOf('{', searchIndex)
+    if (openBrace === -1) break
+    
+    // Check if this looks like a tool result JSON (starts with {"data" or {  "data")
+    const afterBrace = sanitized.substring(openBrace, openBrace + 30)
+    if (afterBrace.match(/^\{\s*"(data|error)"/)) {
+      // Find the matching closing brace
+      const closeBrace = findMatchingBrace(sanitized, openBrace)
+      if (closeBrace !== -1) {
+        // Remove this entire JSON object
+        sanitized = sanitized.substring(0, openBrace) + sanitized.substring(closeBrace + 1)
+        // Don't advance searchIndex, check the same position again
+        continue
+      } else {
+        // JSON is incomplete during streaming - remove everything from here
+        sanitized = sanitized.substring(0, openBrace)
+        break
+      }
+    }
+    searchIndex = openBrace + 1
+  }
   
   // Remove JSON code blocks (most common case)
   sanitized = sanitized.replace(/```json[\s\S]*?```/gi, '')
@@ -218,16 +315,6 @@ export const sanitizeBotResponse = (content: string | null | undefined): string 
     }
     return match // Keep non-JSON code blocks
   })
-  
-  // Remove inline JSON objects that look like tool results
-  // Match objects starting with { and containing "data" or "error"
-  sanitized = sanitized.replace(/\{\s*"data"\s*:[\s\S]*?\}/g, '')
-  sanitized = sanitized.replace(/\{\s*"error"\s*:[\s\S]*?\}/g, '')
-  sanitized = sanitized.replace(/\{\s*"data"\s*:[\s\S]*?"error"[\s\S]*?\}/g, '')
-  
-  // More aggressive: remove any JSON object that contains "data" or "error" as keys
-  sanitized = sanitized.replace(/\{[^{}]*"data"[^{}]*\}/g, '')
-  sanitized = sanitized.replace(/\{[^{}]*"error"[^{}]*\}/g, '')
   
   // Handle multi-line JSON objects (more complex matching)
   // Match { ... "data": ... } patterns across multiple lines
