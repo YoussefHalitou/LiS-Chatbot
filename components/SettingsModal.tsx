@@ -1,8 +1,16 @@
 'use client'
 
-import { X, Moon, Sun, Download, Keyboard, Trash2, LogOut, User } from 'lucide-react'
+import { X, Moon, Sun, Download, Keyboard, Trash2, LogOut, User, LucideIcon } from 'lucide-react'
 import { useTheme } from '@/lib/theme-context'
 import { triggerHaptic } from '@/lib/utils'
+
+interface SettingsItem {
+  icon: LucideIcon
+  label: string
+  onClick: () => void
+  color: string
+  subtitle?: string
+}
 
 interface SettingsModalProps {
   isOpen: boolean
@@ -34,7 +42,7 @@ export default function SettingsModal({
     callback()
   }
 
-  const settingsGroups = [
+  const settingsGroups: Array<{ title: string; items: SettingsItem[] }> = [
     {
       title: 'Darstellung',
       items: [

@@ -138,37 +138,37 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
         )
         
         setChats(enhancedChats)
-      } finally {
-        setIsLoadingChats(false)
-      }
-      
-      // Load current chat
-      const currentId = getCurrentChatId()
-      if (currentId) {
-        const chatExists = loadedChats.some(c => c.id === currentId)
-        if (chatExists) {
-          setCurrentChatId(currentId)
-          const chatMessages = await getChatMessages(currentId)
+        
+        // Load current chat
+        const currentId = getCurrentChatId()
+        if (currentId) {
+            const chatExists = loadedChats.some(c => c.id === currentId)
+          if (chatExists) {
+            setCurrentChatId(currentId)
+            const chatMessages = await getChatMessages(currentId)
+            setMessages(chatMessages)
+          } else {
+            // Current chat doesn't exist, create new one
+            const newChat = await createNewChat()
+            setCurrentChatId(newChat.id)
+            setChats([newChat, ...loadedChats])
+            setMessages([])
+          }
+        } else if (loadedChats.length > 0) {
+          // No current chat, use first one
+          const firstChat = loadedChats[0]
+          setCurrentChatId(firstChat.id)
+          const chatMessages = await getChatMessages(firstChat.id)
           setMessages(chatMessages)
         } else {
-          // Current chat doesn't exist, create new one
+          // No chats exist, create new one
           const newChat = await createNewChat()
           setCurrentChatId(newChat.id)
-          setChats([newChat, ...loadedChats])
+          setChats([newChat])
           setMessages([])
         }
-      } else if (loadedChats.length > 0) {
-        // No current chat, use first one
-        const firstChat = loadedChats[0]
-        setCurrentChatId(firstChat.id)
-        const chatMessages = await getChatMessages(firstChat.id)
-        setMessages(chatMessages)
-      } else {
-        // No chats exist, create new one
-        const newChat = await createNewChat()
-        setCurrentChatId(newChat.id)
-        setChats([newChat])
-        setMessages([])
+      } finally {
+        setIsLoadingChats(false)
       }
     }
     
@@ -685,7 +685,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
     }
     
     setContextMenu(null)
-  }, [contextMenu, messages, startChatRequest])
+  }, [contextMenu, messages]) // startChatRequest is omitted as it's defined later and is stable
 
   // Cleanup audio on unmount
   useEffect(() => {
@@ -1586,8 +1586,8 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
     setShowChatSidebar(false)
   }
 
-  const handleDeleteChat = async (chatId: string, e: React.MouseEvent) => {
-    e.stopPropagation()
+  const handleDeleteChat = async (chatId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation()
     if (window.confirm('Möchtest du diesen Chat wirklich löschen?')) {
       await deleteChat(chatId)
       const updatedChats = await getAllChats()
@@ -2580,7 +2580,9 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
                     )}
                     {/* Pin indicator */}
                     {pinnedMessages.has(index) && (
-                      <Pin className="h-3 w-3 text-purple-500 dark:text-purple-400 fill-current ml-1" title="Angepinnt" />
+                      <span title="Angepinnt">
+                        <Pin className="h-3 w-3 text-purple-500 dark:text-purple-400 fill-current ml-1" />
+                      </span>
                     )}
                   </div>
                 )}
