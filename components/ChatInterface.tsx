@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { Mic, MicOff, Volume2, Send, Loader2, Copy, Check, Trash2, X, MessageSquare, Plus, Menu, Search, Download, Keyboard, Moon, Sun, ChevronDown, Sparkles, RefreshCw, Share2, User, LogOut } from 'lucide-react'
+import { Mic, MicOff, Volume2, Send, Loader2, Copy, Check, Trash2, X, MessageSquare, Plus, Menu, Search, Download, Keyboard, Moon, Sun, ChevronDown, Sparkles, RefreshCw, Share2, User, LogOut, Pin, RotateCcw } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Message, Chat } from '@/types'
@@ -31,6 +31,10 @@ import ConnectionStatus from '@/components/ConnectionStatus'
 import SearchModal from '@/components/SearchModal'
 import ExportChatModal from '@/components/ExportChatModal'
 import KeyboardShortcutsModal from '@/components/KeyboardShortcutsModal'
+import SettingsModal from '@/components/SettingsModal'
+import BottomNav from '@/components/BottomNav'
+import EmojiPicker from '@/components/EmojiPicker'
+import EmptyState from '@/components/EmptyState'
 import { useTheme } from '@/lib/theme-context'
 import { showToast } from '@/lib/toast'
 
@@ -62,6 +66,8 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
   const [showSearchModal, setShowSearchModal] = useState(false)
   const [showExportModal, setShowExportModal] = useState(false)
   const [showShortcutsModal, setShowShortcutsModal] = useState(false)
+  const [showSettingsModal, setShowSettingsModal] = useState(false)
+  const [activeBottomTab, setActiveBottomTab] = useState<'chat' | 'history' | 'search' | 'settings'>('chat')
   const [showScrollButton, setShowScrollButton] = useState(false)
   const [isLoadingHistory, setIsLoadingHistory] = useState(false)
   const [isPullRefreshing, setIsPullRefreshing] = useState(false)
@@ -69,6 +75,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; messageIndex: number } | null>(null)
   const [swipingMessageIndex, setSwipingMessageIndex] = useState<number | null>(null)
   const [swipeOffset, setSwipeOffset] = useState(0)
+  const [pinnedMessages, setPinnedMessages] = useState<Set<number>>(new Set())
   const { theme, toggleTheme } = useTheme()
   const abortControllerRef = useRef<AbortController | null>(null)
   const streamTimeoutRef = useRef<number | null>(null)
@@ -89,6 +96,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
   const touchStartX = useRef<number>(0)
   const touchStartY = useRef<number>(0)
   const longPressTimer = useRef<NodeJS.Timeout | null>(null)
+  const swipeHapticTriggered = useRef<boolean>(false)
   const streamingDisabled = useMemo(
     () =>
       process.env.NEXT_PUBLIC_DISABLE_STREAMING === 'true' ||
@@ -190,26 +198,46 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
     setShowScrollButton(distanceFromBottom > 150)
   }, [])
 
+  // Auto-expand textarea as user types (up to 5 lines)
+  const autoExpandTextarea = useCallback(() => {
+    if (!textareaRef.current) return
+    
+    const textarea = textareaRef.current
+    textarea.style.height = 'auto'
+    
+    // Calculate new height (max 5 lines)
+    const lineHeight = 24 // approximate line height
+    const maxLines = 5
+    const maxHeight = lineHeight * maxLines
+    const newHeight = Math.min(textarea.scrollHeight, maxHeight)
+    
+    textarea.style.height = `${newHeight}px`
+  }, [])
+
+  // Handle emoji selection
+  const handleEmojiSelect = useCallback((emoji: string) => {
+    setInput(prev => prev + emoji)
+    triggerHaptic('light')
+    // Focus back on textarea after selecting emoji
+    setTimeout(() => textareaRef.current?.focus(), 50)
+  }, [])
+
   // Scroll to bottom function with haptic feedback
   const scrollToBottom = useCallback(() => {
     triggerHaptic('light')
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [])
 
-  // Quick suggestion chips for empty state
-  const quickSuggestions = useMemo(() => [
-    { text: 'Projekte heute', icon: '📋' },
-    { text: 'Mitarbeiter anzeigen', icon: '👥' },
-    { text: 'Offene Aufgaben', icon: '✅' },
-    { text: 'Termine diese Woche', icon: '📅' },
-  ], [])
-
-  // Handle quick suggestion click
-  const handleQuickSuggestion = useCallback((suggestion: string) => {
+  // Handle quick action from empty state
+  const handleQuickAction = useCallback((text: string) => {
     triggerHaptic('medium')
-    setInput(suggestion)
-    // Focus the textarea
-    textareaRef.current?.focus()
+    setInput(text)
+    setTimeout(() => {
+      textareaRef.current?.focus()
+      // Trigger send automatically
+      const event = new KeyboardEvent('keypress', { key: 'Enter' })
+      textareaRef.current?.dispatchEvent(event)
+    }, 100)
   }, [])
 
   // Helper function to format date for time separators
@@ -317,7 +345,14 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
     // Handle swipe (only horizontal movement, minimal vertical)
     if (deltaY < 30 && Math.abs(deltaX) > 20) {
       setSwipingMessageIndex(index)
-      setSwipeOffset(Math.max(-80, Math.min(80, deltaX)))
+      const newOffset = Math.max(-80, Math.min(80, deltaX))
+      setSwipeOffset(newOffset)
+      
+      // Trigger haptic at action threshold (50px)
+      if (!swipeHapticTriggered.current && Math.abs(newOffset) >= 50) {
+        triggerHaptic('light')
+        swipeHapticTriggered.current = true
+      }
     }
   }, [])
 
@@ -346,6 +381,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
       
       setSwipingMessageIndex(null)
       setSwipeOffset(0)
+      swipeHapticTriggered.current = false
     }
   }, [swipingMessageIndex, swipeOffset, messages])
 
@@ -363,7 +399,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
   }, [contextMenu])
 
   // Context menu actions
-  const handleContextMenuAction = useCallback((action: 'copy' | 'share' | 'delete') => {
+  const handleContextMenuAction = useCallback((action: 'copy' | 'share' | 'delete' | 'pin' | 'regenerate') => {
     if (!contextMenu) return
     
     const message = messages[contextMenu.messageIndex]
@@ -383,6 +419,36 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
           showToast('Nachricht kopiert (Teilen nicht verfügbar)', 'success', 2000)
         }
         break
+      case 'pin':
+        triggerHaptic('light')
+        setPinnedMessages(prev => {
+          const newSet = new Set(prev)
+          if (newSet.has(contextMenu.messageIndex)) {
+            newSet.delete(contextMenu.messageIndex)
+            showToast('Nachricht nicht mehr angepinnt', 'success', 2000)
+          } else {
+            newSet.add(contextMenu.messageIndex)
+            showToast('Nachricht angepinnt', 'success', 2000)
+          }
+          return newSet
+        })
+        break
+      case 'regenerate':
+        if (message.role === 'assistant' && contextMenu.messageIndex > 0) {
+          triggerHaptic('medium')
+          // Get the user message that prompted this response
+          const userMessageIndex = contextMenu.messageIndex - 1
+          const userMessage = messages[userMessageIndex]
+          if (userMessage && userMessage.role === 'user') {
+            // Remove all messages after the user message
+            const newMessages = messages.slice(0, userMessageIndex + 1)
+            setMessages(newMessages)
+            // Re-send the user message
+            startChatRequest(userMessage)
+            showToast('Antwort wird neu generiert...', 'info', 2000)
+          }
+        }
+        break
       case 'delete':
         if (message.role === 'user') {
           triggerHaptic('medium')
@@ -394,7 +460,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
     }
     
     setContextMenu(null)
-  }, [contextMenu, messages])
+  }, [contextMenu, messages, startChatRequest])
 
   // Cleanup audio on unmount
   useEffect(() => {
@@ -752,6 +818,8 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
       console.log(`[STT] Starting MediaRecorder with ${APP_CONFIG.AUDIO_CHUNK_SIZE_MS}ms timeslices`)
       mediaRecorder.start(APP_CONFIG.AUDIO_CHUNK_SIZE_MS)
       
+      // Haptic feedback on recording start
+      triggerHaptic('heavy')
       setIsRecording(true)
     } catch (error: any) {
       console.error('Error accessing microphone:', error)
@@ -767,6 +835,8 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
 
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current && isRecording) {
+      // Haptic feedback on recording stop
+      triggerHaptic('medium')
       mediaRecorderRef.current.stop()
       // setIsRecording will be set to false in onstop handler
     }
@@ -1566,6 +1636,9 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
     const sanitizedInput = sanitizeInput(input)
     if (!sanitizedInput || isLoading) return
 
+    // Haptic feedback on message send
+    triggerHaptic('medium')
+
     const userMessage: Message = {
       role: 'user',
       content: sanitizedInput,
@@ -1723,7 +1796,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
   }
 
   return (
-    <div className="flex flex-col h-screen-safe bg-white dark:bg-slate-900 safe-area-inset relative">
+    <div className="flex flex-col h-screen-safe bg-white dark:bg-slate-900 safe-area-inset relative pb-16 sm:pb-0">
       {/* Chat Sidebar */}
       {showChatSidebar && (
         <div className="fixed inset-0 z-50 flex sm:relative sm:z-auto">
@@ -1733,6 +1806,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
             onClick={() => {
               triggerHaptic('light')
               setShowChatSidebar(false)
+              setActiveBottomTab('chat')
             }}
           />
           {/* Sidebar */}
@@ -1861,7 +1935,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
                   </button>
                   <button
                     onClick={toggleTheme}
-                    className="p-2 sm:p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors touch-manipulation flex-shrink-0"
+                    className="p-2 sm:p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors touch-manipulation flex-shrink-0 hidden sm:flex"
                     title={theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
                     aria-label="Theme umschalten"
                   >
@@ -1874,7 +1948,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
                   <div className="w-px h-5 bg-gray-200 dark:bg-slate-700 mx-1 hidden sm:block" />
                   <button
                     onClick={() => setShowChatSidebar(!showChatSidebar)}
-                    className="p-2 sm:p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors touch-manipulation flex-shrink-0"
+                    className="p-2 sm:p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors touch-manipulation flex-shrink-0 hidden sm:flex"
                     title="Chats anzeigen"
                     aria-label="Chats anzeigen"
                   >
@@ -1896,34 +1970,34 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
               {!voiceOnlyMode && messages.length > 0 && (
                 <button
                   onClick={clearChat}
-                  className="p-2 sm:p-2 rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors touch-manipulation flex-shrink-0"
+                  className="p-2 sm:p-2 rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors touch-manipulation flex-shrink-0 hidden sm:flex"
                   title="Chatverlauf löschen"
                   aria-label="Chatverlauf löschen"
                 >
                   <Trash2 className="h-4 w-4 sm:h-5 sm:w-5" />
                 </button>
               )}
-              {/* Auth button - integrated in header */}
+              {/* Auth button - integrated in header (desktop only, mobile in settings) */}
               {!voiceOnlyMode && (
                 <>
-                  <div className="w-px h-5 bg-gray-200 dark:bg-slate-700 mx-1" />
+                  <div className="w-px h-5 bg-gray-200 dark:bg-slate-700 mx-1 hidden sm:block" />
                   {user ? (
                     <button
                       onClick={onLogout}
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors touch-manipulation text-xs sm:text-sm font-medium"
+                      className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors touch-manipulation text-xs sm:text-sm font-medium"
                       title="Abmelden"
                     >
                       <LogOut className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                      <span className="hidden sm:inline">Abmelden</span>
+                      <span>Abmelden</span>
                     </button>
                   ) : (
                     <button
                       onClick={onLoginClick}
-                      className="flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors touch-manipulation text-xs sm:text-sm font-medium"
+                      className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors touch-manipulation text-xs sm:text-sm font-medium"
                       title="Anmelden"
                     >
                       <User className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                      <span className="hidden sm:inline">Anmelden</span>
+                      <span>Anmelden</span>
                     </button>
                   )}
                 </>
@@ -1975,36 +2049,11 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
           </div>
         )}
 
-        <div className="max-w-3xl mx-auto space-y-3 sm:space-y-4">
-          {messages.length === 0 && !isLoadingHistory && (
-            <div className="flex flex-col items-center justify-center h-full min-h-[50vh] text-center px-4 py-8">
-              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/30 dark:to-blue-800/30 flex items-center justify-center mb-4 shadow-sm">
-                <Sparkles className="h-8 w-8 sm:h-10 sm:w-10 text-blue-600 dark:text-blue-400" />
-              </div>
-              <h2 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-slate-100 mb-2">
-                Starte ein Gespräch
-              </h2>
-              <p className="text-sm sm:text-base text-gray-600 dark:text-slate-400 max-w-sm leading-relaxed mb-6">
-                Schreibe eine Nachricht oder nutze das Mikrofon. Ich helfe dir gerne bei Abfragen deiner Supabase-Datenbank.
-              </p>
-              
-              {/* Quick Suggestion Chips */}
-              <div className="flex flex-wrap gap-2 justify-center max-w-md">
-                {quickSuggestions.map((suggestion) => (
-                  <button
-                    key={suggestion.text}
-                    onClick={() => handleQuickSuggestion(suggestion.text)}
-                    className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-white dark:bg-slate-800 text-gray-700 dark:text-slate-300 rounded-full text-sm font-medium border border-gray-200 dark:border-slate-700 shadow-sm hover:bg-gray-50 dark:hover:bg-slate-700 hover:border-blue-300 dark:hover:border-blue-600 active:scale-95 transition-all touch-manipulation"
-                  >
-                    <span>{suggestion.icon}</span>
-                    <span>{suggestion.text}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {messages.map((message, index) => (
+        {messages.length === 0 && !isLoadingHistory ? (
+          <EmptyState onQuickAction={handleQuickAction} />
+        ) : (
+          <div className="max-w-3xl mx-auto space-y-3 sm:space-y-4">
+            {messages.map((message, index) => (
             // Skip rendering empty assistant messages (they show while streaming starts)
             message.role === 'assistant' && !message.content ? null : (
             <div key={index}>
@@ -2170,6 +2219,10 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
                         ✓✓
                       </span>
                     )}
+                    {/* Pin indicator */}
+                    {pinnedMessages.has(index) && (
+                      <Pin className="h-3 w-3 text-purple-500 dark:text-purple-400 fill-current ml-1" title="Angepinnt" />
+                    )}
                   </div>
                 )}
                 </div>
@@ -2186,25 +2239,26 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
             )
           ))}
 
-          {isLoading && showLoadingBubble && !isStreamingResponse && (
-            <div className="flex justify-start items-end gap-2 animate-in fade-in slide-in-from-bottom-2 duration-200">
-              {/* Bot Avatar */}
-              <div className="message-avatar message-avatar-bot mb-1">
-                LiS
-              </div>
-              <div className="bg-white dark:bg-slate-800 rounded-2xl sm:rounded-xl rounded-bl-sm px-4 py-4 sm:px-4 sm:py-3.5 border border-gray-200 dark:border-slate-700 shadow-sm">
-                {/* Bouncing dots typing indicator */}
-                <div className="flex items-center gap-1.5">
-                  <div className="typing-dot" />
-                  <div className="typing-dot" />
-                  <div className="typing-dot" />
+            {isLoading && showLoadingBubble && !isStreamingResponse && (
+              <div className="flex justify-start items-end gap-2 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                {/* Bot Avatar */}
+                <div className="message-avatar message-avatar-bot mb-1">
+                  LiS
+                </div>
+                <div className="bg-white dark:bg-slate-800 rounded-2xl sm:rounded-xl rounded-bl-sm px-4 py-4 sm:px-4 sm:py-3.5 border border-gray-200 dark:border-slate-700 shadow-sm">
+                  {/* Bouncing dots typing indicator */}
+                  <div className="flex items-center gap-1.5">
+                    <div className="typing-dot" />
+                    <div className="typing-dot" />
+                    <div className="typing-dot" />
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          <div ref={messagesEndRef} />
-        </div>
+            <div ref={messagesEndRef} />
+          </div>
+        )}
       </div>
 
       {/* Scroll to Bottom Button - Floating */}
@@ -2370,24 +2424,52 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
       ) : (
         <div className="glass-header border-t border-gray-100 dark:border-slate-800 px-3 py-3 sm:px-4 sm:py-3 safe-area-inset-bottom">
           <div className="max-w-3xl mx-auto">
+            {/* Recording indicator with waveform */}
+            {isRecording && !voiceOnlyMode && (
+              <div className="mb-3 flex items-center gap-3 bg-red-50 dark:bg-red-900/20 rounded-xl px-4 py-3 border border-red-200 dark:border-red-800">
+                <div className="flex items-center justify-center gap-1 h-8">
+                  {[0, 1, 2, 3, 4].map((i) => (
+                    <div
+                      key={i}
+                      className="w-1 bg-red-500 dark:bg-red-400 rounded-full voice-wave-bar"
+                      style={{ animationDelay: `${i * 0.1}s` }}
+                    />
+                  ))}
+                </div>
+                <span className="text-red-600 dark:text-red-400 font-medium text-sm flex-1">
+                  Aufnahme läuft...
+                </span>
+                <span className="text-red-500 dark:text-red-400 text-xs animate-pulse">
+                  ● REC
+                </span>
+              </div>
+            )}
+            
             <div className="flex items-end gap-2.5 sm:gap-2">
               <div className="flex-1 relative input-gradient-focus">
                 <textarea
                   ref={textareaRef}
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
+                  onChange={(e) => {
+                    setInput(e.target.value)
+                    autoExpandTextarea()
+                  }}
                   onKeyPress={handleKeyPress}
                   placeholder="Nachricht eingeben..."
-                  className="w-full p-3 sm:p-3 pr-14 sm:pr-12 pb-10 sm:pb-8 border-2 border-gray-200 dark:border-slate-600 rounded-xl sm:rounded-lg resize-none focus:outline-none focus:border-transparent bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 placeholder-gray-400 dark:placeholder-slate-500 text-[16px] sm:text-[15px] transition-all shadow-sm focus:shadow-md"
+                  className="w-full p-3 sm:p-3 pr-14 sm:pr-12 pb-10 sm:pb-8 border-2 border-gray-200 dark:border-slate-600 rounded-xl sm:rounded-lg resize-none focus:outline-none focus:border-transparent bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 placeholder-gray-400 dark:placeholder-slate-500 text-[16px] sm:text-[15px] transition-all shadow-sm focus:shadow-md overflow-y-auto"
                   rows={1}
                   maxLength={APP_CONFIG.MAX_INPUT_LENGTH}
                   style={{ 
                     minHeight: `${UI_CONFIG.TEXTAREA_MIN_HEIGHT}px`, 
-                    maxHeight: `${UI_CONFIG.TEXTAREA_MAX_HEIGHT}px` 
+                    maxHeight: `120px` 
                   }}
                 />
-                <div className="absolute bottom-2 right-3 sm:bottom-1.5 sm:right-2 flex items-center gap-2">
-                  <span className={`text-[11px] sm:text-xs font-medium transition-colors ${
+                {/* Bottom row: hints and character count */}
+                <div className="absolute bottom-2 left-3 right-3 sm:bottom-1.5 sm:left-2 sm:right-2 flex items-center justify-between gap-2 pointer-events-none">
+                  <span className="hidden sm:block text-[10px] text-gray-400 dark:text-slate-500 italic">
+                    Shift+Enter für neue Zeile
+                  </span>
+                  <span className={`text-[11px] sm:text-xs font-medium transition-colors ml-auto ${
                     input.length > APP_CONFIG.MAX_INPUT_LENGTH * 0.9
                       ? 'text-red-500'
                       : input.length > APP_CONFIG.MAX_INPUT_LENGTH * 0.75
@@ -2400,6 +2482,8 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
               </div>
 
               <div className="flex items-center gap-2 sm:gap-1.5 flex-shrink-0">
+                {/* Emoji Picker */}
+                <EmojiPicker onEmojiSelect={handleEmojiSelect} />
                 <button
                   onClick={() => {
                     triggerHaptic(isRecording ? 'medium' : 'heavy')
@@ -2484,60 +2568,177 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
       {/* Modals */}
       <SearchModal
         isOpen={showSearchModal}
-        onClose={() => setShowSearchModal(false)}
+        onClose={() => {
+          setShowSearchModal(false)
+          setActiveBottomTab('chat')
+        }}
         messages={messages}
         onSelectMessage={(index) => {
+          setShowSearchModal(false)
+          setActiveBottomTab('chat')
           const element = document.querySelector(`[data-message-index="${index}"]`)
           element?.scrollIntoView({ behavior: 'smooth', block: 'center' })
         }}
       />
       <ExportChatModal
         isOpen={showExportModal}
-        onClose={() => setShowExportModal(false)}
+        onClose={() => {
+          setShowExportModal(false)
+          setActiveBottomTab('chat')
+        }}
         messages={messages}
       />
       <KeyboardShortcutsModal
         isOpen={showShortcutsModal}
-        onClose={() => setShowShortcutsModal(false)}
+        onClose={() => {
+          setShowShortcutsModal(false)
+          setActiveBottomTab('chat')
+        }}
+      />
+      <SettingsModal
+        isOpen={showSettingsModal}
+        onClose={() => {
+          setShowSettingsModal(false)
+          setActiveBottomTab('chat')
+        }}
+        onExportClick={() => {
+          setShowSettingsModal(false)
+          setShowExportModal(true)
+        }}
+        onShortcutsClick={() => {
+          setShowSettingsModal(false)
+          setShowShortcutsModal(true)
+        }}
+        onClearChat={() => {
+          setShowSettingsModal(false)
+          clearChat()
+        }}
+        user={user}
+        onLoginClick={onLoginClick}
+        onLogout={onLogout}
       />
 
-      {/* Context Menu for long-press on messages */}
+      {/* Bottom Navigation (Mobile only) */}
+      <BottomNav
+        activeTab={activeBottomTab}
+        onNewChat={() => {
+          setActiveBottomTab('chat')
+          clearChat()
+        }}
+        onHistoryClick={() => {
+          setActiveBottomTab('history')
+          setShowChatSidebar(true)
+        }}
+        onSearchClick={() => {
+          setActiveBottomTab('search')
+          setShowSearchModal(true)
+        }}
+        onSettingsClick={() => {
+          setActiveBottomTab('settings')
+          setShowSettingsModal(true)
+        }}
+      />
+
+      {/* Context Menu / Action Sheet for long-press on messages */}
       {contextMenu && (
-        <div 
-          className="context-menu"
-          style={{ 
-            left: Math.min(contextMenu.x, window.innerWidth - 220),
-            top: Math.min(contextMenu.y, window.innerHeight - 200)
-          }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <button 
-            className="context-menu-item"
-            onClick={() => handleContextMenuAction('copy')}
+        <>
+          {/* Backdrop */}
+          <div 
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 modal-overlay"
+            onClick={() => setContextMenu(null)}
+          />
+          
+          {/* Action Sheet (iOS-style bottom sheet on mobile, floating menu on desktop) */}
+          <div 
+            className="fixed bottom-0 left-0 right-0 sm:absolute sm:bottom-auto z-50 animate-slide-up-fast"
+            style={{ 
+              left: typeof window !== 'undefined' && window.innerWidth >= 640 ? Math.min(contextMenu.x, window.innerWidth - 220) : undefined,
+              top: typeof window !== 'undefined' && window.innerWidth >= 640 ? Math.min(contextMenu.y, window.innerHeight - 300) : undefined,
+              right: typeof window !== 'undefined' && window.innerWidth >= 640 ? 'auto' : undefined,
+              bottom: typeof window !== 'undefined' && window.innerWidth >= 640 ? 'auto' : 0
+            }}
+            onClick={(e) => e.stopPropagation()}
           >
-            <Copy className="h-4 w-4" />
-            <span>Kopieren</span>
-          </button>
-          <button 
-            className="context-menu-item"
-            onClick={() => handleContextMenuAction('share')}
-          >
-            <Share2 className="h-4 w-4" />
-            <span>Teilen</span>
-          </button>
-          {messages[contextMenu.messageIndex]?.role === 'user' && (
-            <>
-              <div className="context-menu-separator" />
-              <button 
-                className="context-menu-item destructive"
-                onClick={() => handleContextMenuAction('delete')}
-              >
-                <Trash2 className="h-4 w-4" />
-                <span>Löschen</span>
-              </button>
-            </>
-          )}
-        </div>
+            <div className="bg-white dark:bg-slate-800 rounded-t-3xl sm:rounded-2xl shadow-2xl border-t border-gray-200 dark:border-slate-700 sm:border overflow-hidden pb-safe">
+              {/* Drag handle (mobile only) */}
+              <div className="sm:hidden flex justify-center pt-2 pb-1">
+                <div className="w-10 h-1 bg-gray-300 dark:bg-slate-600 rounded-full" />
+              </div>
+
+              {/* Actions */}
+              <div className="p-2">
+                <button 
+                  className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-gray-100 dark:hover:bg-slate-700 rounded-xl transition-colors touch-manipulation"
+                  onClick={() => handleContextMenuAction('copy')}
+                >
+                  <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                    <Copy className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <span className="flex-1 font-medium text-gray-900 dark:text-white">Kopieren</span>
+                </button>
+                
+                <button 
+                  className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-gray-100 dark:hover:bg-slate-700 rounded-xl transition-colors touch-manipulation"
+                  onClick={() => handleContextMenuAction('share')}
+                >
+                  <div className="w-8 h-8 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                    <Share2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                  </div>
+                  <span className="flex-1 font-medium text-gray-900 dark:text-white">Teilen</span>
+                </button>
+
+                <button 
+                  className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-gray-100 dark:hover:bg-slate-700 rounded-xl transition-colors touch-manipulation"
+                  onClick={() => handleContextMenuAction('pin')}
+                >
+                  <div className="w-8 h-8 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
+                    <Pin className={`h-4 w-4 text-purple-600 dark:text-purple-400 ${pinnedMessages.has(contextMenu.messageIndex) ? 'fill-current' : ''}`} />
+                  </div>
+                  <span className="flex-1 font-medium text-gray-900 dark:text-white">
+                    {pinnedMessages.has(contextMenu.messageIndex) ? 'Nicht mehr anpinnen' : 'Anpinnen'}
+                  </span>
+                </button>
+
+                {messages[contextMenu.messageIndex]?.role === 'assistant' && (
+                  <button 
+                    className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-gray-100 dark:hover:bg-slate-700 rounded-xl transition-colors touch-manipulation"
+                    onClick={() => handleContextMenuAction('regenerate')}
+                  >
+                    <div className="w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
+                      <RotateCcw className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                    </div>
+                    <span className="flex-1 font-medium text-gray-900 dark:text-white">Neu generieren</span>
+                  </button>
+                )}
+                
+                {messages[contextMenu.messageIndex]?.role === 'user' && (
+                  <>
+                    <div className="h-px bg-gray-200 dark:bg-slate-700 my-2" />
+                    <button 
+                      className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors touch-manipulation"
+                      onClick={() => handleContextMenuAction('delete')}
+                    >
+                      <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+                        <Trash2 className="h-4 w-4 text-red-600 dark:text-red-400" />
+                      </div>
+                      <span className="flex-1 font-medium text-red-600 dark:text-red-400">Löschen</span>
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {/* Cancel button (mobile only) */}
+              <div className="sm:hidden px-2 pb-2 pt-1">
+                <button 
+                  onClick={() => setContextMenu(null)}
+                  className="w-full py-3.5 bg-gray-100 dark:bg-slate-700 rounded-xl font-semibold text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors"
+                >
+                  Abbrechen
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
       )}
     </div>
   )
