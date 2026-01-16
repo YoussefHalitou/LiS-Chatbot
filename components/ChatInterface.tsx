@@ -2024,9 +2024,9 @@ export default function ChatInterface() {
                     }`}
                   >
                   <div className="flex items-start justify-between gap-2.5">
-                    <div className="text-[15px] sm:text-[15px] leading-relaxed flex-1 break-words">
+                    <div className="text-[15px] sm:text-[15px] leading-relaxed flex-1 overflow-hidden" style={{ wordBreak: 'normal', overflowWrap: 'break-word' }}>
                     {message.role === 'user' ? (
-                      <p className="whitespace-pre-wrap">{message.content}</p>
+                      <p className="whitespace-pre-wrap" style={{ wordBreak: 'normal', overflowWrap: 'break-word' }}>{message.content}</p>
                     ) : (
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
@@ -2039,10 +2039,10 @@ export default function ChatInterface() {
                           // Paragraphs
                           p: ({ node, ...props }) => <p className="mb-3 last:mb-0 text-gray-900 dark:text-slate-200 leading-relaxed" {...props} />,
                           
-                          // Lists - improved spacing
-                          ul: ({ node, ...props }) => <ul className="list-disc list-outside ml-5 mb-4 space-y-2" {...props} />,
-                          ol: ({ node, ...props }) => <ol className="list-decimal list-outside ml-5 mb-4 space-y-2" {...props} />,
-                          li: ({ node, ...props }) => <li className="pl-1.5 text-gray-900 dark:text-slate-200 leading-relaxed pb-1" {...props} />,
+                          // Lists - improved spacing with proper number handling
+                          ul: ({ node, ...props }) => <ul className="list-disc list-outside ml-5 mb-4 space-y-1.5" {...props} />,
+                          ol: ({ node, ...props }) => <ol className="list-decimal list-outside ml-6 mb-4 space-y-1.5" style={{ listStyleType: 'decimal' }} {...props} />,
+                          li: ({ node, ...props }) => <li className="pl-1 text-gray-900 dark:text-slate-200 leading-relaxed" style={{ wordBreak: 'normal', overflowWrap: 'break-word' }} {...props} />,
                           
                           // Code
                           code: ({ node, inline, className, children, ...props }: any) => {
@@ -2081,7 +2081,7 @@ export default function ChatInterface() {
                             <th className="px-2 py-2 sm:px-4 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 dark:text-slate-200 uppercase tracking-wider border-b border-gray-200 dark:border-slate-600 whitespace-nowrap" {...props} />
                           ),
                           td: ({ node, ...props }) => (
-                            <td className="px-2 py-2 sm:px-4 sm:py-3 text-xs sm:text-sm text-gray-900 dark:text-slate-200 border-b border-gray-100 dark:border-slate-600" {...props} />
+                            <td className="px-2 py-2 sm:px-4 sm:py-3 text-xs sm:text-sm text-gray-900 dark:text-slate-200 border-b border-gray-100 dark:border-slate-600" style={{ wordBreak: 'keep-all', overflowWrap: 'break-word' }} {...props} />
                           ),
                           
                           // Blockquotes

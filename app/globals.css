@@ -299,8 +299,18 @@ html {
   padding-left: 1.5rem;
 }
 
+.markdown-content ol {
+  list-style-type: decimal;
+}
+
+.markdown-content ol li::marker {
+  font-variant-numeric: tabular-nums;
+}
+
 .markdown-content li {
   margin: 0.25rem 0;
+  word-break: normal;
+  overflow-wrap: break-word;
 }
 
 .markdown-content ul ul,
@@ -308,6 +318,14 @@ html {
 .markdown-content ol ul,
 .markdown-content ol ol {
   margin: 0.25rem 0;
+}
+
+/* Prevent numbers from breaking */
+.no-break-numbers {
+  word-break: normal;
+  overflow-wrap: break-word;
+  hyphens: none;
+  -webkit-hyphens: none;
 }
 
 /* Blockquotes */
@@ -705,7 +723,7 @@ button, a, input, textarea, select {
   border-color: #475569;
 }
 
-/* Message bubble tail/arrow */
+/* Message bubble tail/arrow - Hidden on mobile for cleaner look */
 .message-bubble-user {
   position: relative;
 }
@@ -714,11 +732,18 @@ button, a, input, textarea, select {
   content: '';
   position: absolute;
   bottom: 0;
-  right: -6px;
-  width: 12px;
-  height: 12px;
-  background: linear-gradient(135deg, transparent 50%, #2563eb 50%);
-  border-bottom-left-radius: 10px;
+  right: -5px;
+  width: 10px;
+  height: 10px;
+  background: #2563eb;
+  border-bottom-left-radius: 8px;
+  display: none;
+}
+
+@media (min-width: 640px) {
+  .message-bubble-user::after {
+    display: block;
+  }
 }
 
 .message-bubble-bot {
@@ -729,15 +754,33 @@ button, a, input, textarea, select {
   content: '';
   position: absolute;
   bottom: 0;
-  left: -6px;
-  width: 12px;
-  height: 12px;
-  background: linear-gradient(-45deg, transparent 50%, white 50%);
-  border-bottom-right-radius: 10px;
+  left: -5px;
+  width: 10px;
+  height: 10px;
+  background: white;
+  border-bottom-right-radius: 8px;
+  display: none;
+}
+
+@media (min-width: 640px) {
+  .message-bubble-bot::after {
+    display: block;
+  }
 }
 
 .dark .message-bubble-bot::after {
-  background: linear-gradient(-45deg, transparent 50%, #1e293b 50%);
+  background: #1e293b;
+}
+
+/* Global text handling - prevent number splitting */
+* {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Prevent awkward text breaking */
+p, span, div, li, td, th {
+  word-break: normal;
+  overflow-wrap: break-word;
 }
 
 /* Spring animation for messages */
