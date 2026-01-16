@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { Mic, MicOff, Volume2, Send, Loader2, Copy, Check, Trash2, X, MessageSquare, Plus, Menu, Search, Download, Keyboard, Moon, Sun, ChevronDown, Sparkles } from 'lucide-react'
+import { Mic, MicOff, Volume2, Send, Loader2, Copy, Check, Trash2, X, MessageSquare, Plus, Menu, Search, Download, Keyboard, Moon, Sun, ChevronDown, Sparkles, RefreshCw, Share2 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Message, Chat } from '@/types'
@@ -57,6 +57,12 @@ export default function ChatInterface() {
   const [showExportModal, setShowExportModal] = useState(false)
   const [showShortcutsModal, setShowShortcutsModal] = useState(false)
   const [showScrollButton, setShowScrollButton] = useState(false)
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+  const [isPullRefreshing, setIsPullRefreshing] = useState(false)
+  const [pullDistance, setPullDistance] = useState(0)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; messageIndex: number } | null>(null)
+  const [swipingMessageIndex, setSwipingMessageIndex] = useState<number | null>(null)
+  const [swipeOffset, setSwipeOffset] = useState(0)
   const { theme, toggleTheme } = useTheme()
   const abortControllerRef = useRef<AbortController | null>(null)
   const streamTimeoutRef = useRef<number | null>(null)
@@ -73,6 +79,10 @@ export default function ChatInterface() {
   const streamRef = useRef<MediaStream | null>(null)
   const silenceStartTimeRef = useRef<number | null>(null)
   const voiceOnlyModeRef = useRef<boolean>(false) // Use ref to track voice-only mode reliably
+  const pullStartY = useRef<number>(0)
+  const touchStartX = useRef<number>(0)
+  const touchStartY = useRef<number>(0)
+  const longPressTimer = useRef<NodeJS.Timeout | null>(null)
   const streamingDisabled = useMemo(
     () =>
       process.env.NEXT_PUBLIC_DISABLE_STREAMING === 'true' ||
@@ -230,6 +240,155 @@ export default function ChatInterface() {
     
     return currentDate.toDateString() !== prevDate.toDateString()
   }, [messages])
+
+  // Pull-to-refresh handlers
+  const handlePullStart = useCallback((e: React.TouchEvent) => {
+    if (messagesContainerRef.current?.scrollTop === 0) {
+      pullStartY.current = e.touches[0].clientY
+    }
+  }, [])
+
+  const handlePullMove = useCallback((e: React.TouchEvent) => {
+    if (pullStartY.current === 0 || messagesContainerRef.current?.scrollTop !== 0) return
+    
+    const currentY = e.touches[0].clientY
+    const distance = Math.max(0, currentY - pullStartY.current)
+    
+    if (distance > 0) {
+      setPullDistance(Math.min(distance * 0.5, 80))
+    }
+  }, [])
+
+  const handlePullEnd = useCallback(async () => {
+    if (pullDistance > 60) {
+      setIsPullRefreshing(true)
+      triggerHaptic('medium')
+      
+      // Refresh chat data
+      if (currentChatId) {
+        const chatMessages = await getChatMessages(currentChatId)
+        setMessages(chatMessages)
+      }
+      
+      setTimeout(() => {
+        setIsPullRefreshing(false)
+        setPullDistance(0)
+        pullStartY.current = 0
+      }, 1000)
+    } else {
+      setPullDistance(0)
+      pullStartY.current = 0
+    }
+  }, [pullDistance, currentChatId])
+
+  // Long press handler for context menu
+  const handleMessageTouchStart = useCallback((e: React.TouchEvent, index: number) => {
+    touchStartX.current = e.touches[0].clientX
+    touchStartY.current = e.touches[0].clientY
+    
+    longPressTimer.current = setTimeout(() => {
+      triggerHaptic('medium')
+      setContextMenu({
+        x: e.touches[0].clientX,
+        y: e.touches[0].clientY,
+        messageIndex: index
+      })
+    }, 500)
+  }, [])
+
+  const handleMessageTouchMove = useCallback((e: React.TouchEvent, index: number) => {
+    const deltaX = e.touches[0].clientX - touchStartX.current
+    const deltaY = Math.abs(e.touches[0].clientY - touchStartY.current)
+    
+    // Cancel long press if finger moved too much
+    if (Math.abs(deltaX) > 10 || deltaY > 10) {
+      if (longPressTimer.current) {
+        clearTimeout(longPressTimer.current)
+        longPressTimer.current = null
+      }
+    }
+    
+    // Handle swipe (only horizontal movement, minimal vertical)
+    if (deltaY < 30 && Math.abs(deltaX) > 20) {
+      setSwipingMessageIndex(index)
+      setSwipeOffset(Math.max(-80, Math.min(80, deltaX)))
+    }
+  }, [])
+
+  const handleMessageTouchEnd = useCallback((index: number) => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current)
+      longPressTimer.current = null
+    }
+    
+    // Handle swipe action completion
+    if (swipingMessageIndex === index) {
+      if (swipeOffset > 50) {
+        // Swipe right - copy
+        triggerHaptic('light')
+        copyToClipboard(messages[index].content, index)
+        showToast('Nachricht kopiert', 'success', 2000)
+      } else if (swipeOffset < -50) {
+        // Swipe left - delete (only for user messages)
+        if (messages[index].role === 'user') {
+          triggerHaptic('medium')
+          const newMessages = messages.filter((_, i) => i !== index)
+          setMessages(newMessages)
+          showToast('Nachricht gelöscht', 'success', 2000)
+        }
+      }
+      
+      setSwipingMessageIndex(null)
+      setSwipeOffset(0)
+    }
+  }, [swipingMessageIndex, swipeOffset, messages])
+
+  // Close context menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => setContextMenu(null)
+    if (contextMenu) {
+      document.addEventListener('click', handleClickOutside)
+      document.addEventListener('touchstart', handleClickOutside)
+      return () => {
+        document.removeEventListener('click', handleClickOutside)
+        document.removeEventListener('touchstart', handleClickOutside)
+      }
+    }
+  }, [contextMenu])
+
+  // Context menu actions
+  const handleContextMenuAction = useCallback((action: 'copy' | 'share' | 'delete') => {
+    if (!contextMenu) return
+    
+    const message = messages[contextMenu.messageIndex]
+    
+    switch (action) {
+      case 'copy':
+        triggerHaptic('light')
+        copyToClipboard(message.content, contextMenu.messageIndex)
+        showToast('Nachricht kopiert', 'success', 2000)
+        break
+      case 'share':
+        triggerHaptic('light')
+        if (navigator.share) {
+          navigator.share({ text: message.content })
+        } else {
+          copyToClipboard(message.content, contextMenu.messageIndex)
+          showToast('Nachricht kopiert (Teilen nicht verfügbar)', 'success', 2000)
+        }
+        break
+      case 'delete':
+        if (message.role === 'user') {
+          triggerHaptic('medium')
+          const newMessages = messages.filter((_, i) => i !== contextMenu.messageIndex)
+          setMessages(newMessages)
+          showToast('Nachricht gelöscht', 'success', 2000)
+        }
+        break
+    }
+    
+    setContextMenu(null)
+  }, [contextMenu, messages])
 
   // Cleanup audio on unmount
   useEffect(() => {
@@ -1743,14 +1902,50 @@ export default function ChatInterface() {
         </div>
       </div>
 
-      {/* Messages - Mobile optimized scrolling */}
+      {/* Messages - Mobile optimized scrolling with pull-to-refresh */}
       <div 
         ref={messagesContainerRef}
         onScroll={handleMessagesScroll}
-        className="flex-1 overflow-y-auto bg-gray-50 dark:bg-slate-900 px-3 py-4 sm:px-4 sm:py-5 overscroll-contain"
+        onTouchStart={handlePullStart}
+        onTouchMove={handlePullMove}
+        onTouchEnd={handlePullEnd}
+        className="flex-1 overflow-y-auto bg-gray-50 dark:bg-slate-900 px-3 py-4 sm:px-4 sm:py-5 overscroll-contain relative"
+        style={{ paddingTop: pullDistance > 0 ? `${16 + pullDistance}px` : undefined }}
       >
+        {/* Pull-to-refresh indicator */}
+        <div 
+          className={`pull-refresh-indicator ${pullDistance > 20 ? 'visible' : ''} ${isPullRefreshing ? 'refreshing' : ''}`}
+          style={{ top: pullDistance > 20 ? `${Math.min(pullDistance - 30, 20)}px` : '-50px' }}
+        >
+          <div className="flex items-center gap-2 bg-white dark:bg-slate-800 px-4 py-2 rounded-full shadow-lg border border-gray-200 dark:border-slate-700">
+            <RefreshCw className={`h-4 w-4 text-blue-600 dark:text-blue-400 ${isPullRefreshing ? 'animate-spin' : ''}`} />
+            <span className="text-sm text-gray-600 dark:text-slate-300">
+              {isPullRefreshing ? 'Aktualisiere...' : pullDistance > 60 ? 'Loslassen zum Aktualisieren' : 'Ziehen zum Aktualisieren'}
+            </span>
+          </div>
+        </div>
+
+        {/* Loading skeleton when loading chat history */}
+        {isLoadingHistory && (
+          <div className="max-w-3xl mx-auto space-y-4 mb-4">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className={`flex ${i % 2 === 0 ? 'justify-end' : 'justify-start'} items-end gap-2`}>
+                {i % 2 !== 0 && <div className="w-7 h-7 rounded-full message-skeleton" />}
+                <div 
+                  className={`message-skeleton ${i % 2 === 0 ? 'ml-auto' : ''}`}
+                  style={{ 
+                    width: `${40 + Math.random() * 30}%`,
+                    height: `${50 + i * 15}px`
+                  }}
+                />
+                {i % 2 === 0 && <div className="w-7 h-7 rounded-full message-skeleton" />}
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="max-w-3xl mx-auto space-y-3 sm:space-y-4">
-          {messages.length === 0 && (
+          {messages.length === 0 && !isLoadingHistory && (
             <div className="flex flex-col items-center justify-center h-full min-h-[50vh] text-center px-4 py-8">
               <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/30 dark:to-blue-800/30 flex items-center justify-center mb-4 shadow-sm">
                 <Sparkles className="h-8 w-8 sm:h-10 sm:w-10 text-blue-600 dark:text-blue-400" />
@@ -1791,25 +1986,43 @@ export default function ChatInterface() {
                 </div>
               )}
               
-              <div
-                className={`flex items-end gap-2 ${
-                  message.role === 'user' ? 'justify-end' : 'justify-start'
-                } animate-in fade-in slide-in-from-bottom-2 duration-200 group`}
+              {/* Swipeable message container */}
+              <div 
+                className="message-swipe-container"
+                onTouchStart={(e) => handleMessageTouchStart(e, index)}
+                onTouchMove={(e) => handleMessageTouchMove(e, index)}
+                onTouchEnd={() => handleMessageTouchEnd(index)}
               >
-                {/* Bot Avatar - only show for assistant messages */}
-                {message.role === 'assistant' && (
-                  <div className="message-avatar message-avatar-bot mb-1">
-                    LiS
-                  </div>
-                )}
+                {/* Swipe action indicators */}
+                <div className={`message-swipe-action message-swipe-action-left ${swipingMessageIndex === index && swipeOffset > 30 ? 'visible' : ''}`}>
+                  <Copy className="h-5 w-5 text-white" />
+                </div>
+                <div className={`message-swipe-action message-swipe-action-right ${swipingMessageIndex === index && swipeOffset < -30 && message.role === 'user' ? 'visible' : ''}`}>
+                  <Trash2 className="h-5 w-5 text-white" />
+                </div>
                 
                 <div
-                  className={`max-w-[85%] sm:max-w-[70%] rounded-2xl sm:rounded-xl px-4 py-3 sm:px-4 sm:py-2.5 relative ${
-                    message.role === 'user'
-                      ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-br-sm shadow-md'
-                      : 'bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 rounded-bl-sm border border-gray-200 dark:border-slate-700 shadow-sm'
-                  }`}
+                  className={`message-swipe-content flex items-end gap-2 ${
+                    message.role === 'user' ? 'justify-end' : 'justify-start'
+                  } animate-spring-in group`}
+                  style={{ 
+                    transform: swipingMessageIndex === index ? `translateX(${swipeOffset}px)` : undefined 
+                  }}
                 >
+                  {/* Bot Avatar - only show for assistant messages */}
+                  {message.role === 'assistant' && (
+                    <div className="message-avatar message-avatar-bot mb-1">
+                      LiS
+                    </div>
+                  )}
+                  
+                  <div
+                    className={`max-w-[85%] sm:max-w-[70%] rounded-2xl sm:rounded-xl px-4 py-3 sm:px-4 sm:py-2.5 relative ${
+                      message.role === 'user'
+                        ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-br-sm shadow-md message-bubble-user'
+                        : 'bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 rounded-bl-sm border border-gray-200 dark:border-slate-700 shadow-sm message-bubble-bot'
+                    }`}
+                  >
                   <div className="flex items-start justify-between gap-2.5">
                     <div className="text-[15px] sm:text-[15px] leading-relaxed flex-1 break-words">
                     {message.role === 'user' ? (
@@ -1936,6 +2149,7 @@ export default function ChatInterface() {
                     Du
                   </div>
                 )}
+                </div>
               </div>
             </div>
             )
@@ -2255,6 +2469,45 @@ export default function ChatInterface() {
         isOpen={showShortcutsModal}
         onClose={() => setShowShortcutsModal(false)}
       />
+
+      {/* Context Menu for long-press on messages */}
+      {contextMenu && (
+        <div 
+          className="context-menu"
+          style={{ 
+            left: Math.min(contextMenu.x, window.innerWidth - 220),
+            top: Math.min(contextMenu.y, window.innerHeight - 200)
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button 
+            className="context-menu-item"
+            onClick={() => handleContextMenuAction('copy')}
+          >
+            <Copy className="h-4 w-4" />
+            <span>Kopieren</span>
+          </button>
+          <button 
+            className="context-menu-item"
+            onClick={() => handleContextMenuAction('share')}
+          >
+            <Share2 className="h-4 w-4" />
+            <span>Teilen</span>
+          </button>
+          {messages[contextMenu.messageIndex]?.role === 'user' && (
+            <>
+              <div className="context-menu-separator" />
+              <button 
+                className="context-menu-item destructive"
+                onClick={() => handleContextMenuAction('delete')}
+              >
+                <Trash2 className="h-4 w-4" />
+                <span>Löschen</span>
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </div>
   )
 }

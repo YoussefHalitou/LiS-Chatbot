@@ -705,3 +705,223 @@ button, a, input, textarea, select {
   border-color: #475569;
 }
 
+/* Message bubble tail/arrow */
+.message-bubble-user {
+  position: relative;
+}
+
+.message-bubble-user::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  right: -6px;
+  width: 12px;
+  height: 12px;
+  background: linear-gradient(135deg, transparent 50%, #2563eb 50%);
+  border-bottom-left-radius: 10px;
+}
+
+.message-bubble-bot {
+  position: relative;
+}
+
+.message-bubble-bot::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: -6px;
+  width: 12px;
+  height: 12px;
+  background: linear-gradient(-45deg, transparent 50%, white 50%);
+  border-bottom-right-radius: 10px;
+}
+
+.dark .message-bubble-bot::after {
+  background: linear-gradient(-45deg, transparent 50%, #1e293b 50%);
+}
+
+/* Spring animation for messages */
+@keyframes spring-in {
+  0% {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  50% {
+    transform: translateY(-4px) scale(1.02);
+  }
+  75% {
+    transform: translateY(2px) scale(0.99);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-spring-in {
+  animation: spring-in 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Pull to refresh indicator */
+@keyframes pull-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.pull-refresh-indicator {
+  position: absolute;
+  top: -50px;
+  left: 50%;
+  transform: translateX(-50%);
+  transition: top 0.2s ease, opacity 0.2s ease;
+  opacity: 0;
+}
+
+.pull-refresh-indicator.visible {
+  top: 10px;
+  opacity: 1;
+}
+
+.pull-refresh-indicator.refreshing svg {
+  animation: pull-spin 1s linear infinite;
+}
+
+/* Message skeleton loading */
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.message-skeleton {
+  background: linear-gradient(
+    90deg,
+    #f3f4f6 0%,
+    #e5e7eb 20%,
+    #f3f4f6 40%,
+    #f3f4f6 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+  border-radius: 18px;
+}
+
+.dark .message-skeleton {
+  background: linear-gradient(
+    90deg,
+    #1e293b 0%,
+    #334155 20%,
+    #1e293b 40%,
+    #1e293b 100%
+  );
+  background-size: 200% 100%;
+}
+
+/* Swipe action styles */
+.message-swipe-container {
+  position: relative;
+  overflow: hidden;
+}
+
+.message-swipe-content {
+  transition: transform 0.2s ease-out;
+}
+
+.message-swipe-action {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.message-swipe-action.visible {
+  opacity: 1;
+}
+
+.message-swipe-action-left {
+  left: 0;
+  background: linear-gradient(90deg, #3b82f6, transparent);
+}
+
+.message-swipe-action-right {
+  right: 0;
+  background: linear-gradient(-90deg, #ef4444, transparent);
+}
+
+/* Context menu styles */
+@keyframes context-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.context-menu {
+  position: fixed;
+  z-index: 100;
+  background: white;
+  border-radius: 14px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+  animation: context-menu-in 0.15s ease-out;
+  min-width: 200px;
+}
+
+.dark .context-menu {
+  background: #1e293b;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  font-size: 15px;
+  color: #374151;
+  transition: background 0.1s ease;
+  cursor: pointer;
+}
+
+.context-menu-item:active {
+  background: #f3f4f6;
+}
+
+.dark .context-menu-item {
+  color: #e2e8f0;
+}
+
+.dark .context-menu-item:active {
+  background: #334155;
+}
+
+.context-menu-item.destructive {
+  color: #ef4444;
+}
+
+.context-menu-separator {
+  height: 1px;
+  background: #e5e7eb;
+  margin: 4px 0;
+}
+
+.dark .context-menu-separator {
+  background: #334155;
+}
+
