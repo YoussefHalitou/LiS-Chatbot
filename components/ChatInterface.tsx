@@ -548,9 +548,17 @@ export default function ChatInterface() {
       audioRef.current = null
       setIsPlayingAudio(false)
     }
+    
+    // Cancel any ongoing speech synthesis
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel()
+    }
 
     let audioUrl: string | null = null
     let fallbackTimeout: number | null = null
+    
+    // Detect iOS
+    const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent)
 
     const speakWithWebSpeech = (fallbackText: string) => {
       if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
@@ -565,10 +573,10 @@ export default function ChatInterface() {
       utterance.volume = 1
 
       setIsPlayingAudio(true)
+      setIsGeneratingTTS(false)
 
       utterance.onend = () => {
         setIsPlayingAudio(false)
-        setIsGeneratingTTS(false)
         if (voiceOnlyModeRef.current && !isRecording && !isLoading) {
           setTimeout(() => {
             if (voiceOnlyModeRef.current && !isRecording && !isLoading) {
@@ -578,9 +586,9 @@ export default function ChatInterface() {
         }
       }
 
-      utterance.onerror = () => {
+      utterance.onerror = (e) => {
+        console.error('[TTS] Web Speech error:', e)
         setIsPlayingAudio(false)
-        setIsGeneratingTTS(false)
       }
 
       window.speechSynthesis.speak(utterance)
@@ -589,6 +597,13 @@ export default function ChatInterface() {
     try {
       setIsGeneratingTTS(true)
       const preparedText = formatTextForSpeech(text)
+      
+      // On iOS, prefer Web Speech API as it's more reliable
+      if (isIOS) {
+        console.log('[TTS] iOS detected, using Web Speech API directly')
+        speakWithWebSpeech(preparedText)
+        return
+      }
       const ttsStartTime = Date.now()
       
       console.log('[TTS] Starting TTS for text length:', preparedText.length)
@@ -1723,20 +1738,20 @@ export default function ChatInterface() {
                             />
                           ),
                           
-                          // Tables - Enhanced styling for query results
+                          // Tables - Enhanced styling for query results (mobile-optimized)
                           table: ({ node, ...props }) => (
-                            <div className="overflow-x-auto my-4 rounded-lg border border-gray-200 dark:border-slate-600 shadow-sm">
-                              <table className="min-w-full border-collapse bg-white dark:bg-slate-800" {...props} />
+                            <div className="overflow-x-auto my-4 rounded-lg border border-gray-200 dark:border-slate-600 shadow-sm -mx-2 sm:mx-0" style={{ maxWidth: 'calc(100vw - 2rem)' }}>
+                              <table className="w-full border-collapse bg-white dark:bg-slate-800 text-sm" {...props} />
                             </div>
                           ),
                           thead: ({ node, ...props }) => <thead className="bg-gradient-to-r from-blue-50 to-blue-100 dark:from-slate-700 dark:to-slate-600" {...props} />,
                           tbody: ({ node, ...props }) => <tbody className="divide-y divide-gray-100 dark:divide-slate-600" {...props} />,
                           tr: ({ node, ...props }) => <tr className="border-b border-gray-100 dark:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors" {...props} />,
                           th: ({ node, ...props }) => (
-                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-slate-200 uppercase tracking-wider border-b border-gray-200 dark:border-slate-600" {...props} />
+                            <th className="px-2 py-2 sm:px-4 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 dark:text-slate-200 uppercase tracking-wider border-b border-gray-200 dark:border-slate-600 whitespace-nowrap" {...props} />
                           ),
                           td: ({ node, ...props }) => (
-                            <td className="px-4 py-3 text-sm text-gray-900 dark:text-slate-200 border-b border-gray-100 dark:border-slate-600" {...props} />
+                            <td className="px-2 py-2 sm:px-4 sm:py-3 text-xs sm:text-sm text-gray-900 dark:text-slate-200 border-b border-gray-100 dark:border-slate-600" {...props} />
                           ),
                           
                           // Blockquotes
