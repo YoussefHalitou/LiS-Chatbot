@@ -1,0 +1,198 @@
+{
+  "timestamp": "2026-01-15T02:21:44.347Z",
+  "config": {
+    "baseUrl": "http://localhost:3000",
+    "verbose": true,
+    "idFilter": "P001,P002,P003,P004,P005,P006,P007,P008,P009,P010,P011,P012,P013,P014,P015,M001,M002,M003,M004,M005",
+    "parallel": 1
+  },
+  "summary": {
+    "total": 20,
+    "passed": 0,
+    "failed": 20,
+    "duration": 2,
+    "passRate": "0.0%"
+  },
+  "results": [
+    {
+      "id": "P001",
+      "input": "Welche Projekte sind heute geplant?",
+      "passed": false,
+      "duration": 1,
+      "errors": [
+        "Request failed: fetch is not defined"
+      ]
+    },
+    {
+      "id": "P002",
+      "input": "Zeige mir alle Projekte diese Woche",
+      "passed": false,
+      "duration": 0,
+      "errors": [
+        "Request failed: fetch is not defined"
+      ]
+    },
+    {
+      "id": "P003",
+      "input": "Projekte diesen Monat",
+      "passed": false,
+      "duration": 0,
+      "errors": [
+        "Request failed: fetch is not defined"
+      ]
+    },
+    {
+      "id": "P004",
+      "input": "Welche Projekte gibt es in Düsseldorf?",
+      "passed": false,
+      "duration": 0,
+      "errors": [
+        "Request failed: fetch is not defined"
+      ]
+    },
+    {
+      "id": "P005",
+      "input": "Zeige alle Projekte mit Status \"In Planung\"",
+      "passed": false,
+      "duration": 0,
+      "errors": [
+        "Request failed: fetch is not defined"
+      ]
+    },
+    {
+      "id": "P006",
+      "input": "Welches Projekt hat die meisten Mitarbeiter?",
+      "passed": false,
+      "duration": 0,
+      "errors": [
+        "Request failed: fetch is not defined"
+      ]
+    },
+    {
+      "id": "P007",
+      "input": "Details zum Projekt Müller",
+      "passed": false,
+      "duration": 0,
+      "errors": [
+        "Request failed: fetch is not defined"
+      ]
+    },
+    {
+      "id": "P008",
+      "input": "Projekte morgen",
+      "passed": false,
+      "duration": 0,
+      "errors": [
+        "Request failed: fetch is not defined"
+      ]
+    },
+    {
+      "id": "P009",
+      "input": "Projekte übermorgen",
+      "passed": false,
+      "duration": 0,
+      "errors": [
+        "Request failed: fetch is not defined"
+      ]
+    },
+    {
+      "id": "P010",
+      "input": "Projekte letzte Woche",
+      "passed": false,
+      "duration": 0,
+      "errors": [
+        "Request failed: fetch is not defined"
+      ]
+    },
+    {
+      "id": "P011",
+      "input": "Welche Projekte sind in Erkrath geplant?",
+      "passed": false,
+      "duration": 0,
+      "errors": [
+        "Request failed: fetch is not defined"
+      ]
+    },
+    {
+      "id": "P012",
+      "input": "Alle Umzugs-Projekte diesen Monat",
+      "passed": false,
+      "duration": 0,
+      "errors": [
+        "Request failed: fetch is not defined"
+      ]
+    },
+    {
+      "id": "P013",
+      "input": "Welche Projekte haben noch keine Mitarbeiter zugewiesen?",
+      "passed": false,
+      "duration": 1,
+      "errors": [
+        "Request failed: fetch is not defined"
+      ]
+    },
+    {
+      "id": "P014",
+      "input": "Projekte mit Entrümpelung als Dienstleistung",
+      "passed": false,
+      "duration": 0,
+      "errors": [
+        "Request failed: fetch is not defined"
+      ]
+    },
+    {
+      "id": "P015",
+      "input": "Erstelle ein neues Projekt namens \"Testprojekt\" in Hamburg",
+      "passed": false,
+      "duration": 0,
+      "errors": [
+        "Request failed: fetch is not defined"
+      ]
+    },
+    {
+      "id": "M001",
+      "input": "Liste aller Mitarbeiter",
+      "passed": false,
+      "duration": 0,
+      "errors": [
+        "Request failed: fetch is not defined"
+      ]
+    },
+    {
+      "id": "M002",
+      "input": "Welche Mitarbeiter sind aktiv?",
+      "passed": false,
+      "duration": 0,
+      "errors": [
+        "Request failed: fetch is not defined"
+      ]
+    },
+    {
+      "id": "M003",
+      "input": "Zeige alle internen Mitarbeiter",
+      "passed": false,
+      "duration": 0,
+      "errors": [
+        "Request failed: fetch is not defined"
+      ]
+    },
+    {
+      "id": "M004",
+      "input": "Welche externen Mitarbeiter gibt es?",
+      "passed": false,
+      "duration": 0,
+      "errors": [
+        "Request failed: fetch is not defined"
+      ]
+    },
+    {
+      "id": "M005",
+      "input": "Wer hat den höchsten Stundensatz?",
+      "passed": false,
+      "duration": 0,
+      "errors": [
+        "Request failed: fetch is not defined"
+      ]
+    }
+  ]
+}

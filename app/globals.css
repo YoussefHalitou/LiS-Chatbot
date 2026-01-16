@@ -72,6 +72,12 @@ html {
     padding-right: env(safe-area-inset-right);
   }
 
+  /* Fix for iOS Safari viewport height - use dvh (dynamic viewport height) */
+  .h-screen-safe {
+    height: 100vh;
+    height: 100dvh;
+  }
+
   /* Prevent text size adjustment on iOS */
   @supports (-webkit-touch-callout: none) {
     input,

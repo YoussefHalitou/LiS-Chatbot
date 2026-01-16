@@ -1417,8 +1417,35 @@ export default function ChatInterface() {
     await startChatRequest(userMessage, { speakResponse: true })
   }
 
+  // Unlock audio for iOS - must be called from user gesture
+  const unlockAudioForIOS = () => {
+    // Create and play a silent audio to unlock audio playback on iOS
+    const silentAudio = new Audio()
+    silentAudio.src = 'data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdH2Onr2+wL29vb29ubi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4t7e3t7e3t7e3t7e3'
+    silentAudio.volume = 0.01
+    silentAudio.play().then(() => {
+      silentAudio.pause()
+      console.log('[iOS Audio] Audio unlocked successfully')
+    }).catch(() => {
+      console.log('[iOS Audio] Silent audio unlock failed, will try with real audio')
+    })
+    
+    // Also resume AudioContext if it exists
+    if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+      audioContextRef.current.resume().then(() => {
+        console.log('[iOS Audio] AudioContext resumed')
+      }).catch(() => {
+        console.log('[iOS Audio] AudioContext resume failed')
+      })
+    }
+  }
+
   const enterVoiceOnlyMode = async () => {
     console.log('[Voice Mode] Entering voice-only mode')
+    
+    // Unlock audio on iOS (must be done from user gesture)
+    unlockAudioForIOS()
+    
     setVoiceOnlyMode(true)
     voiceOnlyModeRef.current = true // Sync ref immediately
     // Start recording immediately
@@ -1436,6 +1463,9 @@ export default function ChatInterface() {
   }, [])
 
   const playLastResponse = () => {
+    // Unlock audio on iOS (called from button click = user gesture)
+    unlockAudioForIOS()
+    
     const lastAssistantMessage = [...messages]
       .reverse()
       .find((m) => m.role === 'assistant')
@@ -1446,7 +1476,7 @@ export default function ChatInterface() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-white safe-area-inset relative">
+    <div className="flex flex-col h-screen-safe bg-white dark:bg-slate-900 safe-area-inset relative">
       {/* Chat Sidebar */}
       {showChatSidebar && (
         <div className="fixed inset-0 z-50 flex sm:relative sm:z-auto">
