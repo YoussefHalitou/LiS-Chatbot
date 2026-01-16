@@ -12,6 +12,24 @@ export const delay = (ms: number): Promise<void> => {
 }
 
 /**
+ * Trigger haptic feedback on supported devices (iOS/Android)
+ * Uses the Vibration API for tactile feedback on button presses
+ */
+export const triggerHaptic = (style: 'light' | 'medium' | 'heavy' = 'light'): void => {
+  if (typeof navigator === 'undefined') return
+  
+  // Check for vibration support
+  if ('vibrate' in navigator) {
+    const duration = style === 'light' ? 10 : style === 'medium' ? 20 : 30
+    try {
+      navigator.vibrate(duration)
+    } catch {
+      // Silently fail if vibration is not allowed
+    }
+  }
+}
+
+/**
  * Format text for speech synthesis
  * Converts markdown-like structures to natural speech
  */

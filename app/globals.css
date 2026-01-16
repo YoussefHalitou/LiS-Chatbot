@@ -385,3 +385,151 @@ html {
   color: #94a3b8;
 }
 
+/* iOS-style slide animations for sidebar and modals */
+@keyframes slide-in-left {
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slide-out-left {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+}
+
+@keyframes slide-up-modal {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes fade-in-overlay {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.sidebar-enter {
+  animation: slide-in-left 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.sidebar-exit {
+  animation: slide-out-left 0.25s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* Bottom sheet style modal for mobile */
+@media (max-width: 640px) {
+  .modal-mobile {
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    top: auto !important;
+    max-height: 85vh !important;
+    border-radius: 20px 20px 0 0 !important;
+    animation: slide-up-modal 0.35s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+  
+  .modal-mobile::before {
+    content: '';
+    display: block;
+    width: 36px;
+    height: 5px;
+    background: rgba(128, 128, 128, 0.3);
+    border-radius: 3px;
+    margin: 8px auto 12px;
+  }
+}
+
+.modal-overlay {
+  animation: fade-in-overlay 0.2s ease-out;
+}
+
+/* Pulse animation for recording indicator */
+@keyframes pulse-recording {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 0.8;
+  }
+}
+
+.animate-pulse-recording {
+  animation: pulse-recording 1.5s ease-in-out infinite;
+}
+
+/* Bounce animation for scroll button */
+@keyframes bounce-subtle {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+.animate-bounce-subtle {
+  animation: bounce-subtle 2s ease-in-out infinite;
+}
+
+/* Voice wave animation bars */
+@keyframes voice-wave {
+  0%, 100% {
+    height: 8px;
+  }
+  50% {
+    height: 24px;
+  }
+}
+
+.voice-wave-bar {
+  animation: voice-wave 0.5s ease-in-out infinite;
+}
+
+.voice-wave-bar:nth-child(1) { animation-delay: 0s; }
+.voice-wave-bar:nth-child(2) { animation-delay: 0.1s; }
+.voice-wave-bar:nth-child(3) { animation-delay: 0.2s; }
+.voice-wave-bar:nth-child(4) { animation-delay: 0.3s; }
+.voice-wave-bar:nth-child(5) { animation-delay: 0.4s; }
+
+/* Improved touch feedback */
+@media (hover: none) and (pointer: coarse) {
+  .touch-feedback:active {
+    transform: scale(0.97);
+    opacity: 0.9;
+  }
+}
+
+/* Smooth transitions for all interactive elements */
+button, a, input, textarea, select {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Better focus states for accessibility */
+:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { Mic, MicOff, Volume2, Send, Loader2, Copy, Check, Trash2, X, MessageSquare, Plus, Menu, Search, Download, Keyboard, Moon, Sun } from 'lucide-react'
+import { Mic, MicOff, Volume2, Send, Loader2, Copy, Check, Trash2, X, MessageSquare, Plus, Menu, Search, Download, Keyboard, Moon, Sun, ChevronDown, Sparkles } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Message, Chat } from '@/types'
@@ -25,6 +25,7 @@ import {
   getMicrophoneErrorMessage,
   sanitizeInput,
   sanitizeBotResponse,
+  triggerHaptic,
 } from '@/lib/utils'
 import ConnectionStatus from '@/components/ConnectionStatus'
 import SearchModal from '@/components/SearchModal'
@@ -55,11 +56,13 @@ export default function ChatInterface() {
   const [showSearchModal, setShowSearchModal] = useState(false)
   const [showExportModal, setShowExportModal] = useState(false)
   const [showShortcutsModal, setShowShortcutsModal] = useState(false)
+  const [showScrollButton, setShowScrollButton] = useState(false)
   const { theme, toggleTheme } = useTheme()
   const abortControllerRef = useRef<AbortController | null>(null)
   const streamTimeoutRef = useRef<number | null>(null)
   const loadingBubbleTimeoutRef = useRef<number | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
@@ -163,6 +166,35 @@ export default function ChatInterface() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  // Handle scroll position tracking for scroll-to-bottom button
+  const handleMessagesScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight
+    setShowScrollButton(distanceFromBottom > 150)
+  }, [])
+
+  // Scroll to bottom function with haptic feedback
+  const scrollToBottom = useCallback(() => {
+    triggerHaptic('light')
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [])
+
+  // Quick suggestion chips for empty state
+  const quickSuggestions = useMemo(() => [
+    { text: 'Projekte heute', icon: '📋' },
+    { text: 'Mitarbeiter anzeigen', icon: '👥' },
+    { text: 'Offene Aufgaben', icon: '✅' },
+    { text: 'Termine diese Woche', icon: '📅' },
+  ], [])
+
+  // Handle quick suggestion click
+  const handleQuickSuggestion = useCallback((suggestion: string) => {
+    triggerHaptic('medium')
+    setInput(suggestion)
+    // Focus the textarea
+    textareaRef.current?.focus()
+  }, [])
 
   // Cleanup audio on unmount
   useEffect(() => {
@@ -1497,19 +1529,25 @@ export default function ChatInterface() {
         <div className="fixed inset-0 z-50 flex sm:relative sm:z-auto">
           {/* Overlay for mobile */}
           <div 
-            className="fixed inset-0 bg-black/50 sm:hidden"
-            onClick={() => setShowChatSidebar(false)}
+            className="fixed inset-0 bg-black/50 sm:hidden modal-overlay"
+            onClick={() => {
+              triggerHaptic('light')
+              setShowChatSidebar(false)
+            }}
           />
           {/* Sidebar */}
-          <div className="w-80 bg-white border-r border-gray-200 flex flex-col h-full z-50 sm:z-auto">
-            <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-900">Chats</h2>
+          <div className="w-80 bg-white dark:bg-slate-800 border-r border-gray-200 dark:border-slate-700 flex flex-col h-full z-50 sm:z-auto sidebar-enter">
+            <div className="p-4 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Chats</h2>
               <button
-                onClick={handleNewChat}
-                className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                onClick={() => {
+                  triggerHaptic('medium')
+                  handleNewChat()
+                }}
+                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 active:scale-95 transition-all touch-manipulation"
                 title="Neuer Chat"
               >
-                <Plus className="h-5 w-5 text-gray-600" />
+                <Plus className="h-5 w-5 text-gray-600 dark:text-slate-400" />
               </button>
             </div>
             <div className="flex-1 overflow-y-auto">
@@ -1661,19 +1699,37 @@ export default function ChatInterface() {
       </div>
 
       {/* Messages - Mobile optimized scrolling */}
-      <div className="flex-1 overflow-y-auto bg-gray-50 px-3 py-4 sm:px-4 sm:py-5 overscroll-contain">
+      <div 
+        ref={messagesContainerRef}
+        onScroll={handleMessagesScroll}
+        className="flex-1 overflow-y-auto bg-gray-50 dark:bg-slate-900 px-3 py-4 sm:px-4 sm:py-5 overscroll-contain"
+      >
         <div className="max-w-3xl mx-auto space-y-3 sm:space-y-4">
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full min-h-[50vh] text-center px-4 py-8">
-              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl bg-blue-50 flex items-center justify-center mb-4">
-                <Mic className="h-8 w-8 sm:h-10 sm:w-10 text-blue-600" />
+              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/30 dark:to-blue-800/30 flex items-center justify-center mb-4 shadow-sm">
+                <Sparkles className="h-8 w-8 sm:h-10 sm:w-10 text-blue-600 dark:text-blue-400" />
               </div>
-              <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-2">
+              <h2 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-slate-100 mb-2">
                 Starte ein Gespräch
               </h2>
-              <p className="text-sm sm:text-base text-gray-600 max-w-sm leading-relaxed">
+              <p className="text-sm sm:text-base text-gray-600 dark:text-slate-400 max-w-sm leading-relaxed mb-6">
                 Schreibe eine Nachricht oder nutze das Mikrofon. Ich helfe dir gerne bei Abfragen deiner Supabase-Datenbank.
               </p>
+              
+              {/* Quick Suggestion Chips */}
+              <div className="flex flex-wrap gap-2 justify-center max-w-md">
+                {quickSuggestions.map((suggestion) => (
+                  <button
+                    key={suggestion.text}
+                    onClick={() => handleQuickSuggestion(suggestion.text)}
+                    className="inline-flex items-center gap-1.5 px-4 py-2.5 bg-white dark:bg-slate-800 text-gray-700 dark:text-slate-300 rounded-full text-sm font-medium border border-gray-200 dark:border-slate-700 shadow-sm hover:bg-gray-50 dark:hover:bg-slate-700 hover:border-blue-300 dark:hover:border-blue-600 active:scale-95 transition-all touch-manipulation"
+                  >
+                    <span>{suggestion.icon}</span>
+                    <span>{suggestion.text}</span>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
@@ -1819,6 +1875,17 @@ export default function ChatInterface() {
         </div>
       </div>
 
+      {/* Scroll to Bottom Button - Floating */}
+      {showScrollButton && !voiceOnlyMode && (
+        <button
+          onClick={scrollToBottom}
+          className="fixed bottom-28 right-4 sm:bottom-24 sm:right-6 p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg active:scale-95 transition-all z-20 touch-manipulation animate-in fade-in slide-in-from-bottom-2 duration-200"
+          aria-label="Nach unten scrollen"
+        >
+          <ChevronDown className="h-5 w-5" />
+        </button>
+      )}
+
       {/* Input Area - Mobile optimized with larger touch targets */}
       {voiceOnlyMode ? (
         <div className="bg-blue-600 border-t border-blue-700 px-3 py-6 sm:px-4 sm:py-6 safe-area-inset-bottom">
@@ -1826,59 +1893,73 @@ export default function ChatInterface() {
             <div className="flex flex-col items-center gap-4">
               {isRecording ? (
                 <>
-                  {/* Audio Level Visualization */}
-                  <div className="relative w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-red-500 flex items-center justify-center shadow-lg overflow-hidden">
+                  {/* Audio Level Visualization - Improved */}
+                  <div className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-full bg-gradient-to-br from-red-500 to-red-600 flex items-center justify-center shadow-xl overflow-hidden animate-pulse-recording">
+                    {/* Ripple effect */}
                     <div 
-                      className="absolute inset-0 bg-red-600 transition-all duration-100"
+                      className="absolute inset-0 rounded-full bg-red-400 transition-transform duration-150"
                       style={{ 
-                        transform: `scale(${0.7 + audioLevel * 0.3})`,
-                        opacity: 0.8 + audioLevel * 0.2
+                        transform: `scale(${0.6 + audioLevel * 0.5})`,
+                        opacity: 0.3 + audioLevel * 0.3
                       }}
                     />
-                    <MicOff className="h-10 w-10 sm:h-12 sm:w-12 text-white relative z-10" />
-                    {/* Audio level bars */}
-                    <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 flex gap-0.5">
-                      {[0, 1, 2, 3, 4].map((i) => (
-                        <div
-                          key={i}
-                          className={`w-1 h-2 sm:h-3 rounded-full transition-all duration-100 ${
-                            audioLevel > i * 0.2 ? 'bg-white' : 'bg-white/30'
-                          }`}
-                          style={{
-                            height: `${2 + audioLevel * 8}px`,
-                          }}
-                        />
-                      ))}
-                    </div>
+                    <div 
+                      className="absolute inset-0 rounded-full bg-red-300 transition-transform duration-200"
+                      style={{ 
+                        transform: `scale(${0.4 + audioLevel * 0.3})`,
+                        opacity: 0.2 + audioLevel * 0.2
+                      }}
+                    />
+                    <MicOff className="h-12 w-12 sm:h-14 sm:w-14 text-white relative z-10 drop-shadow-lg" />
                   </div>
+                  
+                  {/* Voice Wave Animation Bars */}
+                  <div className="flex items-end justify-center gap-1 h-8">
+                    {[0, 1, 2, 3, 4].map((i) => (
+                      <div
+                        key={i}
+                        className={`w-1.5 rounded-full transition-all ${
+                          audioLevel > 0.1 ? 'voice-wave-bar bg-white' : 'bg-white/40'
+                        }`}
+                        style={{
+                          height: audioLevel > 0.1 ? `${12 + audioLevel * 16}px` : '8px',
+                          animationDelay: `${i * 0.1}s`,
+                        }}
+                      />
+                    ))}
+                  </div>
+                  
                   <div className="text-center">
-                    <p className="text-white text-lg sm:text-xl font-semibold mb-1">
-                      Ich höre zu ...
+                    <p className="text-white text-xl sm:text-2xl font-semibold mb-1">
+                      {audioLevel > 0.1 ? '🎤 Ich höre dich!' : 'Ich höre zu ...'}
                     </p>
                     <p className="text-blue-100 text-sm sm:text-base">
-                      {audioLevel > 0.1 ? 'Sprich jetzt' : 'Warte auf deine Stimme ...'}
+                      {audioLevel > 0.1 ? 'Sprich weiter...' : 'Warte auf deine Stimme ...'}
                     </p>
                     {silenceStartTime && (
-                      <p className="text-blue-200 text-xs mt-1">
-                        Automatischer Stopp in {Math.max(0, Math.ceil((APP_CONFIG.SILENCE_DURATION_MS - (Date.now() - silenceStartTime)) / 1000))}s
+                      <p className="text-blue-200 text-xs mt-2 bg-blue-700/30 px-3 py-1 rounded-full inline-block">
+                        ⏱️ Stopp in {Math.max(0, Math.ceil((APP_CONFIG.SILENCE_DURATION_MS - (Date.now() - silenceStartTime)) / 1000))}s
                       </p>
                     )}
                   </div>
                   <button
-                    onClick={stopRecording}
-                    className="px-6 py-3 bg-white text-red-600 rounded-xl font-semibold touch-manipulation active:scale-95 shadow-lg"
+                    onClick={() => {
+                      triggerHaptic('medium')
+                      stopRecording()
+                    }}
+                    className="px-8 py-3.5 bg-white text-red-600 rounded-2xl font-semibold touch-manipulation active:scale-95 shadow-lg transition-transform text-base"
                   >
                     Aufnahme stoppen
                   </button>
                 </>
               ) : isProcessingVoice || isLoading ? (
                 <>
-                  <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-blue-500 flex items-center justify-center">
-                    <Loader2 className="h-10 w-10 sm:h-12 sm:w-12 text-white animate-spin" />
+                  <div className="w-28 h-28 sm:w-32 sm:h-32 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center shadow-xl">
+                    <Loader2 className="h-12 w-12 sm:h-14 sm:w-14 text-white animate-spin drop-shadow-lg" />
                   </div>
                   <div className="text-center">
-                    <p className="text-white text-lg sm:text-xl font-semibold mb-1">
-                      {isProcessingVoice ? 'Verarbeite...' : 'Denke nach...'}
+                    <p className="text-white text-xl sm:text-2xl font-semibold mb-1">
+                      {isProcessingVoice ? '🎯 Verarbeite...' : '💭 Denke nach...'}
                     </p>
                     <p className="text-blue-100 text-sm sm:text-base">
                       {isProcessingVoice ? 'Transkribiere deine Stimme' : 'Antwort wird erstellt'}
@@ -1887,19 +1968,34 @@ export default function ChatInterface() {
                 </>
               ) : isPlayingAudio ? (
                 <>
-                  <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-green-500 flex items-center justify-center animate-pulse shadow-lg">
-                    <Volume2 className="h-10 w-10 sm:h-12 sm:w-12 text-white" />
+                  <div className="w-28 h-28 sm:w-32 sm:h-32 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center shadow-xl animate-pulse-recording">
+                    <Volume2 className="h-12 w-12 sm:h-14 sm:w-14 text-white drop-shadow-lg" />
                   </div>
+                  
+                  {/* Speaking wave animation */}
+                  <div className="flex items-center justify-center gap-1 h-8">
+                    {[0, 1, 2, 3, 4].map((i) => (
+                      <div
+                        key={i}
+                        className="w-1.5 bg-white rounded-full voice-wave-bar"
+                        style={{ animationDelay: `${i * 0.1}s` }}
+                      />
+                    ))}
+                  </div>
+                  
                   <div className="text-center">
-                    <p className="text-white text-lg sm:text-xl font-semibold mb-1">
-                      Assistent spricht ...
+                    <p className="text-white text-xl sm:text-2xl font-semibold mb-1">
+                      🔊 Assistent spricht
                     </p>
-                    <p className="text-blue-100 text-sm sm:text-base mb-3">
+                    <p className="text-blue-100 text-sm sm:text-base mb-4">
                       Höre dir die Antwort an
                     </p>
                     <button
-                      onClick={stopSpeaking}
-                      className="px-6 py-3 bg-white text-green-600 rounded-xl font-semibold touch-manipulation active:scale-95 shadow-lg"
+                      onClick={() => {
+                        triggerHaptic('medium')
+                        stopSpeaking()
+                      }}
+                      className="px-8 py-3.5 bg-white text-green-600 rounded-2xl font-semibold touch-manipulation active:scale-95 shadow-lg transition-transform text-base"
                     >
                       Unterbrechen & sprechen
                     </button>
@@ -1907,22 +2003,25 @@ export default function ChatInterface() {
                 </>
               ) : (
                 <>
-                  <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-white flex items-center justify-center shadow-lg">
-                    <Mic className="h-10 w-10 sm:h-12 sm:w-12 text-blue-600" />
+                  <div className="w-28 h-28 sm:w-32 sm:h-32 rounded-full bg-white flex items-center justify-center shadow-xl">
+                    <Mic className="h-12 w-12 sm:h-14 sm:w-14 text-blue-600 drop-shadow" />
                   </div>
                   <div className="text-center">
-                    <p className="text-white text-lg sm:text-xl font-semibold mb-1">
-                      Bereit zuzuhören
+                    <p className="text-white text-xl sm:text-2xl font-semibold mb-1">
+                      👋 Bereit zuzuhören
                     </p>
                     <p className="text-blue-100 text-sm sm:text-base">
-                      Tippe, um zu sprechen
+                      Tippe den Button, um zu sprechen
                     </p>
                   </div>
                   <button
-                    onClick={startRecording}
-                    className="px-6 py-3 bg-white text-blue-600 rounded-xl font-semibold touch-manipulation active:scale-95 shadow-lg"
+                    onClick={() => {
+                      triggerHaptic('heavy')
+                      startRecording()
+                    }}
+                    className="px-8 py-3.5 bg-white text-blue-600 rounded-2xl font-semibold touch-manipulation active:scale-95 shadow-lg transition-transform text-base"
                   >
-                    Jetzt sprechen
+                    🎤 Jetzt sprechen
                   </button>
                 </>
               )}
@@ -1964,12 +2063,19 @@ export default function ChatInterface() {
 
               <div className="flex items-center gap-2 sm:gap-1.5 flex-shrink-0">
                 <button
-                  onClick={isRecording ? stopRecording : enterVoiceOnlyMode}
+                  onClick={() => {
+                    triggerHaptic(isRecording ? 'medium' : 'heavy')
+                    if (isRecording) {
+                      stopRecording()
+                    } else {
+                      enterVoiceOnlyMode()
+                    }
+                  }}
                   disabled={isLoading}
                   className={`p-3 sm:p-2.5 rounded-xl sm:rounded-lg transition-all duration-150 touch-manipulation active:scale-95 ${
                     isRecording
                       ? 'bg-red-500 text-white animate-pulse'
-                      : 'bg-gray-100 text-gray-700 active:bg-gray-200'
+                      : 'bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-slate-300 active:bg-gray-200 dark:active:bg-slate-600'
                   } disabled:opacity-50 disabled:cursor-not-allowed min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center`}
                   title={isRecording ? 'Aufnahme stoppen' : 'Sprachmodus starten'}
                   aria-label={isRecording ? 'Aufnahme stoppen' : 'Sprachmodus starten'}
@@ -1983,12 +2089,19 @@ export default function ChatInterface() {
 
                 {messages.length > 0 && (
                   <button
-                    onClick={isPlayingAudio ? stopSpeaking : playLastResponse}
+                    onClick={() => {
+                      triggerHaptic('light')
+                      if (isPlayingAudio) {
+                        stopSpeaking()
+                      } else {
+                        playLastResponse()
+                      }
+                    }}
                     disabled={isLoading}
                     className={`p-3 sm:p-2.5 rounded-xl sm:rounded-lg transition-all duration-150 touch-manipulation active:scale-95 ${
                       isPlayingAudio
                         ? 'bg-green-500 text-white'
-                        : 'bg-gray-100 text-gray-700 active:bg-gray-200'
+                        : 'bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-slate-300 active:bg-gray-200 dark:active:bg-slate-600'
                     } disabled:opacity-50 disabled:cursor-not-allowed min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center`}
                     title={isPlayingAudio ? 'Audio stoppen' : 'Letzte Antwort anhören'}
                     aria-label={isPlayingAudio ? 'Audio stoppen' : 'Letzte Antwort anhören'}
@@ -2009,7 +2122,10 @@ export default function ChatInterface() {
                 )}
 
                 <button
-                  onClick={sendMessage}
+                  onClick={() => {
+                    triggerHaptic('medium')
+                    sendMessage()
+                  }}
                   disabled={!input.trim() || isLoading}
                   className="p-3 sm:p-2.5 bg-blue-600 active:bg-blue-700 text-white rounded-xl sm:rounded-lg transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation active:scale-95 shadow-sm active:shadow min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center"
                   title="Nachricht senden"
