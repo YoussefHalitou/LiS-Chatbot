@@ -15,6 +15,7 @@ export interface Message {
     }
   }>
   tool_call_id?: string
+  reactions?: { [emoji: string]: number }
 }
 
 export interface ChatRequest {
@@ -28,6 +29,9 @@ export interface Chat {
   createdAt: Date
   updatedAt: Date
   messageCount: number
+  lastMessage?: string
+  isPinned?: boolean
+  icon?: string
 }
 
 export interface STTResponse {

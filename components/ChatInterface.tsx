@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { Mic, MicOff, Volume2, Send, Loader2, Copy, Check, Trash2, X, MessageSquare, Plus, Menu, Search, Download, Keyboard, Moon, Sun, ChevronDown, Sparkles, RefreshCw, Share2, User, LogOut, Pin, RotateCcw } from 'lucide-react'
+import { Mic, MicOff, Volume2, Send, Loader2, Copy, Check, Trash2, X, MessageSquare, Plus, Menu, Search, Download, Keyboard, Moon, Sun, ChevronDown, Sparkles, RefreshCw, Share2, User, LogOut, Pin, RotateCcw, Archive } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Message, Chat } from '@/types'
@@ -76,6 +76,12 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
   const [swipingMessageIndex, setSwipingMessageIndex] = useState<number | null>(null)
   const [swipeOffset, setSwipeOffset] = useState(0)
   const [pinnedMessages, setPinnedMessages] = useState<Set<number>>(new Set())
+  const [pinnedChats, setPinnedChats] = useState<Set<string>>(new Set())
+  const [chatSearchQuery, setChatSearchQuery] = useState('')
+  const [swipingChatId, setSwipingChatId] = useState<string | null>(null)
+  const [chatSwipeOffset, setChatSwipeOffset] = useState(0)
+  const [showSmartReplies, setShowSmartReplies] = useState(true)
+  const [reactionPicker, setReactionPicker] = useState<{ messageIndex: number; x: number; y: number } | null>(null)
   const { theme, toggleTheme } = useTheme()
   const abortControllerRef = useRef<AbortController | null>(null)
   const streamTimeoutRef = useRef<number | null>(null)
@@ -97,6 +103,8 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
   const touchStartY = useRef<number>(0)
   const longPressTimer = useRef<NodeJS.Timeout | null>(null)
   const swipeHapticTriggered = useRef<boolean>(false)
+  const chatTouchStartX = useRef<number>(0)
+  const chatTouchStartY = useRef<number>(0)
   const streamingDisabled = useMemo(
     () =>
       process.env.NEXT_PUBLIC_DISABLE_STREAMING === 'true' ||
@@ -114,7 +122,19 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
       
       // Load chat list (Supabase if authenticated, localStorage otherwise)
       const loadedChats = await getAllChats()
-      setChats(loadedChats)
+      
+      // Enhance chats with last message preview
+      const enhancedChats = await Promise.all(
+        loadedChats.map(async (chat) => {
+          const messages = await getChatMessages(chat.id)
+          const lastMessage = messages.length > 0 
+            ? messages[messages.length - 1].content.substring(0, 60) + (messages[messages.length - 1].content.length > 60 ? '...' : '')
+            : ''
+          return { ...chat, lastMessage }
+        })
+      )
+      
+      setChats(enhancedChats)
       
       // Load current chat
       const currentId = getCurrentChatId()
@@ -239,6 +259,205 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
       textareaRef.current?.dispatchEvent(event)
     }, 100)
   }, [])
+
+  // Toggle chat pin
+  const toggleChatPin = useCallback((chatId: string) => {
+    setPinnedChats(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(chatId)) {
+        newSet.delete(chatId)
+        showToast('Chat nicht mehr angepinnt', 'success', 2000)
+      } else {
+        newSet.add(chatId)
+        showToast('Chat angepinnt', 'success', 2000)
+      }
+      return newSet
+    })
+    triggerHaptic('light')
+  }, [])
+
+  // Get chat icon based on content/title
+  const getChatIcon = useCallback((chat: Chat): string => {
+    const title = chat.title.toLowerCase()
+    if (title.includes('projekt')) return '📋'
+    if (title.includes('mitarbeiter') || title.includes('team')) return '👥'
+    if (title.includes('termin') || title.includes('kalender')) return '📅'
+    if (title.includes('aufgabe') || title.includes('task')) return '✅'
+    if (title.includes('bericht') || title.includes('report')) return '📊'
+    return '💬'
+  }, [])
+
+  // Filter and sort chats
+  const filteredAndSortedChats = useMemo(() => {
+    let filtered = chats
+    
+    // Apply search filter
+    if (chatSearchQuery.trim()) {
+      const query = chatSearchQuery.toLowerCase()
+      filtered = chats.filter(chat => 
+        chat.title.toLowerCase().includes(query) ||
+        chat.lastMessage?.toLowerCase().includes(query)
+      )
+    }
+    
+    // Sort: pinned first, then by updatedAt
+    return filtered.sort((a, b) => {
+      const aPin = pinnedChats.has(a.id)
+      const bPin = pinnedChats.has(b.id)
+      
+      if (aPin && !bPin) return -1
+      if (!aPin && bPin) return 1
+      
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    })
+  }, [chats, chatSearchQuery, pinnedChats])
+
+  // Chat swipe handlers
+  const handleChatTouchStart = useCallback((e: React.TouchEvent, chatId: string) => {
+    chatTouchStartX.current = e.touches[0].clientX
+    chatTouchStartY.current = e.touches[0].clientY
+  }, [])
+
+  const handleChatTouchMove = useCallback((e: React.TouchEvent, chatId: string) => {
+    const deltaX = e.touches[0].clientX - chatTouchStartX.current
+    const deltaY = Math.abs(e.touches[0].clientY - chatTouchStartY.current)
+    
+    // Only swipe horizontally
+    if (deltaY < 30 && Math.abs(deltaX) > 10) {
+      setSwipingChatId(chatId)
+      // Only allow left swipe (negative deltaX)
+      setChatSwipeOffset(Math.max(-100, Math.min(0, deltaX)))
+    }
+  }, [])
+
+  const handleChatTouchEnd = useCallback((chatId: string) => {
+    if (swipingChatId === chatId && chatSwipeOffset < -60) {
+      // Trigger delete
+      triggerHaptic('medium')
+      handleDeleteChat(chatId)
+    }
+    
+    setSwipingChatId(null)
+    setChatSwipeOffset(0)
+  }, [swipingChatId, chatSwipeOffset])
+
+  // Generate smart reply suggestions based on last bot message
+  const smartReplySuggestions = useMemo(() => {
+    if (messages.length === 0 || !showSmartReplies) return []
+    
+    const lastBotMessage = [...messages].reverse().find(m => m.role === 'assistant')
+    if (!lastBotMessage) return []
+    
+    const content = lastBotMessage.content.toLowerCase()
+    const suggestions: string[] = []
+    
+    // Question detection
+    if (content.includes('?')) {
+      if (content.includes('möchtest') || content.includes('willst') || content.includes('soll ich')) {
+        suggestions.push('Ja, bitte', 'Nein, danke')
+      } else if (content.includes('weitere') || content.includes('mehr')) {
+        suggestions.push('Ja, mehr Details', 'Nein, das reicht')
+      } else {
+        suggestions.push('Ja', 'Nein', 'Mehr Informationen')
+      }
+    }
+    
+    // List/Options detection
+    if (content.includes('wählen') || content.includes('auswählen') || content.includes('option')) {
+      suggestions.push('Option 1', 'Option 2', 'Zeige alle')
+    }
+    
+    // Data query response
+    if (content.includes('projekt') || content.includes('mitarbeiter') || content.includes('termin')) {
+      if (!suggestions.length) {
+        suggestions.push('Mehr Details', 'Nächster', 'Danke')
+      }
+    }
+    
+    // Success/completion messages
+    if (content.includes('fertig') || content.includes('erledigt') || content.includes('gespeichert')) {
+      suggestions.push('Danke', 'Weiter', 'Neuer Chat')
+    }
+    
+    // Error/problem messages
+    if (content.includes('fehler') || content.includes('problem') || content.includes('nicht gefunden')) {
+      suggestions.push('Nochmal versuchen', 'Anders formulieren', 'Hilfe')
+    }
+    
+    // Default contextual suggestions
+    if (suggestions.length === 0) {
+      suggestions.push('Verstanden', 'Mehr Details', 'Danke')
+    }
+    
+    // Return max 3 suggestions
+    return suggestions.slice(0, 3)
+  }, [messages, showSmartReplies])
+
+  // Handle smart reply selection
+  const handleSmartReplyClick = useCallback((reply: string) => {
+    triggerHaptic('light')
+    setInput(reply)
+    setShowSmartReplies(false)
+    // Auto-focus the textarea
+    setTimeout(() => textareaRef.current?.focus(), 50)
+  }, [])
+
+  // Reset smart replies when new assistant message arrives
+  useEffect(() => {
+    if (messages.length > 0) {
+      const lastMessage = messages[messages.length - 1]
+      if (lastMessage.role === 'assistant' && !showSmartReplies) {
+        setShowSmartReplies(true)
+      }
+    }
+  }, [messages])
+
+  // Available reaction emojis
+  const reactionEmojis = ['👍', '❤️', '😄', '🤔', '🎉', '👏']
+
+  // Add reaction to message
+  const handleAddReaction = useCallback((messageIndex: number, emoji: string) => {
+    triggerHaptic('light')
+    setMessages(prev => {
+      const newMessages = [...prev]
+      const message = newMessages[messageIndex]
+      
+      if (!message.reactions) {
+        message.reactions = {}
+      }
+      
+      message.reactions[emoji] = (message.reactions[emoji] || 0) + 1
+      
+      return newMessages
+    })
+    setReactionPicker(null)
+    showToast('Reaktion hinzugefügt', 'success', 1500)
+  }, [])
+
+  // Show reaction picker on double-tap
+  const handleMessageDoubleTap = useCallback((e: React.TouchEvent, index: number) => {
+    e.preventDefault()
+    const touch = e.touches[0] || e.changedTouches[0]
+    setReactionPicker({
+      messageIndex: index,
+      x: touch.clientX,
+      y: touch.clientY
+    })
+    triggerHaptic('medium')
+  }, [])
+
+  // Close reaction picker
+  useEffect(() => {
+    const handleClickOutside = () => setReactionPicker(null)
+    if (reactionPicker) {
+      document.addEventListener('click', handleClickOutside)
+      document.addEventListener('touchstart', handleClickOutside)
+      return () => {
+        document.removeEventListener('click', handleClickOutside)
+        document.removeEventListener('touchstart', handleClickOutside)
+      }
+    }
+  }, [reactionPicker])
 
   // Helper function to format date for time separators
   const formatDateSeparator = useCallback((date: Date): string => {
@@ -1810,68 +2029,172 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
             }}
           />
           {/* Sidebar */}
-          <div className="w-80 bg-white dark:bg-slate-800 border-r border-gray-200 dark:border-slate-700 flex flex-col h-full z-50 sm:z-auto sidebar-enter">
-            <div className="p-4 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Chats</h2>
-              <button
-                onClick={() => {
-                  triggerHaptic('medium')
-                  handleNewChat()
-                }}
-                className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 active:scale-95 transition-all touch-manipulation"
-                title="Neuer Chat"
-              >
-                <Plus className="h-5 w-5 text-gray-600 dark:text-slate-400" />
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              {chats.length === 0 ? (
-                <div className="p-4 text-center text-gray-500">
-                  <p>Noch keine Chats</p>
+          <div className="w-80 sm:w-96 bg-white dark:bg-slate-800 border-r border-gray-200 dark:border-slate-700 flex flex-col h-full z-50 sm:z-auto sidebar-enter">
+            {/* Header */}
+            <div className="p-4 border-b border-gray-200 dark:border-slate-700">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Chats</h2>
+                <button
+                  onClick={() => {
+                    triggerHaptic('medium')
+                    handleNewChat()
+                  }}
+                  className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 active:scale-95 transition-all touch-manipulation"
+                  title="Neuer Chat"
+                >
+                  <Plus className="h-5 w-5 text-gray-600 dark:text-slate-400" />
+                </button>
+              </div>
+              
+              {/* Search Bar */}
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Chats durchsuchen..."
+                  value={chatSearchQuery}
+                  onChange={(e) => setChatSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 text-sm bg-gray-100 dark:bg-slate-700 border border-transparent rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white dark:focus:bg-slate-600 transition-colors"
+                />
+                {chatSearchQuery && (
                   <button
-                    onClick={handleNewChat}
-                    className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    onClick={() => setChatSearchQuery('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-200 dark:hover:bg-slate-600 rounded"
                   >
-                    Ersten Chat erstellen
+                    <X className="h-3 w-3 text-gray-500" />
                   </button>
+                )}
+              </div>
+            </div>
+
+            {/* Chat List */}
+            <div className="flex-1 overflow-y-auto">
+              {filteredAndSortedChats.length === 0 ? (
+                <div className="p-4 text-center text-gray-500">
+                  {chatSearchQuery ? (
+                    <>
+                      <Search className="h-12 w-12 mx-auto mb-2 text-gray-400" />
+                      <p className="text-sm">Keine Chats gefunden</p>
+                      <p className="text-xs mt-1">Versuche es mit anderen Suchbegriffen</p>
+                    </>
+                  ) : (
+                    <>
+                      <MessageSquare className="h-12 w-12 mx-auto mb-2 text-gray-400" />
+                      <p>Noch keine Chats</p>
+                      <button
+                        onClick={handleNewChat}
+                        className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                      >
+                        Ersten Chat erstellen
+                      </button>
+                    </>
+                  )}
                 </div>
               ) : (
                 <div className="p-2">
-                  {chats.map((chat) => (
-                    <div
-                      key={chat.id}
-                      onClick={() => handleSwitchChat(chat.id)}
-                      className={`p-3 rounded-lg cursor-pointer transition-colors mb-2 group ${
-                        chat.id === currentChatId
-                          ? 'bg-blue-50 border border-blue-200'
-                          : 'hover:bg-gray-50 border border-transparent'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <p className={`font-medium truncate ${
-                            chat.id === currentChatId ? 'text-blue-900' : 'text-gray-900'
-                          }`}>
-                            {chat.title}
-                          </p>
-                          <p className="text-xs text-gray-500 mt-1">
-                            {chat.messageCount} Nachrichten • {new Date(chat.updatedAt).toLocaleDateString('de-DE', {
-                              day: '2-digit',
-                              month: '2-digit',
-                              year: 'numeric',
-                            })}
-                          </p>
+                  {filteredAndSortedChats.map((chat) => {
+                    const isPinned = pinnedChats.has(chat.id)
+                    const isSwiping = swipingChatId === chat.id
+                    const icon = getChatIcon(chat)
+                    
+                    return (
+                      <div
+                        key={chat.id}
+                        className="relative mb-2 overflow-hidden rounded-lg"
+                        onTouchStart={(e) => handleChatTouchStart(e, chat.id)}
+                        onTouchMove={(e) => handleChatTouchMove(e, chat.id)}
+                        onTouchEnd={() => handleChatTouchEnd(chat.id)}
+                      >
+                        {/* Swipe Delete Background */}
+                        <div className={`absolute inset-0 bg-red-500 flex items-center justify-end pr-4 transition-opacity ${
+                          isSwiping && chatSwipeOffset < -30 ? 'opacity-100' : 'opacity-0'
+                        }`}>
+                          <Trash2 className="h-5 w-5 text-white" />
                         </div>
-                        <button
-                          onClick={(e) => handleDeleteChat(chat.id, e)}
-                          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-red-100 text-red-600 transition-all"
-                          title="Chat löschen"
+
+                        {/* Chat Item */}
+                        <div
+                          onClick={() => handleSwitchChat(chat.id)}
+                          className={`relative bg-white dark:bg-slate-800 p-3 cursor-pointer transition-all group border ${
+                            chat.id === currentChatId
+                              ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700'
+                              : 'hover:bg-gray-50 dark:hover:bg-slate-700/50 border-transparent'
+                          }`}
+                          style={{
+                            transform: isSwiping ? `translateX(${chatSwipeOffset}px)` : undefined,
+                            transition: isSwiping ? 'none' : 'transform 0.2s ease-out'
+                          }}
                         >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                          <div className="flex items-start gap-3">
+                            {/* Chat Icon */}
+                            <div className={`flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center text-xl ${
+                              chat.id === currentChatId
+                                ? 'bg-blue-100 dark:bg-blue-800/40'
+                                : 'bg-gray-100 dark:bg-slate-700'
+                            }`}>
+                              {icon}
+                            </div>
+
+                            {/* Chat Info */}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-start justify-between gap-2 mb-1">
+                                <p className={`font-medium truncate flex items-center gap-1.5 ${
+                                  chat.id === currentChatId 
+                                    ? 'text-blue-900 dark:text-blue-100' 
+                                    : 'text-gray-900 dark:text-slate-100'
+                                }`}>
+                                  {isPinned && (
+                                    <Pin className="h-3 w-3 text-purple-500 fill-current flex-shrink-0" />
+                                  )}
+                                  <span className="truncate">{chat.title}</span>
+                                </p>
+                                <span className="text-[10px] text-gray-500 dark:text-slate-400 flex-shrink-0">
+                                  {new Date(chat.updatedAt).toLocaleDateString('de-DE', {
+                                    day: '2-digit',
+                                    month: '2-digit',
+                                  })}
+                                </span>
+                              </div>
+
+                              {/* Last Message Preview */}
+                              {chat.lastMessage && (
+                                <p className="text-xs text-gray-500 dark:text-slate-400 truncate mb-1">
+                                  {chat.lastMessage}
+                                </p>
+                              )}
+
+                              <p className="text-[10px] text-gray-400 dark:text-slate-500">
+                                {chat.messageCount} {chat.messageCount === 1 ? 'Nachricht' : 'Nachrichten'}
+                              </p>
+                            </div>
+
+                            {/* Actions */}
+                            <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  toggleChatPin(chat.id)
+                                }}
+                                className={`p-1.5 rounded hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors ${
+                                  isPinned ? 'text-purple-600 dark:text-purple-400' : 'text-gray-400'
+                                }`}
+                                title={isPinned ? 'Nicht mehr anpinnen' : 'Anpinnen'}
+                              >
+                                <Pin className={`h-3.5 w-3.5 ${isPinned ? 'fill-current' : ''}`} />
+                              </button>
+                              <button
+                                onClick={(e) => handleDeleteChat(chat.id, e)}
+                                className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                                title="Chat löschen"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -2225,6 +2548,42 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
                     )}
                   </div>
                 )}
+
+                {/* Message Reactions */}
+                {message.reactions && Object.keys(message.reactions).length > 0 && (
+                  <div className={`flex items-center gap-1 mt-2 flex-wrap ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    {Object.entries(message.reactions).map(([emoji, count]) => (
+                      <button
+                        key={emoji}
+                        onClick={() => handleAddReaction(index, emoji)}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 dark:bg-slate-700 rounded-full text-xs hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors active:scale-95"
+                      >
+                        <span>{emoji}</span>
+                        <span className="font-medium text-gray-600 dark:text-gray-300">{count}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Add Reaction Button */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    setReactionPicker({
+                      messageIndex: index,
+                      x: rect.left,
+                      y: rect.top - 10
+                    })
+                    triggerHaptic('light')
+                  }}
+                  className={`absolute -bottom-2 ${
+                    message.role === 'user' ? 'right-2' : 'left-2'
+                  } opacity-0 group-hover:opacity-100 w-6 h-6 rounded-full bg-white dark:bg-slate-700 border-2 border-gray-200 dark:border-slate-600 flex items-center justify-center hover:scale-110 transition-all shadow-md`}
+                  title="Reaktion hinzufügen"
+                >
+                  <span className="text-xs">😊</span>
+                </button>
                 </div>
                 
                 {/* User Avatar - only show for user messages */}
@@ -2442,6 +2801,29 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
                 <span className="text-red-500 dark:text-red-400 text-xs animate-pulse">
                   ● REC
                 </span>
+              </div>
+            )}
+
+            {/* Smart Reply Suggestions */}
+            {smartReplySuggestions.length > 0 && !isRecording && messages.length > 0 && (
+              <div className="mb-3 flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                <Sparkles className="h-4 w-4 text-purple-500 dark:text-purple-400 flex-shrink-0" />
+                {smartReplySuggestions.map((suggestion, index) => (
+                  <button
+                    key={index}
+                    onClick={() => handleSmartReplyClick(suggestion)}
+                    className="flex-shrink-0 px-3 py-1.5 bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 text-purple-700 dark:text-purple-300 rounded-full text-sm font-medium border border-purple-200 dark:border-purple-700 hover:from-purple-100 hover:to-blue-100 dark:hover:from-purple-900/30 dark:hover:to-blue-900/30 active:scale-95 transition-all touch-manipulation shadow-sm"
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setShowSmartReplies(false)}
+                  className="flex-shrink-0 p-1 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
+                  title="Vorschläge ausblenden"
+                >
+                  <X className="h-3 w-3 text-gray-400" />
+                </button>
               </div>
             )}
             
@@ -2736,6 +3118,39 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
                   Abbrechen
                 </button>
               </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Reaction Picker */}
+      {reactionPicker && (
+        <>
+          {/* Backdrop */}
+          <div 
+            className="fixed inset-0 z-40"
+            onClick={() => setReactionPicker(null)}
+          />
+          
+          {/* Picker */}
+          <div 
+            className="fixed z-50 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-slate-700 p-2 animate-scale-up"
+            style={{
+              left: Math.min(reactionPicker.x, window.innerWidth - 250),
+              top: Math.max(50, reactionPicker.y - 60),
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex gap-1">
+              {reactionEmojis.map((emoji) => (
+                <button
+                  key={emoji}
+                  onClick={() => handleAddReaction(reactionPicker.messageIndex, emoji)}
+                  className="w-10 h-10 rounded-xl hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center justify-center text-2xl transition-all active:scale-90"
+                >
+                  {emoji}
+                </button>
+              ))}
             </div>
           </div>
         </>
