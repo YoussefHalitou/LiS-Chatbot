@@ -1310,7 +1310,7 @@ export default function ChatInterface() {
       setIsLoading(false)
       setIsQueryingDatabase(false)
     }
-  }, [messages, currentChatId, streamingDisabled, readSseStream, clearLoadingBubbleTimeout, clearStreamTimeout])
+  }, [messages, currentChatId, streamingDisabled, readSseStream, clearLoadingBubbleTimeout, clearStreamTimeout, speakText])
 
   const sendMessage = useCallback(async () => {
     // #region agent log
