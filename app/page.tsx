@@ -75,38 +75,17 @@ export default function Home() {
           </div>
         </div>
       ) : (
-        <div className="relative">
-          {/* Auth button in top right corner */}
-          <div className="absolute top-4 right-4 z-50">
-            {user ? (
-              <div className="flex items-center gap-3 bg-white dark:bg-gray-800 rounded-lg shadow-lg px-4 py-2">
-                <span className="text-sm text-gray-600 dark:text-gray-400">
-                  {user.email}
-                </span>
-                <button
-                  onClick={async () => {
-                    const { supabase } = await import('@/lib/supabase')
-                    if (supabase) {
-                      await supabase.auth.signOut()
-                      setUser(null)
-                    }
-                  }}
-                  className="text-sm text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
-                >
-                  Abmelden
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => setShowAuth(true)}
-                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors shadow-lg"
-              >
-                Anmelden
-              </button>
-            )}
-          </div>
-          <ChatInterface />
-        </div>
+        <ChatInterface 
+          user={user}
+          onLoginClick={() => setShowAuth(true)}
+          onLogout={async () => {
+            const { supabase } = await import('@/lib/supabase')
+            if (supabase) {
+              await supabase.auth.signOut()
+              setUser(null)
+            }
+          }}
+        />
       )}
     </div>
   )
