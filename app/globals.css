@@ -443,32 +443,159 @@ html {
   color: #e2e8f0;
 }
 
-/* Lists */
+/* Lists - Enhanced styling */
 .markdown-content ul,
 .markdown-content ol {
-  margin: 0.5rem 0;
-  padding-left: 1.5rem;
+  margin: 0.75rem 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.markdown-content ul {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 .markdown-content ol {
-  list-style-type: decimal;
-}
-
-.markdown-content ol li::marker {
-  font-variant-numeric: tabular-nums;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  counter-reset: list-counter;
 }
 
 .markdown-content li {
-  margin: 0.25rem 0;
+  position: relative;
+  padding-left: 1.75rem;
   word-break: normal;
   overflow-wrap: break-word;
+  line-height: 1.65;
 }
 
+/* Custom bullet points for unordered lists */
+.markdown-content ul > li::before {
+  content: '';
+  position: absolute;
+  left: 0.5rem;
+  top: 0.6em;
+  width: 6px;
+  height: 6px;
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  border-radius: 50%;
+}
+
+/* Custom numbers for ordered lists */
+.markdown-content ol > li {
+  counter-increment: list-counter;
+}
+
+.markdown-content ol > li::before {
+  content: counter(list-counter);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1.5rem;
+  height: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 50%;
+}
+
+/* Nested lists */
 .markdown-content ul ul,
 .markdown-content ul ol,
 .markdown-content ol ul,
 .markdown-content ol ol {
-  margin: 0.25rem 0;
+  margin: 0.5rem 0;
+  margin-left: 0.5rem;
+}
+
+/* Nested unordered list bullets */
+.markdown-content ul ul > li::before {
+  background: #94a3b8;
+  width: 5px;
+  height: 5px;
+}
+
+.markdown-content ul ul ul > li::before {
+  background: transparent;
+  border: 1.5px solid #94a3b8;
+}
+
+/* Nested ordered list numbers */
+.markdown-content ol ol > li::before {
+  background: #64748b;
+  font-size: 0.65rem;
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+/* Dark mode adjustments */
+.dark .markdown-content ul > li::before {
+  background: linear-gradient(135deg, #60a5fa, #818cf8);
+}
+
+.dark .markdown-content ol > li::before {
+  background: linear-gradient(135deg, #60a5fa, #818cf8);
+}
+
+.dark .markdown-content ul ul > li::before {
+  background: #64748b;
+}
+
+.dark .markdown-content ul ul ul > li::before {
+  background: transparent;
+  border-color: #64748b;
+}
+
+.dark .markdown-content ol ol > li::before {
+  background: #475569;
+}
+
+/* Custom list item styling for ReactMarkdown inline */
+.list-item-custom::before {
+  content: '';
+  position: absolute;
+  left: 0.5rem;
+  top: 0.55em;
+  width: 6px;
+  height: 6px;
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  border-radius: 50%;
+}
+
+.dark .list-item-custom::before {
+  background: linear-gradient(135deg, #60a5fa, #818cf8);
+}
+
+/* Ordered list counter styling via parent */
+ol .list-item-custom {
+  counter-increment: list-counter;
+}
+
+ol .list-item-custom::before {
+  content: counter(list-counter);
+  width: 1.4rem;
+  height: 1.4rem;
+  left: 0;
+  top: 0.1em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-radius: 50%;
+}
+
+.dark ol .list-item-custom::before {
+  background: linear-gradient(135deg, #60a5fa, #818cf8);
 }
 
 /* Prevent numbers from breaking */

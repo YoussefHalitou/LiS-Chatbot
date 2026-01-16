@@ -2456,84 +2456,138 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
                   )}
                   
                   <div
-                    className={`max-w-[85%] sm:max-w-[70%] rounded-2xl sm:rounded-xl px-4 py-3 sm:px-4 sm:py-2.5 relative ${
+                    className={`max-w-[90%] sm:max-w-[75%] rounded-2xl relative ${
                       message.role === 'user'
-                        ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-br-sm shadow-md message-bubble-user'
-                        : 'bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 rounded-bl-sm border border-gray-200 dark:border-slate-700 shadow-sm message-bubble-bot'
+                        ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-br-md shadow-lg px-4 py-3 message-bubble-user'
+                        : 'bg-white dark:bg-slate-800/95 text-gray-900 dark:text-slate-100 rounded-bl-md border border-gray-100 dark:border-slate-700/80 shadow-md px-4 py-4 sm:px-5 message-bubble-bot'
                     }`}
                   >
-                  <div className="flex items-start justify-between gap-2.5">
-                    <div className="text-[15px] sm:text-[15px] leading-relaxed flex-1 overflow-hidden" style={{ wordBreak: 'normal', overflowWrap: 'break-word' }}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className={`flex-1 overflow-hidden ${message.role === 'user' ? 'text-[15px] leading-relaxed' : 'text-[15px] leading-[1.7]'}`} style={{ wordBreak: 'normal', overflowWrap: 'break-word' }}>
                     {message.role === 'user' ? (
                       <p className="whitespace-pre-wrap" style={{ wordBreak: 'normal', overflowWrap: 'break-word' }}>{message.content}</p>
                     ) : (
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
                         components={{
-                          // Headings
-                          h1: ({ node, ...props }) => <h1 className="text-xl font-bold mt-4 mb-2 text-gray-900 dark:text-slate-100" {...props} />,
-                          h2: ({ node, ...props }) => <h2 className="text-lg font-bold mt-3 mb-2 text-gray-900 dark:text-slate-100" {...props} />,
-                          h3: ({ node, ...props }) => <h3 className="text-base font-bold mt-2 mb-1 text-gray-900 dark:text-slate-100" {...props} />,
+                          // Headings - with visual hierarchy
+                          h1: ({ node, ...props }) => (
+                            <h1 className="text-xl font-bold mt-5 mb-3 text-gray-900 dark:text-slate-100 pb-2 border-b border-gray-200 dark:border-slate-700" {...props} />
+                          ),
+                          h2: ({ node, ...props }) => (
+                            <h2 className="text-lg font-bold mt-4 mb-2 text-gray-900 dark:text-slate-100 flex items-center gap-2" {...props} />
+                          ),
+                          h3: ({ node, ...props }) => (
+                            <h3 className="text-base font-semibold mt-3 mb-2 text-gray-800 dark:text-slate-200" {...props} />
+                          ),
+                          h4: ({ node, ...props }) => (
+                            <h4 className="text-sm font-semibold mt-2 mb-1 text-gray-700 dark:text-slate-300" {...props} />
+                          ),
                           
-                          // Paragraphs
-                          p: ({ node, ...props }) => <p className="mb-3 last:mb-0 text-gray-900 dark:text-slate-200 leading-relaxed" {...props} />,
+                          // Paragraphs - improved spacing
+                          p: ({ node, ...props }) => (
+                            <p className="mb-3 last:mb-0 text-gray-800 dark:text-slate-200 leading-[1.7]" {...props} />
+                          ),
                           
-                          // Lists - improved spacing with proper number handling
-                          ul: ({ node, ...props }) => <ul className="list-disc list-outside ml-5 mb-4 space-y-1.5" {...props} />,
-                          ol: ({ node, ...props }) => <ol className="list-decimal list-outside ml-6 mb-4 space-y-1.5" style={{ listStyleType: 'decimal' }} {...props} />,
-                          li: ({ node, ...props }) => <li className="pl-1 text-gray-900 dark:text-slate-200 leading-relaxed" style={{ wordBreak: 'normal', overflowWrap: 'break-word' }} {...props} />,
+                          // Unordered Lists - custom bullet styling
+                          ul: ({ node, ...props }) => (
+                            <ul className="my-3 space-y-2 pl-0 list-none" {...props} />
+                          ),
                           
-                          // Code
+                          // Ordered Lists - enhanced number styling
+                          ol: ({ node, ...props }) => (
+                            <ol className="my-3 space-y-2 pl-0 list-none counter-reset-list" style={{ counterReset: 'list-counter' }} {...props} />
+                          ),
+                          
+                          // List Items - card-like styling with icons
+                          li: ({ node, ordered, ...props }: any) => {
+                            // Check if this is inside an ordered list by looking at parent
+                            const isOrdered = node?.position?.start?.column === 1 && /^\d+\./.test(String(props.children?.[0] || '').trim().split(' ')[0] || '');
+                            return (
+                              <li 
+                                className="relative pl-6 text-gray-800 dark:text-slate-200 leading-[1.65] py-0.5 list-item-custom"
+                                style={{ wordBreak: 'normal', overflowWrap: 'break-word' }}
+                                {...props} 
+                              />
+                            );
+                          },
+                          
+                          // Code - enhanced with better contrast
                           code: ({ node, inline, className, children, ...props }: any) => {
                             return inline ? (
-                              <code className="bg-gray-100 dark:bg-slate-700 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded text-sm font-mono border border-gray-200 dark:border-slate-600" {...props}>
+                              <code 
+                                className="bg-blue-50 dark:bg-slate-700 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded text-[0.9em] font-mono border border-blue-100 dark:border-slate-600" 
+                                {...props}
+                              >
                                 {children}
                               </code>
                             ) : (
-                              <code className="block bg-gray-50 dark:bg-slate-800 text-gray-800 dark:text-slate-200 p-3 rounded-lg text-sm font-mono overflow-x-auto my-3 border border-gray-200 dark:border-slate-600 shadow-sm" {...props}>
+                              <code 
+                                className="block bg-gray-900 dark:bg-slate-950 text-gray-100 dark:text-slate-200 p-4 rounded-xl text-sm font-mono overflow-x-auto my-4 shadow-lg border border-gray-700 dark:border-slate-700" 
+                                {...props}
+                              >
                                 {children}
                               </code>
                             )
                           },
-                          pre: ({ node, ...props }) => <pre className="my-3" {...props} />,
+                          pre: ({ node, ...props }) => <pre className="my-4" {...props} />,
                           
-                          // Links
+                          // Links - more visible
                           a: ({ node, ...props }) => (
                             <a 
-                              className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline transition-colors" 
+                              className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 underline decoration-blue-300 dark:decoration-blue-600 underline-offset-2 transition-colors font-medium" 
                               target="_blank" 
                               rel="noopener noreferrer" 
                               {...props} 
                             />
                           ),
                           
-                          // Tables - Enhanced styling for query results (mobile-optimized)
+                          // Tables - Enhanced with better mobile support
                           table: ({ node, ...props }) => (
-                            <div className="overflow-x-auto my-4 rounded-lg border border-gray-200 dark:border-slate-600 shadow-sm -mx-2 sm:mx-0" style={{ maxWidth: 'calc(100vw - 2rem)' }}>
-                              <table className="w-full border-collapse bg-white dark:bg-slate-800 text-sm" {...props} />
+                            <div className="overflow-x-auto my-4 rounded-xl border border-gray-200 dark:border-slate-600 shadow-md -mx-2 sm:mx-0 bg-white dark:bg-slate-800" style={{ maxWidth: 'calc(100vw - 2rem)' }}>
+                              <table className="w-full border-collapse text-sm min-w-full" {...props} />
                             </div>
                           ),
-                          thead: ({ node, ...props }) => <thead className="bg-gradient-to-r from-blue-50 to-blue-100 dark:from-slate-700 dark:to-slate-600" {...props} />,
-                          tbody: ({ node, ...props }) => <tbody className="divide-y divide-gray-100 dark:divide-slate-600" {...props} />,
-                          tr: ({ node, ...props }) => <tr className="border-b border-gray-100 dark:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors" {...props} />,
+                          thead: ({ node, ...props }) => (
+                            <thead className="bg-gradient-to-r from-gray-50 to-gray-100 dark:from-slate-700 dark:to-slate-600 sticky top-0" {...props} />
+                          ),
+                          tbody: ({ node, ...props }) => (
+                            <tbody className="divide-y divide-gray-100 dark:divide-slate-700" {...props} />
+                          ),
+                          tr: ({ node, ...props }) => (
+                            <tr className="hover:bg-blue-50/50 dark:hover:bg-slate-700/50 transition-colors" {...props} />
+                          ),
                           th: ({ node, ...props }) => (
-                            <th className="px-2 py-2 sm:px-4 sm:py-3 text-left text-[10px] sm:text-xs font-semibold text-gray-700 dark:text-slate-200 uppercase tracking-wider border-b border-gray-200 dark:border-slate-600 whitespace-nowrap" {...props} />
+                            <th className="px-3 py-3 sm:px-4 text-left text-[11px] sm:text-xs font-semibold text-gray-600 dark:text-slate-300 uppercase tracking-wider whitespace-nowrap border-b-2 border-gray-200 dark:border-slate-500" {...props} />
                           ),
                           td: ({ node, ...props }) => (
-                            <td className="px-2 py-2 sm:px-4 sm:py-3 text-xs sm:text-sm text-gray-900 dark:text-slate-200 border-b border-gray-100 dark:border-slate-600" style={{ wordBreak: 'keep-all', overflowWrap: 'break-word' }} {...props} />
+                            <td 
+                              className="px-3 py-3 sm:px-4 text-sm text-gray-700 dark:text-slate-200" 
+                              style={{ wordBreak: 'normal', overflowWrap: 'break-word' }} 
+                              {...props} 
+                            />
                           ),
                           
-                          // Blockquotes
+                          // Blockquotes - improved styling
                           blockquote: ({ node, ...props }) => (
-                            <blockquote className="border-l-4 border-blue-400 dark:border-blue-500 pl-4 py-2 my-3 italic text-gray-700 dark:text-slate-300 bg-blue-50 dark:bg-slate-700 rounded-r" {...props} />
+                            <blockquote 
+                              className="border-l-4 border-blue-500 dark:border-blue-400 pl-4 py-3 my-4 text-gray-700 dark:text-slate-300 bg-gradient-to-r from-blue-50 to-transparent dark:from-slate-800 dark:to-transparent rounded-r-lg" 
+                              {...props} 
+                            />
                           ),
                           
-                          // Strong & Em
-                          strong: ({ node, ...props }) => <strong className="font-semibold text-gray-900 dark:text-slate-100" {...props} />,
-                          em: ({ node, ...props }) => <em className="italic text-gray-800 dark:text-slate-300" {...props} />,
+                          // Strong & Em - enhanced visibility
+                          strong: ({ node, ...props }) => (
+                            <strong className="font-semibold text-gray-900 dark:text-white" {...props} />
+                          ),
+                          em: ({ node, ...props }) => (
+                            <em className="italic text-gray-700 dark:text-slate-300" {...props} />
+                          ),
                           
-                          // Horizontal Rule
-                          hr: ({ node, ...props }) => <hr className="my-4 border-t-2 border-gray-200 dark:border-slate-600" {...props} />,
+                          // Horizontal Rule - styled divider
+                          hr: ({ node, ...props }) => (
+                            <hr className="my-6 border-none h-px bg-gradient-to-r from-transparent via-gray-300 dark:via-slate-600 to-transparent" {...props} />
+                          ),
                         }}
                       >
                         {sanitizeBotResponse(message.content)}
