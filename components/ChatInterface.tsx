@@ -82,6 +82,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
   const [chatSwipeOffset, setChatSwipeOffset] = useState(0)
   const [showSmartReplies, setShowSmartReplies] = useState(true)
   const [reactionPicker, setReactionPicker] = useState<{ messageIndex: number; x: number; y: number } | null>(null)
+  const [isLoadingChats, setIsLoadingChats] = useState(true)
   const { theme, toggleTheme } = useTheme()
   const abortControllerRef = useRef<AbortController | null>(null)
   const streamTimeoutRef = useRef<number | null>(null)
@@ -117,24 +118,29 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
     if (typeof window === 'undefined') return
     
     async function loadChats() {
-      // Migrate old format if needed (localStorage only)
-      migrateOldChatFormat()
-      
-      // Load chat list (Supabase if authenticated, localStorage otherwise)
-      const loadedChats = await getAllChats()
-      
-      // Enhance chats with last message preview
-      const enhancedChats = await Promise.all(
-        loadedChats.map(async (chat) => {
-          const messages = await getChatMessages(chat.id)
-          const lastMessage = messages.length > 0 
-            ? messages[messages.length - 1].content.substring(0, 60) + (messages[messages.length - 1].content.length > 60 ? '...' : '')
-            : ''
-          return { ...chat, lastMessage }
-        })
-      )
-      
-      setChats(enhancedChats)
+      setIsLoadingChats(true)
+      try {
+        // Migrate old format if needed (localStorage only)
+        migrateOldChatFormat()
+        
+        // Load chat list (Supabase if authenticated, localStorage otherwise)
+        const loadedChats = await getAllChats()
+        
+        // Enhance chats with last message preview
+        const enhancedChats = await Promise.all(
+          loadedChats.map(async (chat) => {
+            const messages = await getChatMessages(chat.id)
+            const lastMessage = messages.length > 0 
+              ? messages[messages.length - 1].content.substring(0, 60) + (messages[messages.length - 1].content.length > 60 ? '...' : '')
+              : ''
+            return { ...chat, lastMessage }
+          })
+        )
+        
+        setChats(enhancedChats)
+      } finally {
+        setIsLoadingChats(false)
+      }
       
       // Load current chat
       const currentId = getCurrentChatId()
@@ -2069,7 +2075,21 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
 
             {/* Chat List */}
             <div className="flex-1 overflow-y-auto">
-              {filteredAndSortedChats.length === 0 ? (
+              {isLoadingChats ? (
+                <div className="p-2 space-y-2">
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <div key={i} className="flex items-start gap-3 p-3 rounded-lg bg-gray-50 dark:bg-slate-700/30 relative overflow-hidden">
+                      <div className="absolute inset-0 skeleton-shimmer" />
+                      <div className="w-10 h-10 rounded-xl bg-gray-200 dark:bg-slate-600" />
+                      <div className="flex-1 space-y-2">
+                        <div className="h-4 bg-gray-200 dark:bg-slate-600 rounded w-3/4" />
+                        <div className="h-3 bg-gray-200 dark:bg-slate-600 rounded w-full" />
+                        <div className="h-2 bg-gray-200 dark:bg-slate-600 rounded w-1/2" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : filteredAndSortedChats.length === 0 ? (
                 <div className="p-4 text-center text-gray-500">
                   {chatSearchQuery ? (
                     <>
@@ -2355,18 +2375,34 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
 
         {/* Loading skeleton when loading chat history */}
         {isLoadingHistory && (
-          <div className="max-w-3xl mx-auto space-y-4 mb-4">
-            {[1, 2, 3].map((i) => (
+          <div className="max-w-3xl mx-auto space-y-4 mb-4 animate-fade-in">
+            {[1, 2, 3, 4].map((i) => (
               <div key={i} className={`flex ${i % 2 === 0 ? 'justify-end' : 'justify-start'} items-end gap-2`}>
-                {i % 2 !== 0 && <div className="w-7 h-7 rounded-full message-skeleton" />}
+                {i % 2 !== 0 && (
+                  <div className="w-7 h-7 rounded-full bg-gray-200 dark:bg-slate-700 relative overflow-hidden">
+                    <div className="absolute inset-0 skeleton-shimmer" />
+                  </div>
+                )}
                 <div 
-                  className={`message-skeleton ${i % 2 === 0 ? 'ml-auto' : ''}`}
+                  className={`relative overflow-hidden rounded-2xl bg-gray-200 dark:bg-slate-700 ${i % 2 === 0 ? 'ml-auto rounded-br-sm' : 'rounded-bl-sm'}`}
                   style={{ 
-                    width: `${40 + Math.random() * 30}%`,
-                    height: `${50 + i * 15}px`
+                    width: `${45 + (i * 8)}%`,
+                    height: `${60 + i * 12}px`
                   }}
-                />
-                {i % 2 === 0 && <div className="w-7 h-7 rounded-full message-skeleton" />}
+                >
+                  <div className="absolute inset-0 skeleton-shimmer" />
+                  {/* Content placeholder lines */}
+                  <div className="p-3 space-y-2">
+                    <div className="h-3 bg-gray-300 dark:bg-slate-600 rounded w-3/4" />
+                    <div className="h-3 bg-gray-300 dark:bg-slate-600 rounded w-full" />
+                    {i > 2 && <div className="h-3 bg-gray-300 dark:bg-slate-600 rounded w-5/6" />}
+                  </div>
+                </div>
+                {i % 2 === 0 && (
+                  <div className="w-7 h-7 rounded-full bg-gray-200 dark:bg-slate-700 relative overflow-hidden">
+                    <div className="absolute inset-0 skeleton-shimmer" />
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -2768,6 +2804,16 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
                   >
                     🎤 Jetzt sprechen
                   </button>
+
+                  {/* Voice Command Hints */}
+                  <div className="mt-4 px-4 py-3 bg-white/10 backdrop-blur-sm rounded-xl border border-white/20">
+                    <p className="text-white/90 text-xs font-semibold mb-2 text-center">💡 Sprachbefehle</p>
+                    <div className="space-y-1 text-white/70 text-[11px]">
+                      <p>• Sage "Stop" zum Beenden</p>
+                      <p>• Sage "Wiederholen" für letzte Antwort</p>
+                      <p>• Spreche klar und deutlich</p>
+                    </div>
+                  </div>
                 </>
               )}
               <button
