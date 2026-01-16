@@ -196,6 +196,41 @@ export default function ChatInterface() {
     textareaRef.current?.focus()
   }, [])
 
+  // Helper function to format date for time separators
+  const formatDateSeparator = useCallback((date: Date): string => {
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000)
+    const messageDate = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+    
+    if (messageDate.getTime() === today.getTime()) {
+      return 'Heute'
+    } else if (messageDate.getTime() === yesterday.getTime()) {
+      return 'Gestern'
+    } else {
+      return date.toLocaleDateString('de-DE', { 
+        weekday: 'long', 
+        day: 'numeric', 
+        month: 'long' 
+      })
+    }
+  }, [])
+
+  // Check if we should show a date separator before a message
+  const shouldShowDateSeparator = useCallback((currentIndex: number): boolean => {
+    if (currentIndex === 0) return true
+    
+    const currentMsg = messages[currentIndex]
+    const prevMsg = messages[currentIndex - 1]
+    
+    if (!currentMsg.timestamp || !prevMsg.timestamp) return false
+    
+    const currentDate = new Date(currentMsg.timestamp)
+    const prevDate = new Date(prevMsg.timestamp)
+    
+    return currentDate.toDateString() !== prevDate.toDateString()
+  }, [messages])
+
   // Cleanup audio on unmount
   useEffect(() => {
     return () => {
@@ -1605,20 +1640,30 @@ export default function ChatInterface() {
         </div>
       )}
       
-      {/* Header - Mobile optimized */}
-      <div className={`${voiceOnlyMode ? 'bg-blue-600' : 'bg-white'} border-b ${voiceOnlyMode ? 'border-blue-700' : 'border-gray-100'} px-3 py-3 sm:px-4 sm:py-3 sticky top-0 z-10 safe-area-inset-top transition-colors`}>
+      {/* Header - Glassmorphism style */}
+      <div className={`${voiceOnlyMode ? 'bg-blue-600' : 'glass-header'} px-3 py-3 sm:px-4 sm:py-3 sticky top-0 z-10 safe-area-inset-top transition-colors`}>
         <div className="max-w-3xl mx-auto">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5 min-w-0 flex-1">
-              <div className={`w-10 h-10 sm:w-10 sm:h-10 rounded-lg ${voiceOnlyMode ? 'bg-white' : 'bg-gradient-to-br from-blue-500 to-blue-600'} flex items-center justify-center shadow-sm flex-shrink-0`}>
+              <div className={`relative w-11 h-11 sm:w-11 sm:h-11 rounded-xl ${voiceOnlyMode ? 'bg-white' : 'bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-600'} flex items-center justify-center shadow-lg flex-shrink-0`}>
                 <span className={`font-bold text-sm sm:text-base ${voiceOnlyMode ? 'text-blue-600' : 'text-white'}`}>LiS</span>
+                {/* Online status dot */}
+                <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 ${voiceOnlyMode ? 'border-blue-600' : 'border-white dark:border-slate-900'} ${
+                  isLoading ? 'status-dot-connecting' : 'status-dot-online'
+                }`} />
               </div>
               <div className="min-w-0 flex-1">
-                <h1 className={`text-base sm:text-lg font-semibold truncate ${voiceOnlyMode ? 'text-white' : 'text-gray-900'}`}>
-                  {voiceOnlyMode ? 'Sprachmodus' : 'LiS Chatbot'}
-                </h1>
-                <p className={`text-[11px] sm:text-xs truncate ${voiceOnlyMode ? 'text-blue-100' : 'text-gray-500'}`}>
-                  {voiceOnlyMode ? 'Sprich weiter, um das Gespräch fortzusetzen' : 'Stelle deine Fragen per Text oder Sprache'}
+                <div className="flex items-center gap-2">
+                  <h1 className={`text-base sm:text-lg font-semibold truncate ${voiceOnlyMode ? 'text-white' : 'text-gray-900 dark:text-slate-100'}`}>
+                    {voiceOnlyMode ? 'Sprachmodus' : 'LiS Chatbot'}
+                  </h1>
+                </div>
+                <p className={`text-[11px] sm:text-xs truncate ${voiceOnlyMode ? 'text-blue-100' : 'text-gray-500 dark:text-slate-400'}`}>
+                  {voiceOnlyMode 
+                    ? 'Sprich weiter, um das Gespräch fortzusetzen' 
+                    : isLoading 
+                      ? 'Antwortet...' 
+                      : 'Online • Bereit zu helfen'}
                 </p>
               </div>
             </div>
@@ -1736,21 +1781,37 @@ export default function ChatInterface() {
           {messages.map((message, index) => (
             // Skip rendering empty assistant messages (they show while streaming starts)
             message.role === 'assistant' && !message.content ? null : (
-            <div
-              key={index}
-              className={`flex ${
-                message.role === 'user' ? 'justify-end' : 'justify-start'
-              } animate-in fade-in slide-in-from-bottom-2 duration-200 group`}
-            >
+            <div key={index}>
+              {/* Time Separator */}
+              {shouldShowDateSeparator(index) && message.timestamp && (
+                <div className="time-separator my-4">
+                  <span className="text-xs font-medium text-gray-500 dark:text-slate-400 bg-gray-50 dark:bg-slate-900 px-3 py-1 rounded-full">
+                    {formatDateSeparator(new Date(message.timestamp))}
+                  </span>
+                </div>
+              )}
+              
               <div
-                className={`max-w-[90%] sm:max-w-[75%] rounded-2xl sm:rounded-xl px-4 py-3 sm:px-4 sm:py-2.5 relative ${
-                  message.role === 'user'
-                    ? 'bg-blue-600 text-white rounded-br-sm'
-                    : 'bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 rounded-bl-sm border border-gray-200 dark:border-slate-700 shadow-sm'
-                }`}
+                className={`flex items-end gap-2 ${
+                  message.role === 'user' ? 'justify-end' : 'justify-start'
+                } animate-in fade-in slide-in-from-bottom-2 duration-200 group`}
               >
-                <div className="flex items-start justify-between gap-2.5">
-                  <div className="text-[15px] sm:text-[15px] leading-relaxed flex-1 break-words">
+                {/* Bot Avatar - only show for assistant messages */}
+                {message.role === 'assistant' && (
+                  <div className="message-avatar message-avatar-bot mb-1">
+                    LiS
+                  </div>
+                )}
+                
+                <div
+                  className={`max-w-[85%] sm:max-w-[70%] rounded-2xl sm:rounded-xl px-4 py-3 sm:px-4 sm:py-2.5 relative ${
+                    message.role === 'user'
+                      ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-br-sm shadow-md'
+                      : 'bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 rounded-bl-sm border border-gray-200 dark:border-slate-700 shadow-sm'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2.5">
+                    <div className="text-[15px] sm:text-[15px] leading-relaxed flex-1 break-words">
                     {message.role === 'user' ? (
                       <p className="whitespace-pre-wrap">{message.content}</p>
                     ) : (
@@ -1845,15 +1906,35 @@ export default function ChatInterface() {
                   </button>
                 </div>
                     {message.timestamp && (
-                  <p
-                    className={`text-[11px] sm:text-xs mt-2 sm:mt-1.5 ${
-                      message.role === 'user'
-                        ? 'text-blue-100'
-                        : 'text-gray-400 dark:text-slate-500'
+                  <div
+                    className={`flex items-center gap-1.5 mt-2 sm:mt-1.5 ${
+                      message.role === 'user' ? 'justify-end' : 'justify-start'
                     }`}
                   >
-                    {formatTimestamp(message.timestamp)}
-                  </p>
+                    <span
+                      className={`text-[11px] sm:text-xs ${
+                        message.role === 'user'
+                          ? 'text-blue-100'
+                          : 'text-gray-400 dark:text-slate-500'
+                      }`}
+                    >
+                      {formatTimestamp(message.timestamp)}
+                    </span>
+                    {/* Delivery status for user messages */}
+                    {message.role === 'user' && (
+                      <span className="delivery-check delivered" title="Zugestellt">
+                        ✓✓
+                      </span>
+                    )}
+                  </div>
+                )}
+                </div>
+                
+                {/* User Avatar - only show for user messages */}
+                {message.role === 'user' && (
+                  <div className="message-avatar message-avatar-user mb-1">
+                    Du
+                  </div>
                 )}
               </div>
             </div>
@@ -1861,11 +1942,17 @@ export default function ChatInterface() {
           ))}
 
           {isLoading && showLoadingBubble && !isStreamingResponse && (
-            <div className="flex justify-start animate-in fade-in slide-in-from-bottom-2 duration-200">
-              <div className="bg-white dark:bg-slate-800 rounded-2xl sm:rounded-xl rounded-bl-sm px-4 py-3 sm:px-4 sm:py-2.5 border border-gray-200 dark:border-slate-700 shadow-sm">
-                <div className="flex items-center gap-2.5">
-                  <Loader2 className="animate-spin h-4 w-4 sm:h-4 sm:w-4 text-blue-600 dark:text-blue-400" />
-                  <span className="text-sm sm:text-sm text-gray-600 dark:text-slate-300">Denke nach...</span>
+            <div className="flex justify-start items-end gap-2 animate-in fade-in slide-in-from-bottom-2 duration-200">
+              {/* Bot Avatar */}
+              <div className="message-avatar message-avatar-bot mb-1">
+                LiS
+              </div>
+              <div className="bg-white dark:bg-slate-800 rounded-2xl sm:rounded-xl rounded-bl-sm px-4 py-4 sm:px-4 sm:py-3.5 border border-gray-200 dark:border-slate-700 shadow-sm">
+                {/* Bouncing dots typing indicator */}
+                <div className="flex items-center gap-1.5">
+                  <div className="typing-dot" />
+                  <div className="typing-dot" />
+                  <div className="typing-dot" />
                 </div>
               </div>
             </div>
@@ -2036,17 +2123,17 @@ export default function ChatInterface() {
           </div>
         </div>
       ) : (
-        <div className="bg-white border-t border-gray-100 px-3 py-3 sm:px-4 sm:py-3 safe-area-inset-bottom">
+        <div className="glass-header border-t border-gray-100 dark:border-slate-800 px-3 py-3 sm:px-4 sm:py-3 safe-area-inset-bottom">
           <div className="max-w-3xl mx-auto">
             <div className="flex items-end gap-2.5 sm:gap-2">
-              <div className="flex-1 relative">
+              <div className="flex-1 relative input-gradient-focus">
                 <textarea
                   ref={textareaRef}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyPress={handleKeyPress}
                   placeholder="Nachricht eingeben..."
-                  className="w-full p-3 sm:p-3 pr-14 sm:pr-12 pb-10 sm:pb-8 border-2 border-gray-200 rounded-xl sm:rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900 placeholder-gray-400 text-[16px] sm:text-[15px] transition-all"
+                  className="w-full p-3 sm:p-3 pr-14 sm:pr-12 pb-10 sm:pb-8 border-2 border-gray-200 dark:border-slate-600 rounded-xl sm:rounded-lg resize-none focus:outline-none focus:border-transparent bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 placeholder-gray-400 dark:placeholder-slate-500 text-[16px] sm:text-[15px] transition-all shadow-sm focus:shadow-md"
                   rows={1}
                   maxLength={APP_CONFIG.MAX_INPUT_LENGTH}
                   style={{ 
@@ -2055,7 +2142,13 @@ export default function ChatInterface() {
                   }}
                 />
                 <div className="absolute bottom-2 right-3 sm:bottom-1.5 sm:right-2 flex items-center gap-2">
-                  <span className="text-[11px] sm:text-xs text-gray-400">
+                  <span className={`text-[11px] sm:text-xs font-medium transition-colors ${
+                    input.length > APP_CONFIG.MAX_INPUT_LENGTH * 0.9
+                      ? 'text-red-500'
+                      : input.length > APP_CONFIG.MAX_INPUT_LENGTH * 0.75
+                        ? 'text-orange-500'
+                        : 'text-gray-400 dark:text-slate-500'
+                  }`}>
                     {input.length} / {APP_CONFIG.MAX_INPUT_LENGTH}
                   </span>
                 </div>
