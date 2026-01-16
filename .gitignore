@@ -41,3 +41,6 @@ next-env.d.ts
 /public/sw.js.map
 /public/workbox-*.js.map
 
+
+*storybook.log
+storybook-static

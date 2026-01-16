@@ -3,6 +3,8 @@ import './globals.css'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { ToastContainer } from '@/lib/toast'
 import { ThemeProvider } from '@/lib/theme-context'
+import { Analytics } from '@vercel/analytics/react'
+import { SpeedInsights } from '@vercel/speed-insights/next'
 
 const siteUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://lis-chatbot.vercel.app'
 
@@ -74,6 +76,8 @@ export default function RootLayout({
             <ToastContainer />
           </ErrorBoundary>
         </ThemeProvider>
+        <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   )
