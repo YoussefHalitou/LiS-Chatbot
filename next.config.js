@@ -1,3 +1,46 @@
+const withPWA = require('next-pwa')({
+  dest: 'public',
+  register: true,
+  skipWaiting: true,
+  disable: process.env.NODE_ENV === 'development', // Disable in dev to avoid caching issues
+  runtimeCaching: [
+    {
+      urlPattern: /^https:\/\/api\.deepgram\.com\/.*/i,
+      handler: 'NetworkOnly',
+    },
+    {
+      urlPattern: /^https:\/\/api\.elevenlabs\.io\/.*/i,
+      handler: 'NetworkOnly',
+    },
+    {
+      urlPattern: /^https:\/\/api\.openai\.com\/.*/i,
+      handler: 'NetworkOnly',
+    },
+    {
+      urlPattern: /\/api\/.*/i,
+      handler: 'NetworkFirst',
+      options: {
+        cacheName: 'api-cache',
+        expiration: {
+          maxEntries: 32,
+          maxAgeSeconds: 60 * 60, // 1 hour
+        },
+      },
+    },
+    {
+      urlPattern: /\.(?:png|jpg|jpeg|svg|gif|webp|ico)$/i,
+      handler: 'CacheFirst',
+      options: {
+        cacheName: 'image-cache',
+        expiration: {
+          maxEntries: 64,
+          maxAgeSeconds: 30 * 24 * 60 * 60, // 30 days
+        },
+      },
+    },
+  ],
+})
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -89,4 +132,4 @@ const nextConfig = {
   },
 }
 
-module.exports = nextConfig
+module.exports = withPWA(nextConfig)
