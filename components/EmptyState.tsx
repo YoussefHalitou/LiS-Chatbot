@@ -60,7 +60,7 @@ export default function EmptyState({ onQuickAction }: EmptyStateProps) {
             className="mt-4 inline-flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400 hover:underline transition-all"
           >
             <HelpCircle className="h-4 w-4" />
-            <span>Wie funktioniert's?</span>
+            <span>Wie funktioniert&apos;s?</span>
           </button>
         </div>
 
@@ -137,7 +137,7 @@ export default function EmptyState({ onQuickAction }: EmptyStateProps) {
               <div className="flex items-start justify-between mb-6">
                 <div>
                   <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-                    So funktioniert's
+                    So funktioniert&apos;s
                   </h2>
                   <p className="text-gray-600 dark:text-gray-400">
                     Deine Kurzanleitung für LiS Assistant
@@ -199,7 +199,7 @@ export default function EmptyState({ onQuickAction }: EmptyStateProps) {
                 onClick={() => setShowTutorial(false)}
                 className="w-full mt-8 py-3 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-medium rounded-xl transition-all active:scale-95 shadow-lg"
               >
-                Los geht's!
+                Los geht&apos;s!
               </button>
             </div>
           </div>

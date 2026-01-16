@@ -2809,8 +2809,8 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
                   <div className="mt-4 px-4 py-3 bg-white/10 backdrop-blur-sm rounded-xl border border-white/20">
                     <p className="text-white/90 text-xs font-semibold mb-2 text-center">💡 Sprachbefehle</p>
                     <div className="space-y-1 text-white/70 text-[11px]">
-                      <p>• Sage "Stop" zum Beenden</p>
-                      <p>• Sage "Wiederholen" für letzte Antwort</p>
+                      <p>• Sage &quot;Stop&quot; zum Beenden</p>
+                      <p>• Sage &quot;Wiederholen&quot; für letzte Antwort</p>
                       <p>• Spreche klar und deutlich</p>
                     </div>
                   </div>
