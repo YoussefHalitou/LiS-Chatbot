@@ -372,63 +372,58 @@ html {
   color: #e2e8f0;
 }
 
-/* Tables - Enhanced for query results */
+/* Tables - Enhanced for query results (Mobile-first) */
 .markdown-content table {
   border-collapse: collapse;
   width: 100%;
   margin: 0.75rem 0;
-  font-size: 0.95em;
-  border-radius: 8px;
-  overflow: hidden;
-  display: block;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
+  font-size: 0.9em;
+  min-width: 100%;
 }
 
 .markdown-content table th,
 .markdown-content table td {
-  padding: 0.75rem 1rem;
-  border: 1px solid #e5e7eb;
+  padding: 0.625rem 0.75rem;
+  text-align: left;
+  vertical-align: middle;
 }
 
 .markdown-content table th {
-  background: linear-gradient(to right, #eff6ff, #dbeafe);
+  background: #2563eb;
   font-weight: 600;
-  text-align: left;
-  color: #1e40af;
-  font-size: 0.875rem;
+  color: white;
+  font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  border-bottom: 2px solid #3b82f6;
+  white-space: nowrap;
 }
 
 .markdown-content table tbody tr {
   transition: background-color 0.15s ease;
+  border-bottom: 1px solid #e5e7eb;
 }
 
 .markdown-content table tbody tr:nth-child(even) {
-  background: #f9fafb;
+  background: #f8fafc;
 }
 
 .markdown-content table tbody tr:hover {
-  background: #f3f4f6;
+  background: #eff6ff;
 }
 
 .markdown-content table td {
-  color: #111827;
-  vertical-align: top;
+  color: #1f2937;
+  font-size: 0.85rem;
 }
 
 /* Dark mode table styles */
-.dark .markdown-content table th,
-.dark .markdown-content table td {
-  border-color: #334155;
+.dark .markdown-content table th {
+  background: #3b82f6;
+  color: white;
 }
 
-.dark .markdown-content table th {
-  background: linear-gradient(to right, #1e293b, #0f172a);
-  color: #93c5fd;
-  border-bottom-color: #3b82f6;
+.dark .markdown-content table tbody tr {
+  border-bottom-color: #334155;
 }
 
 .dark .markdown-content table tbody tr:nth-child(even) {
@@ -441,6 +436,39 @@ html {
 
 .dark .markdown-content table td {
   color: #e2e8f0;
+}
+
+/* Table wrapper with scroll hint */
+.table-wrapper {
+  position: relative;
+}
+
+.table-scroll-hint {
+  animation: pulse-hint 2s ease-in-out infinite;
+}
+
+@keyframes pulse-hint {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+/* Fade edges on scrollable tables */
+.table-wrapper .overflow-x-auto {
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.table-wrapper .overflow-x-auto::-webkit-scrollbar {
+  height: 4px;
+}
+
+.table-wrapper .overflow-x-auto::-webkit-scrollbar-thumb {
+  background: rgba(59, 130, 246, 0.5);
+  border-radius: 2px;
+}
+
+.table-wrapper .overflow-x-auto::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05);
 }
 
 /* Lists - Enhanced styling */

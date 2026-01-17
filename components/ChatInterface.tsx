@@ -2456,10 +2456,10 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
                   )}
                   
                   <div
-                    className={`max-w-[90%] sm:max-w-[75%] rounded-2xl relative ${
+                    className={`rounded-2xl relative ${
                       message.role === 'user'
-                        ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-br-md shadow-lg px-4 py-3 message-bubble-user'
-                        : 'bg-white dark:bg-slate-800/95 text-gray-900 dark:text-slate-100 rounded-bl-md border border-gray-100 dark:border-slate-700/80 shadow-md px-4 py-4 sm:px-5 message-bubble-bot'
+                        ? 'max-w-[85%] sm:max-w-[70%] bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-br-md shadow-lg px-4 py-3 message-bubble-user'
+                        : 'max-w-[95%] sm:max-w-[85%] bg-white dark:bg-slate-800/95 text-gray-900 dark:text-slate-100 rounded-bl-md border border-gray-100 dark:border-slate-700/80 shadow-md px-3 py-3 sm:px-5 sm:py-4 message-bubble-bot'
                     }`}
                   >
                   <div className="flex items-start justify-between gap-3">
@@ -2542,28 +2542,34 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
                             />
                           ),
                           
-                          // Tables - Enhanced with better mobile support
+                          // Tables - Mobile-optimized with scroll hint
                           table: ({ node, ...props }) => (
-                            <div className="overflow-x-auto my-4 rounded-xl border border-gray-200 dark:border-slate-600 shadow-md -mx-2 sm:mx-0 bg-white dark:bg-slate-800" style={{ maxWidth: 'calc(100vw - 2rem)' }}>
-                              <table className="w-full border-collapse text-sm min-w-full" {...props} />
+                            <div className="table-wrapper my-4 -mx-4 sm:mx-0">
+                              <div className="table-scroll-hint text-xs text-gray-400 dark:text-slate-500 text-center pb-1 sm:hidden flex items-center justify-center gap-1">
+                                <span>←</span>
+                                <span>Wischen zum Scrollen</span>
+                                <span>→</span>
+                              </div>
+                              <div className="overflow-x-auto rounded-lg sm:rounded-xl border border-gray-200 dark:border-slate-600 shadow-md bg-white dark:bg-slate-800/90 mx-2 sm:mx-0">
+                                <table className="w-full border-collapse text-sm" style={{ minWidth: '400px' }} {...props} />
+                              </div>
                             </div>
                           ),
                           thead: ({ node, ...props }) => (
-                            <thead className="bg-gradient-to-r from-gray-50 to-gray-100 dark:from-slate-700 dark:to-slate-600 sticky top-0" {...props} />
+                            <thead className="bg-blue-600 dark:bg-blue-700 text-white sticky top-0" {...props} />
                           ),
                           tbody: ({ node, ...props }) => (
-                            <tbody className="divide-y divide-gray-100 dark:divide-slate-700" {...props} />
+                            <tbody className="divide-y divide-gray-100 dark:divide-slate-700 bg-white dark:bg-slate-800" {...props} />
                           ),
                           tr: ({ node, ...props }) => (
-                            <tr className="hover:bg-blue-50/50 dark:hover:bg-slate-700/50 transition-colors" {...props} />
+                            <tr className="hover:bg-blue-50 dark:hover:bg-slate-700/70 transition-colors" {...props} />
                           ),
                           th: ({ node, ...props }) => (
-                            <th className="px-3 py-3 sm:px-4 text-left text-[11px] sm:text-xs font-semibold text-gray-600 dark:text-slate-300 uppercase tracking-wider whitespace-nowrap border-b-2 border-gray-200 dark:border-slate-500" {...props} />
+                            <th className="px-3 py-2.5 sm:px-4 sm:py-3 text-left text-[11px] sm:text-xs font-semibold text-white uppercase tracking-wider whitespace-nowrap" {...props} />
                           ),
                           td: ({ node, ...props }) => (
                             <td 
-                              className="px-3 py-3 sm:px-4 text-sm text-gray-700 dark:text-slate-200" 
-                              style={{ wordBreak: 'normal', overflowWrap: 'break-word' }} 
+                              className="px-3 py-2.5 sm:px-4 sm:py-3 text-[13px] sm:text-sm text-gray-800 dark:text-slate-200 whitespace-nowrap" 
                               {...props} 
                             />
                           ),
