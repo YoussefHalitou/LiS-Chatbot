@@ -1,0 +1,390 @@
+/* ============================================
+   Markdown Content Styles
+   Rendering for chat message markdown content
+   ============================================ */
+
+.markdown-content {
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.markdown-content > *:first-child {
+  margin-top: 0 !important;
+}
+
+.markdown-content > *:last-child {
+  margin-bottom: 0 !important;
+}
+
+/* Code blocks */
+.markdown-content pre {
+  position: relative;
+  margin: 0.5rem 0;
+}
+
+.markdown-content code {
+  font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', 'Fira Mono', 'Roboto Mono', monospace;
+  font-size: 0.9em;
+}
+
+.markdown-content pre code {
+  display: block;
+  padding: 1rem;
+  background: #f6f8fa;
+  border: 1px solid #e1e4e8;
+  border-radius: 6px;
+  overflow-x: auto;
+  line-height: 1.5;
+  white-space: pre;
+  word-wrap: normal;
+}
+
+.dark .markdown-content pre code {
+  background: #1e293b;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+
+/* Inline code */
+.markdown-content :not(pre) > code {
+  background: #f6f8fa;
+  padding: 0.2em 0.4em;
+  border-radius: 3px;
+  font-size: 0.9em;
+  border: 1px solid #e1e4e8;
+}
+
+.dark .markdown-content :not(pre) > code {
+  background: #1e293b;
+  border-color: #334155;
+  color: #e2e8f0;
+}
+
+/* Tables */
+.markdown-content table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.75rem 0;
+  font-size: 0.9em;
+  min-width: 100%;
+}
+
+.markdown-content table th,
+.markdown-content table td {
+  padding: 0.625rem 0.75rem;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.markdown-content table th {
+  background: #2563eb;
+  font-weight: 600;
+  color: white;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+.markdown-content table tbody tr {
+  transition: background-color 0.15s ease;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.markdown-content table tbody tr:nth-child(even) {
+  background: #f8fafc;
+}
+
+.markdown-content table tbody tr:hover {
+  background: #eff6ff;
+}
+
+.markdown-content table td {
+  color: #1f2937;
+  font-size: 0.85rem;
+}
+
+.dark .markdown-content table th {
+  background: #3b82f6;
+  color: white;
+}
+
+.dark .markdown-content table tbody tr {
+  border-bottom-color: #334155;
+}
+
+.dark .markdown-content table tbody tr:nth-child(even) {
+  background: #1e293b;
+}
+
+.dark .markdown-content table tbody tr:hover {
+  background: #334155;
+}
+
+.dark .markdown-content table td {
+  color: #e2e8f0;
+}
+
+/* Table wrapper */
+.table-wrapper {
+  position: relative;
+}
+
+.table-scroll-hint {
+  animation: pulse-hint 2s ease-in-out infinite;
+}
+
+@keyframes pulse-hint {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+.table-wrapper .overflow-x-auto {
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.table-wrapper .overflow-x-auto::-webkit-scrollbar {
+  height: 4px;
+}
+
+.table-wrapper .overflow-x-auto::-webkit-scrollbar-thumb {
+  background: rgba(59, 130, 246, 0.5);
+  border-radius: 2px;
+}
+
+.table-wrapper .overflow-x-auto::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+/* Lists */
+.markdown-content ul,
+.markdown-content ol {
+  margin: 0.75rem 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.markdown-content ul {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.markdown-content ol {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  counter-reset: list-counter;
+}
+
+.markdown-content li {
+  position: relative;
+  padding-left: 1.75rem;
+  word-break: normal;
+  overflow-wrap: break-word;
+  line-height: 1.65;
+}
+
+.markdown-content ul > li::before {
+  content: '';
+  position: absolute;
+  left: 0.5rem;
+  top: 0.6em;
+  width: 6px;
+  height: 6px;
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  border-radius: 50%;
+}
+
+.markdown-content ol > li {
+  counter-increment: list-counter;
+}
+
+.markdown-content ol > li::before {
+  content: counter(list-counter);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 1.5rem;
+  height: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 50%;
+}
+
+/* Nested lists */
+.markdown-content ul ul,
+.markdown-content ul ol,
+.markdown-content ol ul,
+.markdown-content ol ol {
+  margin: 0.5rem 0;
+  margin-left: 0.5rem;
+}
+
+.markdown-content ul ul > li::before {
+  background: #94a3b8;
+  width: 5px;
+  height: 5px;
+}
+
+.markdown-content ul ul ul > li::before {
+  background: transparent;
+  border: 1.5px solid #94a3b8;
+}
+
+.markdown-content ol ol > li::before {
+  background: #64748b;
+  font-size: 0.65rem;
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+/* Dark mode list adjustments */
+.dark .markdown-content ul > li::before {
+  background: linear-gradient(135deg, #60a5fa, #818cf8);
+}
+
+.dark .markdown-content ol > li::before {
+  background: linear-gradient(135deg, #60a5fa, #818cf8);
+}
+
+.dark .markdown-content ul ul > li::before {
+  background: #64748b;
+}
+
+.dark .markdown-content ul ul ul > li::before {
+  background: transparent;
+  border-color: #64748b;
+}
+
+.dark .markdown-content ol ol > li::before {
+  background: #475569;
+}
+
+/* Custom list item styling for ReactMarkdown inline */
+.list-item-custom::before {
+  content: '';
+  position: absolute;
+  left: 0.5rem;
+  top: 0.55em;
+  width: 6px;
+  height: 6px;
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  border-radius: 50%;
+}
+
+.dark .list-item-custom::before {
+  background: linear-gradient(135deg, #60a5fa, #818cf8);
+}
+
+ol .list-item-custom {
+  counter-increment: list-counter;
+}
+
+ol .list-item-custom::before {
+  content: counter(list-counter);
+  width: 1.4rem;
+  height: 1.4rem;
+  left: 0;
+  top: 0.1em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #3b82f6, #6366f1);
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-radius: 50%;
+}
+
+.dark ol .list-item-custom::before {
+  background: linear-gradient(135deg, #60a5fa, #818cf8);
+}
+
+.no-break-numbers {
+  word-break: normal;
+  overflow-wrap: break-word;
+  hyphens: none;
+  -webkit-hyphens: none;
+}
+
+/* Blockquotes */
+.markdown-content blockquote {
+  border-left: 4px solid #e1e4e8;
+  padding-left: 1rem;
+  margin: 0.75rem 0;
+  color: #6b7280;
+  font-style: italic;
+}
+
+.markdown-content blockquote p {
+  margin: 0.25rem 0;
+}
+
+.dark .markdown-content blockquote {
+  border-left-color: #475569;
+  color: #94a3b8;
+}
+
+/* Headings */
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4,
+.markdown-content h5,
+.markdown-content h6 {
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+/* Links */
+.markdown-content a {
+  color: #2563eb;
+  text-decoration: underline;
+  transition: color 0.15s ease;
+}
+
+.markdown-content a:hover {
+  color: #1d4ed8;
+}
+
+.dark .markdown-content a {
+  color: #60a5fa;
+}
+
+.dark .markdown-content a:hover {
+  color: #93c5fd;
+}
+
+/* Horizontal rules */
+.markdown-content hr {
+  border: none;
+  border-top: 2px solid #e5e7eb;
+  margin: 1.5rem 0;
+}
+
+.dark .markdown-content hr {
+  border-top-color: #334155;
+}
+
+/* Task lists */
+.markdown-content input[type="checkbox"] {
+  margin-right: 0.5rem;
+  cursor: pointer;
+}
+
+/* Strikethrough */
+.markdown-content del {
+  text-decoration: line-through;
+  color: #6b7280;
+}
+
+.dark .markdown-content del {
+  color: #94a3b8;
+}

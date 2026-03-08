@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { Mic, MicOff, Volume2, Send, Loader2, Copy, Check, Trash2, X, MessageSquare, Plus, Menu, Search, Download, Keyboard, Moon, Sun, ChevronDown, Sparkles, RefreshCw, Share2, User, LogOut, Pin, RotateCcw, Archive } from 'lucide-react'
-import MarkdownRenderer from '@/components/chat/MarkdownRenderer'
+import { Mic, MicOff, Volume2, Send, Loader2, X, MessageSquare, Plus, Menu, Search, Download, Keyboard, Moon, Sun, User, LogOut } from 'lucide-react'
 import ChatSidebar from '@/components/chat/ChatSidebar'
 import ChatHeader from '@/components/chat/ChatHeader'
+import ChatMessageList from '@/components/chat/ChatMessageList'
+import MessageActions from '@/components/chat/MessageActions'
 import VoiceOverlay from '@/components/chat/VoiceOverlay'
 import ChatInput from '@/components/chat/ChatInput'
 import { Message, Chat } from '@/types'
@@ -36,8 +37,6 @@ import ExportChatModal from '@/components/ExportChatModal'
 import KeyboardShortcutsModal from '@/components/KeyboardShortcutsModal'
 import SettingsModal from '@/components/SettingsModal'
 import BottomNav from '@/components/BottomNav'
-import EmojiPicker from '@/components/EmojiPicker'
-import EmptyState from '@/components/EmptyState'
 import { useTheme } from '@/lib/theme-context'
 import { showToast } from '@/lib/toast'
 import { supabase } from '@/lib/supabase'
@@ -439,9 +438,6 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
     }
   }, [messages])
 
-  // Available reaction emojis
-  const reactionEmojis = ['👍', '❤️', '😄', '🤔', '🎉', '👏']
-
   // Add reaction to message
   const handleAddReaction = useCallback((messageIndex: number, emoji: string) => {
     triggerHaptic('light')
@@ -486,40 +482,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
     }
   }, [reactionPicker])
 
-  // Helper function to format date for time separators
-  const formatDateSeparator = useCallback((date: Date): string => {
-    const now = new Date()
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000)
-    const messageDate = new Date(date.getFullYear(), date.getMonth(), date.getDate())
 
-    if (messageDate.getTime() === today.getTime()) {
-      return 'Heute'
-    } else if (messageDate.getTime() === yesterday.getTime()) {
-      return 'Gestern'
-    } else {
-      return date.toLocaleDateString('de-DE', {
-        weekday: 'long',
-        day: 'numeric',
-        month: 'long'
-      })
-    }
-  }, [])
-
-  // Check if we should show a date separator before a message
-  const shouldShowDateSeparator = useCallback((currentIndex: number): boolean => {
-    if (currentIndex === 0) return true
-
-    const currentMsg = messages[currentIndex]
-    const prevMsg = messages[currentIndex - 1]
-
-    if (!currentMsg.timestamp || !prevMsg.timestamp) return false
-
-    const currentDate = new Date(currentMsg.timestamp)
-    const prevDate = new Date(prevMsg.timestamp)
-
-    return currentDate.toDateString() !== prevDate.toDateString()
-  }, [messages])
 
   // Pull-to-refresh handlers
   const handlePullStart = useCallback((e: React.TouchEvent) => {
@@ -644,69 +607,27 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
     }
   }, [contextMenu])
 
-  // Context menu actions
-  const handleContextMenuAction = useCallback((action: 'copy' | 'share' | 'delete' | 'pin' | 'regenerate') => {
-    if (!contextMenu) return
+  // Context menu helper callbacks for MessageActions
+  const handleContextMenuCopy = useCallback((text: string, index: number) => {
+    copyToClipboard(text, index)
+  }, [])
 
-    const message = messages[contextMenu.messageIndex]
+  const handleContextMenuDelete = useCallback((index: number) => {
+    const newMessages = messages.filter((_, i) => i !== index)
+    setMessages(newMessages)
+  }, [messages])
 
-    switch (action) {
-      case 'copy':
-        triggerHaptic('light')
-        copyToClipboard(message.content, contextMenu.messageIndex)
-        showToast('Nachricht kopiert', 'success', 2000)
-        break
-      case 'share':
-        triggerHaptic('light')
-        if (navigator.share) {
-          navigator.share({ text: message.content })
-        } else {
-          copyToClipboard(message.content, contextMenu.messageIndex)
-          showToast('Nachricht kopiert (Teilen nicht verfügbar)', 'success', 2000)
-        }
-        break
-      case 'pin':
-        triggerHaptic('light')
-        setPinnedMessages(prev => {
-          const newSet = new Set(prev)
-          if (newSet.has(contextMenu.messageIndex)) {
-            newSet.delete(contextMenu.messageIndex)
-            showToast('Nachricht nicht mehr angepinnt', 'success', 2000)
-          } else {
-            newSet.add(contextMenu.messageIndex)
-            showToast('Nachricht angepinnt', 'success', 2000)
-          }
-          return newSet
-        })
-        break
-      case 'regenerate':
-        if (message.role === 'assistant' && contextMenu.messageIndex > 0) {
-          triggerHaptic('medium')
-          // Get the user message that prompted this response
-          const userMessageIndex = contextMenu.messageIndex - 1
-          const userMessage = messages[userMessageIndex]
-          if (userMessage && userMessage.role === 'user') {
-            // Remove all messages after the user message
-            const newMessages = messages.slice(0, userMessageIndex + 1)
-            setMessages(newMessages)
-            // Re-send the user message
-            startChatRequest(userMessage)
-            showToast('Antwort wird neu generiert...', 'info', 2000)
-          }
-        }
-        break
-      case 'delete':
-        if (message.role === 'user') {
-          triggerHaptic('medium')
-          const newMessages = messages.filter((_, i) => i !== contextMenu.messageIndex)
-          setMessages(newMessages)
-          showToast('Nachricht gelöscht', 'success', 2000)
-        }
-        break
+  const handleContextMenuRegenerate = useCallback((index: number) => {
+    if (index > 0) {
+      const userMessageIndex = index - 1
+      const userMessage = messages[userMessageIndex]
+      if (userMessage && userMessage.role === 'user') {
+        const newMessages = messages.slice(0, userMessageIndex + 1)
+        setMessages(newMessages)
+        startChatRequest(userMessage)
+      }
     }
-
-    setContextMenu(null)
-  }, [contextMenu, messages]) // startChatRequest is omitted as it's defined later and is stable
+  }, [messages])
 
   // Cleanup audio on unmount
   useEffect(() => {
@@ -1572,6 +1493,10 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
     }
   }, [])
 
+  const handleSetCopiedIndex = useCallback((index: number | null) => {
+    setCopiedIndex(index)
+  }, [])
+
   const clearChat = useCallback(async () => {
     if (confirm('Möchtest du den gesamten Chatverlauf wirklich löschen?')) {
       setMessages([])
@@ -2093,251 +2018,37 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
         onLogout={onLogout}
       />
 
-      {/* Messages - Mobile optimized scrolling with pull-to-refresh */}
-      <div
-        ref={messagesContainerRef}
-        onScroll={handleMessagesScroll}
-        onTouchStart={handlePullStart}
-        onTouchMove={handlePullMove}
-        onTouchEnd={handlePullEnd}
-        className="flex-1 overflow-y-auto bg-gray-50 dark:bg-slate-900 px-3 py-4 sm:px-4 sm:py-5 overscroll-contain relative"
-        style={{ paddingTop: pullDistance > 0 ? `${16 + pullDistance}px` : undefined }}
-      >
-        {/* Pull-to-refresh indicator */}
-        <div
-          className={`pull-refresh-indicator ${pullDistance > 20 ? 'visible' : ''} ${isPullRefreshing ? 'refreshing' : ''}`}
-          style={{ top: pullDistance > 20 ? `${Math.min(pullDistance - 30, 20)}px` : '-50px' }}
-        >
-          <div className="flex items-center gap-2 bg-white dark:bg-slate-800 px-4 py-2 rounded-full shadow-lg border border-gray-200 dark:border-slate-700">
-            <RefreshCw className={`h-4 w-4 text-blue-600 dark:text-blue-400 ${isPullRefreshing ? 'animate-spin' : ''}`} />
-            <span className="text-sm text-gray-600 dark:text-slate-300">
-              {isPullRefreshing ? 'Aktualisiere...' : pullDistance > 60 ? 'Loslassen zum Aktualisieren' : 'Ziehen zum Aktualisieren'}
-            </span>
-          </div>
-        </div>
-
-        {/* Loading skeleton when loading chat history */}
-        {isLoadingHistory && (
-          <div className="max-w-3xl mx-auto space-y-4 mb-4 animate-fade-in">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className={`flex ${i % 2 === 0 ? 'justify-end' : 'justify-start'} items-end gap-2`}>
-                {i % 2 !== 0 && (
-                  <div className="w-7 h-7 rounded-full bg-gray-200 dark:bg-slate-700 relative overflow-hidden">
-                    <div className="absolute inset-0 skeleton-shimmer" />
-                  </div>
-                )}
-                <div
-                  className={`relative overflow-hidden rounded-2xl bg-gray-200 dark:bg-slate-700 ${i % 2 === 0 ? 'ml-auto rounded-br-sm' : 'rounded-bl-sm'}`}
-                  style={{
-                    width: `${45 + (i * 8)}%`,
-                    height: `${60 + i * 12}px`
-                  }}
-                >
-                  <div className="absolute inset-0 skeleton-shimmer" />
-                  {/* Content placeholder lines */}
-                  <div className="p-3 space-y-2">
-                    <div className="h-3 bg-gray-300 dark:bg-slate-600 rounded w-3/4" />
-                    <div className="h-3 bg-gray-300 dark:bg-slate-600 rounded w-full" />
-                    {i > 2 && <div className="h-3 bg-gray-300 dark:bg-slate-600 rounded w-5/6" />}
-                  </div>
-                </div>
-                {i % 2 === 0 && (
-                  <div className="w-7 h-7 rounded-full bg-gray-200 dark:bg-slate-700 relative overflow-hidden">
-                    <div className="absolute inset-0 skeleton-shimmer" />
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {messages.length === 0 && !isLoadingHistory ? (
-          <EmptyState onQuickAction={handleQuickAction} />
-        ) : (
-          <div className="max-w-3xl mx-auto space-y-3 sm:space-y-4">
-            {messages.map((message, index) => (
-              // Skip rendering empty assistant messages (they show while streaming starts)
-              message.role === 'assistant' && !message.content ? null : (
-                <div key={index}>
-                  {/* Time Separator */}
-                  {shouldShowDateSeparator(index) && message.timestamp && (
-                    <div className="time-separator my-4">
-                      <span className="text-xs font-medium text-gray-500 dark:text-slate-400 bg-gray-50 dark:bg-slate-900 px-3 py-1 rounded-full">
-                        {formatDateSeparator(new Date(message.timestamp))}
-                      </span>
-                    </div>
-                  )}
-
-                  {/* Swipeable message container */}
-                  <div
-                    className="message-swipe-container"
-                    onTouchStart={(e) => handleMessageTouchStart(e, index)}
-                    onTouchMove={(e) => handleMessageTouchMove(e, index)}
-                    onTouchEnd={() => handleMessageTouchEnd(index)}
-                  >
-                    {/* Swipe action indicators */}
-                    <div className={`message-swipe-action message-swipe-action-left ${swipingMessageIndex === index && swipeOffset > 30 ? 'visible' : ''}`}>
-                      <Copy className="h-5 w-5 text-white" />
-                    </div>
-                    <div className={`message-swipe-action message-swipe-action-right ${swipingMessageIndex === index && swipeOffset < -30 && message.role === 'user' ? 'visible' : ''}`}>
-                      <Trash2 className="h-5 w-5 text-white" />
-                    </div>
-
-                    <div
-                      className={`message-swipe-content flex items-end gap-2 ${message.role === 'user' ? 'justify-end' : 'justify-start'
-                        } animate-spring-in group`}
-                      style={{
-                        transform: swipingMessageIndex === index ? `translateX(${swipeOffset}px)` : undefined
-                      }}
-                    >
-                      {/* Bot Avatar - only show for assistant messages */}
-                      {message.role === 'assistant' && (
-                        <div className="message-avatar message-avatar-bot mb-1">
-                          LiS
-                        </div>
-                      )}
-
-                      <div
-                        className={`rounded-2xl relative ${message.role === 'user'
-                          ? 'max-w-[85%] sm:max-w-[70%] bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-br-md shadow-lg px-4 py-3 message-bubble-user'
-                          : 'max-w-[95%] sm:max-w-[85%] bg-white dark:bg-slate-800/95 text-gray-900 dark:text-slate-100 rounded-bl-md border border-gray-100 dark:border-slate-700/80 shadow-md px-3 py-3 sm:px-5 sm:py-4 message-bubble-bot'
-                          }`}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className={`flex-1 overflow-hidden ${message.role === 'user' ? 'text-[15px] leading-relaxed' : 'text-[15px] leading-[1.7]'}`} style={{ wordBreak: 'normal', overflowWrap: 'break-word' }}>
-                            {message.role === 'user' ? (
-                              <p className="whitespace-pre-wrap" style={{ wordBreak: 'normal', overflowWrap: 'break-word' }}>{message.content}</p>
-                            ) : (
-                              <MarkdownRenderer
-                                content={message.content}
-                                sanitize={sanitizeBotResponse}
-                              />
-                            )}
-                          </div>
-                          <button
-                            onClick={() => copyToClipboard(message.content, index)}
-                            className={`opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity p-2 sm:p-1 rounded-lg touch-manipulation active:scale-95 flex-shrink-0 ${message.role === 'user'
-                              ? 'active:bg-blue-700 text-white'
-                              : 'active:bg-gray-100 dark:active:bg-slate-700 text-gray-600 dark:text-slate-400'
-                              }`}
-                            title="Nachricht kopieren"
-                            aria-label="Nachricht kopieren"
-                          >
-                            {copiedIndex === index ? (
-                              <Check className="h-4 w-4 sm:h-4 sm:w-4" />
-                            ) : (
-                              <Copy className="h-4 w-4 sm:h-4 sm:w-4" />
-                            )}
-                          </button>
-                        </div>
-                        {message.timestamp && (
-                          <div
-                            className={`flex items-center gap-1.5 mt-2 sm:mt-1.5 ${message.role === 'user' ? 'justify-end' : 'justify-start'
-                              }`}
-                          >
-                            <span
-                              className={`text-[11px] sm:text-xs ${message.role === 'user'
-                                ? 'text-blue-100'
-                                : 'text-gray-400 dark:text-slate-500'
-                                }`}
-                            >
-                              {formatTimestamp(message.timestamp)}
-                            </span>
-                            {/* Delivery status for user messages */}
-                            {message.role === 'user' && (
-                              <span className="delivery-check delivered" title="Zugestellt">
-                                ✓✓
-                              </span>
-                            )}
-                            {/* Pin indicator */}
-                            {pinnedMessages.has(index) && (
-                              <span title="Angepinnt">
-                                <Pin className="h-3 w-3 text-purple-500 dark:text-purple-400 fill-current ml-1" />
-                              </span>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Message Reactions */}
-                        {message.reactions && Object.keys(message.reactions).length > 0 && (
-                          <div className={`flex items-center gap-1 mt-2 flex-wrap ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                            {Object.entries(message.reactions).map(([emoji, count]) => (
-                              <button
-                                key={emoji}
-                                onClick={() => handleAddReaction(index, emoji)}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 dark:bg-slate-700 rounded-full text-xs hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors active:scale-95"
-                              >
-                                <span>{emoji}</span>
-                                <span className="font-medium text-gray-600 dark:text-gray-300">{count}</span>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-
-                        {/* Add Reaction Button */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            const rect = e.currentTarget.getBoundingClientRect()
-                            setReactionPicker({
-                              messageIndex: index,
-                              x: rect.left,
-                              y: rect.top - 10
-                            })
-                            triggerHaptic('light')
-                          }}
-                          className={`absolute -bottom-2 ${message.role === 'user' ? 'right-2' : 'left-2'
-                            } opacity-0 group-hover:opacity-100 w-6 h-6 rounded-full bg-white dark:bg-slate-700 border-2 border-gray-200 dark:border-slate-600 flex items-center justify-center hover:scale-110 transition-all shadow-md`}
-                          title="Reaktion hinzufügen"
-                        >
-                          <span className="text-xs">😊</span>
-                        </button>
-                      </div>
-
-                      {/* User Avatar - only show for user messages */}
-                      {message.role === 'user' && (
-                        <div className="message-avatar message-avatar-user mb-1">
-                          Du
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )
-            ))}
-
-            {isLoading && showLoadingBubble && !isStreamingResponse && (
-              <div className="flex justify-start items-end gap-2 animate-in fade-in slide-in-from-bottom-2 duration-200">
-                {/* Bot Avatar */}
-                <div className="message-avatar message-avatar-bot mb-1">
-                  LiS
-                </div>
-                <div className="bg-white dark:bg-slate-800 rounded-2xl sm:rounded-xl rounded-bl-sm px-4 py-4 sm:px-4 sm:py-3.5 border border-gray-200 dark:border-slate-700 shadow-sm">
-                  {/* Bouncing dots typing indicator */}
-                  <div className="flex items-center gap-1.5">
-                    <div className="typing-dot" />
-                    <div className="typing-dot" />
-                    <div className="typing-dot" />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div ref={messagesEndRef} />
-          </div>
-        )}
-      </div>
-
-      {/* Scroll to Bottom Button - Floating */}
-      {showScrollButton && !voiceOnlyMode && (
-        <button
-          onClick={scrollToBottom}
-          className="fixed bottom-28 right-4 sm:bottom-24 sm:right-6 p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg active:scale-95 transition-all z-20 touch-manipulation animate-in fade-in slide-in-from-bottom-2 duration-200"
-          aria-label="Nach unten scrollen"
-        >
-          <ChevronDown className="h-5 w-5" />
-        </button>
-      )}
+      {/* Messages */}
+      <ChatMessageList
+        messages={messages}
+        isLoading={isLoading}
+        isLoadingHistory={isLoadingHistory}
+        showLoadingBubble={showLoadingBubble}
+        isStreamingResponse={isStreamingResponse}
+        copiedIndex={copiedIndex}
+        setCopiedIndex={handleSetCopiedIndex}
+        pinnedMessages={pinnedMessages}
+        swipingMessageIndex={swipingMessageIndex}
+        swipeOffset={swipeOffset}
+        pullDistance={pullDistance}
+        isPullRefreshing={isPullRefreshing}
+        showScrollButton={showScrollButton}
+        voiceOnlyMode={voiceOnlyMode}
+        reactionPicker={reactionPicker}
+        setReactionPicker={setReactionPicker}
+        messagesEndRef={messagesEndRef}
+        messagesContainerRef={messagesContainerRef}
+        onScrollChange={handleMessagesScroll}
+        onPullStart={handlePullStart}
+        onPullMove={handlePullMove}
+        onPullEnd={handlePullEnd}
+        onMessageTouchStart={handleMessageTouchStart}
+        onMessageTouchMove={handleMessageTouchMove}
+        onMessageTouchEnd={handleMessageTouchEnd}
+        onQuickAction={handleQuickAction}
+        onScrollToBottom={scrollToBottom}
+        onAddReaction={handleAddReaction}
+      />
 
       {/* Input Area */}
       {voiceOnlyMode ? (
@@ -2453,140 +2164,20 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
         }}
       />
 
-      {/* Context Menu / Action Sheet for long-press on messages */}
-      {contextMenu && (
-        <>
-          {/* Backdrop */}
-          <div
-            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 modal-overlay"
-            onClick={() => setContextMenu(null)}
-          />
-
-          {/* Action Sheet (iOS-style bottom sheet on mobile, floating menu on desktop) */}
-          <div
-            className="fixed bottom-0 left-0 right-0 sm:absolute sm:bottom-auto z-50 animate-slide-up-fast"
-            style={{
-              left: typeof window !== 'undefined' && window.innerWidth >= 640 ? Math.min(contextMenu.x, window.innerWidth - 220) : undefined,
-              top: typeof window !== 'undefined' && window.innerWidth >= 640 ? Math.min(contextMenu.y, window.innerHeight - 300) : undefined,
-              right: typeof window !== 'undefined' && window.innerWidth >= 640 ? 'auto' : undefined,
-              bottom: typeof window !== 'undefined' && window.innerWidth >= 640 ? 'auto' : 0
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="bg-white dark:bg-slate-800 rounded-t-3xl sm:rounded-2xl shadow-2xl border-t border-gray-200 dark:border-slate-700 sm:border overflow-hidden pb-safe">
-              {/* Drag handle (mobile only) */}
-              <div className="sm:hidden flex justify-center pt-2 pb-1">
-                <div className="w-10 h-1 bg-gray-300 dark:bg-slate-600 rounded-full" />
-              </div>
-
-              {/* Actions */}
-              <div className="p-2">
-                <button
-                  className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-gray-100 dark:hover:bg-slate-700 rounded-xl transition-colors touch-manipulation"
-                  onClick={() => handleContextMenuAction('copy')}
-                >
-                  <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-                    <Copy className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                  </div>
-                  <span className="flex-1 font-medium text-gray-900 dark:text-white">Kopieren</span>
-                </button>
-
-                <button
-                  className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-gray-100 dark:hover:bg-slate-700 rounded-xl transition-colors touch-manipulation"
-                  onClick={() => handleContextMenuAction('share')}
-                >
-                  <div className="w-8 h-8 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
-                    <Share2 className="h-4 w-4 text-green-600 dark:text-green-400" />
-                  </div>
-                  <span className="flex-1 font-medium text-gray-900 dark:text-white">Teilen</span>
-                </button>
-
-                <button
-                  className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-gray-100 dark:hover:bg-slate-700 rounded-xl transition-colors touch-manipulation"
-                  onClick={() => handleContextMenuAction('pin')}
-                >
-                  <div className="w-8 h-8 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
-                    <Pin className={`h-4 w-4 text-purple-600 dark:text-purple-400 ${pinnedMessages.has(contextMenu.messageIndex) ? 'fill-current' : ''}`} />
-                  </div>
-                  <span className="flex-1 font-medium text-gray-900 dark:text-white">
-                    {pinnedMessages.has(contextMenu.messageIndex) ? 'Nicht mehr anpinnen' : 'Anpinnen'}
-                  </span>
-                </button>
-
-                {messages[contextMenu.messageIndex]?.role === 'assistant' && (
-                  <button
-                    className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-gray-100 dark:hover:bg-slate-700 rounded-xl transition-colors touch-manipulation"
-                    onClick={() => handleContextMenuAction('regenerate')}
-                  >
-                    <div className="w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
-                      <RotateCcw className="h-4 w-4 text-orange-600 dark:text-orange-400" />
-                    </div>
-                    <span className="flex-1 font-medium text-gray-900 dark:text-white">Neu generieren</span>
-                  </button>
-                )}
-
-                {messages[contextMenu.messageIndex]?.role === 'user' && (
-                  <>
-                    <div className="h-px bg-gray-200 dark:bg-slate-700 my-2" />
-                    <button
-                      className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors touch-manipulation"
-                      onClick={() => handleContextMenuAction('delete')}
-                    >
-                      <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
-                        <Trash2 className="h-4 w-4 text-red-600 dark:text-red-400" />
-                      </div>
-                      <span className="flex-1 font-medium text-red-600 dark:text-red-400">Löschen</span>
-                    </button>
-                  </>
-                )}
-              </div>
-
-              {/* Cancel button (mobile only) */}
-              <div className="sm:hidden px-2 pb-2 pt-1">
-                <button
-                  onClick={() => setContextMenu(null)}
-                  className="w-full py-3.5 bg-gray-100 dark:bg-slate-700 rounded-xl font-semibold text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors"
-                >
-                  Abbrechen
-                </button>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* Reaction Picker */}
-      {reactionPicker && (
-        <>
-          {/* Backdrop */}
-          <div
-            className="fixed inset-0 z-40"
-            onClick={() => setReactionPicker(null)}
-          />
-
-          {/* Picker */}
-          <div
-            className="fixed z-50 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-slate-700 p-2 animate-scale-up"
-            style={{
-              left: Math.min(reactionPicker.x, window.innerWidth - 250),
-              top: Math.max(50, reactionPicker.y - 60),
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex gap-1">
-              {reactionEmojis.map((emoji) => (
-                <button
-                  key={emoji}
-                  onClick={() => handleAddReaction(reactionPicker.messageIndex, emoji)}
-                  className="w-10 h-10 rounded-xl hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center justify-center text-2xl transition-all active:scale-90"
-                >
-                  {emoji}
-                </button>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
+      {/* Context Menu & Reaction Picker */}
+      <MessageActions
+        messages={messages}
+        contextMenu={contextMenu}
+        setContextMenu={setContextMenu}
+        pinnedMessages={pinnedMessages}
+        setPinnedMessages={setPinnedMessages}
+        reactionPicker={reactionPicker}
+        setReactionPicker={setReactionPicker}
+        onCopy={handleContextMenuCopy}
+        onDelete={handleContextMenuDelete}
+        onRegenerate={handleContextMenuRegenerate}
+        onAddReaction={handleAddReaction}
+      />
     </div>
   )
 }
