@@ -1,0 +1,72 @@
+{
+  "timestamp": "2026-01-15T00:44:13.539Z",
+  "config": {
+    "baseUrl": "http://localhost:3000",
+    "verbose": true,
+    "categoryFilter": "materialien",
+    "parallel": 2
+  },
+  "summary": {
+    "total": 6,
+    "passed": 6,
+    "failed": 0,
+    "duration": 24971,
+    "passRate": "100.0%"
+  },
+  "results": [
+    {
+      "id": "MAT001",
+      "input": "Liste aller Materialien",
+      "passed": true,
+      "duration": 4278,
+      "errors": [],
+      "response": "Hier ist eine Liste der Materialien, die wir aktuell im System haben:\n\n- **Karton**\n  - Einheit: Stück\n  - Standardmenge: 1\n  - Mehrwertsteuer: 19%\n  \n- **Klebeband**\n  - Einheit: Stück\n  - Standardmenge: 1\n  - Mehrwertsteuer: 19%\n  \n- **Kleiderbox**\n  - Einheit: Stück\n  - Standardmenge: 1\n  - Mehrwertsteuer: 19%\n  \n- **Luftpolsterfolie**\n  - Einheit: Meter\n  - Standardmenge: 50\n  - Mehrwertsteuer: 19%\n  \n- **Stretchfolie**\n  - Einheit: Meter\n  - Standardmenge: 30\n  - Mehrwertsteuer: 19%\n  \n- **Kantenschutz**\n  - Einheit: Meter\n  - Standardmenge: 1\n  - Mehrwertsteuer: 19%\n  \n- **Packseide**\n  - Einheit: Kilogramm\n  - Standardmenge: 10\n  - Mehrwertsteuer: 19%\n\nWenn du weitere Informationen benötigst, lass es mich wissen!",
+      "responseLength": 729
+    },
+    {
+      "id": "MAT002",
+      "input": "Materialpreise anzeigen",
+      "passed": true,
+      "duration": 4049,
+      "errors": [],
+      "response": "Hier sind die aktuellen Materialpreise:\n\n| Material         | Einheit | Einkaufspreis (EUR) | Verkaufspreis (EUR) |\n|------------------|---------|---------------------|---------------------|\n| Karton           | Stück   | 1,72                | 2,65                |\n| Klebeband        | Stück   | 1,60                | 4,98                |\n| Kleiderbox       | Stück   | 2,00                | 4,95                |\n| Luftpolsterfolie | m       | 32,00               | 49,13               |\n| Stretchfolie     | m       | 8,50                | 25,60               |\n| Kantenschutz     | m       | 1,00                | 1,78                |\n| Packseide        | kg      | 17,00               | 36,80               |\n\nFalls du weitere Informationen benötigst oder andere Materialien sehen möchtest, lass es mich wissen!",
+      "responseLength": 818
+    },
+    {
+      "id": "MAT003",
+      "input": "Welche Materialien wurden beim Projekt Bahr verwendet?",
+      "passed": true,
+      "duration": 3253,
+      "errors": [],
+      "response": "Beim Projekt \"Bahr\" wurden folgende Materialien verwendet:\n\n- **Material ID: M-KLEB**\n  - Menge: 2\n\nLeider sind die genauen Namen der Materialien nicht direkt in den Daten enthalten. Wenn du weitere Details oder die Namen der Materialien benötigst, kann ich diese für dich recherchieren.",
+      "responseLength": 287
+    },
+    {
+      "id": "MAT004",
+      "input": "Verfügbare Dienstleistungen",
+      "passed": true,
+      "duration": 4053,
+      "errors": [],
+      "response": "Hier sind einige der verfügbaren Dienstleistungen im Bereich Entsorgung:\n\n- **AZV gemischter Müll**\n  - Einheit: Tonne (t)\n\n- **Holz**\n  - Einheit: Tonne (t)\n\n- **Fliesen & Keramik / Bauschutt sauber**\n  - Einheit: Tonne (t)\n\n- **Beton**\n  - Einheit: Tonne (t)\n\n- **Monitor Entsorgung**\n  - Einheit: Stück\n\n- **Elektro Entsorgung**\n  - Einheit: Stück\n\n- **AZV Pauschale bis 200kg**\n  - Einheit: Pauschal\n\n- **Holz Pauschale bis 200kg**\n  - Einheit: Pauschal\n\n- **Fliesen & Keramik Pauschale bis 200kg**\n  - Einheit: Pauschal\n\n- **Papier / Pappe**\n  - Einheit: Tonne (t)\n\n- **Papier / Pappe Pauschale bis 200kg**\n  - Einheit: Pauschal\n\nDiese Dienstleistungen sind alle aktiv und können für Entsorgungsprojekte genutzt werden. Wenn du weitere Informationen benötigst, lass es mich wissen!",
+      "responseLength": 786
+    },
+    {
+      "id": "MAT005",
+      "input": "Preise für Dienstleistung Umzug",
+      "passed": true,
+      "duration": 4276,
+      "errors": [],
+      "response": "Um die Preise für die Dienstleistung \"Umzug\" zu ermitteln, werde ich die entsprechenden Datenbanktabellen abfragen. Einen Moment bitte.Es scheint, dass die Datenbank keine spezifischen Preise für die Dienstleistung \"Umzug\" enthält. Stattdessen habe ich Informationen zu verschiedenen Entsorgungsdienstleistungen gefunden. Soll ich dir diese Informationen bereitstellen, oder möchtest du etwas anderes wissen?",
+      "responseLength": 408
+    },
+    {
+      "id": "MAT006",
+      "input": "Materialkosten pro Projekt",
+      "passed": true,
+      "duration": 5062,
+      "errors": [],
+      "response": "Um die Materialkosten pro Projekt zu ermitteln, werde ich die Datenbank nach den entsprechenden Informationen durchsuchen. Ich werde die Materialnutzung pro Projekt abfragen und die Kosten berechnen. Einen Moment bitte.Hier sind die Materialkosten für einige Projekte:\n\n1. **Projekt Sell**\n   - Phase: Nutzung\n   - Materialkosten: 15,48 €\n\n2. **Projekt Montag**\n   - Phase: Nutzung\n   - Materialkosten: 387,44 €\n   - Phase: Nachkalkulation\n   - Materialkosten: 172,00 €\n\n3. **Projekt Seier**\n   - Phase: Nutzung\n   - Materialkosten: 1,00 €\n\n4. **Projekt Demmer**\n   - Phase: Nutzung\n   - Materialkosten: 3,20 €\n\nDie übrigen Projekte in der Liste hatten keine Materialkosten in den erfassten Phasen. Wenn du weitere Details benötigst oder ein spezifisches Projekt im Auge hast, lass es mich wissen!",
+      "responseLength": 797
+    }
+  ]
+}

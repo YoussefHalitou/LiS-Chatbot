@@ -1,0 +1,45 @@
+{
+  "timestamp": "2026-01-15T00:44:51.141Z",
+  "config": {
+    "baseUrl": "http://localhost:3000",
+    "verbose": true,
+    "categoryFilter": "abnahmen",
+    "parallel": 2
+  },
+  "summary": {
+    "total": 3,
+    "passed": 3,
+    "failed": 0,
+    "duration": 19066,
+    "passRate": "100.0%"
+  },
+  "results": [
+    {
+      "id": "AB001",
+      "input": "Offene Abnahmen",
+      "passed": true,
+      "duration": 9003,
+      "errors": [],
+      "response": "Um die offenen Abnahmen zu finden, werde ich nach Abnahmen suchen, die noch nicht abgeschlossen sind. Lass mich das für dich überprüfen.Hier sind einige der offenen Abnahmen:\n\n1. **Herr Stephan Dworak – Umzug**\n   - Datum: 20. Dezember 2025\n   - Ort: Am Katharinenkloster 4, 40489 Düsseldorf\n   - Arbeitsbeginn vor Ort: 08:00 Uhr\n   - Arbeitsende vor Ort: 23:00 Uhr\n   - Entsorgungstermin: 22. Dezember 2025\n\n2. **Frau Cleven – Umzug**\n   - Datum: 6. Januar 2026\n   - Ort: Schwanenmakt 9, 40213 Düsseldorf\n   - Arbeitsbeginn vor Ort: 11:11 Uhr\n   - Ende Wiegeschein: 22:22 Uhr\n   - Zusatz: Sonstiges (Beschreibung: ooo)\n\n3. **Frau Otto**\n   - Datum: 6. Januar 2026\n   - Ort: Hover Kull 21, 47877 Willich\n   - HVZ vor Ort: Ja\n   - HVZ Nummer: 1234\n\n4. **Frau Demmer – kleine Entrümpelung**\n   - Datum: 1. Januar 2026\n   - Ort: Lindenstr. 99, 40233 Düsseldorf\n   - Arbeitsbeginn vor Ort: 11:11 Uhr\n   - Arbeitsende vor Ort: 22:22 Uhr\n   - Fahrzeug: L4U\n   - Wiegescheine unvollständig: Ja\n   - Entsorgu...",
+      "responseLength": 1451
+    },
+    {
+      "id": "AB002",
+      "input": "Abnahme-Protokoll für Projekt Bahr",
+      "passed": true,
+      "duration": 5629,
+      "errors": [],
+      "response": "Um das Abnahme-Protokoll für das Projekt \"Bahr\" zu finden, werde ich die entsprechenden Daten in der Datenbank abfragen. Einen Moment bitte.Hier sind die Details des Abnahmeprotokolls für das Projekt \"Bahr\":\n\n- **Auftrag:** Herr Stephan Dworak – Umzug\n- **Arbeitsbeginn vor Ort:** 08:00 Uhr\n- **Arbeitsende vor Ort:** 23:00 Uhr\n- **Entsorgungstermin:** 22. Dezember 2025\n- **Rechnungsadresse:**\n  - Herr Stephan Dworak\n  - Am Katharinenkloster 4\n  - 40489 Düsseldorf\n- **Zusatzinformationen:**\n  - Sonderstoffentsorgung: Nein\n  - Sonstiges: Nein\n  - Folgetag: Ja\n\nFalls du weitere Details benötigst, lass es mich wissen!",
+      "responseLength": 620
+    },
+    {
+      "id": "AB003",
+      "input": "Abnahmen letzte Woche",
+      "passed": true,
+      "duration": 4434,
+      "errors": [],
+      "response": "Ich werde nach den Abnahmen der letzten Woche suchen. Einen Moment bitte.Hier sind die Abnahmen der letzten Woche:\n\n1. **Herr Stephan Dworak – Umzug**\n   - Datum: 20. Dezember 2025\n   - Ort: Düsseldorf\n   - Arbeitsbeginn: 08:00 Uhr\n   - Arbeitsende: 23:00 Uhr\n\n2. **Frau Cleven – Umzug**\n   - Datum: 6. Januar 2026\n   - Ort: Düsseldorf\n   - Arbeitsbeginn: 11:11 Uhr\n\n3. **Frau Otto**\n   - Datum: 6. Januar 2026\n   - Ort: Willich\n   - HVZ vor Ort: Ja\n\n4. **Herr Dworak – Umzug**\n   - Datum: 6. Januar 2026\n   - Ort: Mühltal\n   - Arbeitsbeginn: 11:11 Uhr\n   - Arbeitsende: 16:15 Uhr\n\n5. **Herr Montag – Umzug + Entrümpelung**\n   - Datum: 14. Januar 2026\n   - Ort: Düsseldorf\n\nBitte lass mich wissen, wenn du weitere Details benötigst!",
+      "responseLength": 732
+    }
+  ]
+}

@@ -2,6 +2,7 @@
 
 import React, { Component, ErrorInfo, ReactNode } from 'react'
 import { AlertCircle, RefreshCw } from 'lucide-react'
+import { reportError } from '@/lib/monitoring'
 
 interface Props {
   children: ReactNode
@@ -38,8 +39,8 @@ export class ErrorBoundary extends Component<Props, State> {
       console.error('Error caught by ErrorBoundary:', error, errorInfo)
     }
 
-    // In production, you could log to an error tracking service here
-    // e.g., Sentry.captureException(error, { contexts: { react: errorInfo } })
+    // Report error to monitoring service
+    reportError(error, { source: 'ErrorBoundary' }, errorInfo.componentStack || undefined)
 
     this.setState({
       error,

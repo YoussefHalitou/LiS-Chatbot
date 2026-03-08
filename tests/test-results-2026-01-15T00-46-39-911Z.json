@@ -1,0 +1,60 @@
+{
+  "timestamp": "2026-01-15T00:46:39.914Z",
+  "config": {
+    "baseUrl": "http://localhost:3000",
+    "verbose": true,
+    "categoryFilter": "mehrsprachigkeit",
+    "parallel": 2
+  },
+  "summary": {
+    "total": 4,
+    "passed": 1,
+    "failed": 3,
+    "duration": 24014,
+    "passRate": "25.0%"
+  },
+  "results": [
+    {
+      "id": "LANG001",
+      "input": "Show all projects",
+      "passed": false,
+      "duration": 7010,
+      "errors": [
+        "Expected \"project\" not found in response"
+      ],
+      "response": "Hier sind die aktuellen Projekte:\n\n| Projektname | Ort | Dienstleistung | Status | Angebotsart | Projektdatum |\n|-------------|-----|----------------|--------|-------------|--------------|\n| Montag      | Düsseldorf | Umzug + Entrümpelung | In Planung | Festpreis | 14.01.2026 |\n| Albert      | Düsseldorf | Entrümpelung | In Planung | Festpreis EWE | - |\n| Lammert     | Neuss | Umzug | In Planung | Kostenvoranschlag | 13.02.2026 |\n| Bauta       | Erkrath | InHausUmzug | In Planung | Kostenvoranschlag | 15.01.2026 |\n| Otto        | Willich | Entrümpelung | In Planung | freibleindendes Angebot | - |\n| Dworak      | Mühltal | Umzug | In Planung | freibleindendes Angebot | - |\n| Hueßmanns   | Düsseldorf | Entrümpelung | In Planung | Festpreis | 07.01.2026 |\n| Schwarz     | Erkrath | Entrümpelung + Boden entfernen | In Planung | Festpreis | 19.01.2026 |\n| Seier       | Remscheid | Umzug | In Planung | Kostenvoranschlag | - |\n| Sun Dental Labs GmbH | Düsseldorf | Umtragearbeiten | In Planung ...",
+      "responseLength": 1151
+    },
+    {
+      "id": "LANG002",
+      "input": "Zeige mir die projects für today",
+      "passed": true,
+      "duration": 4858,
+      "errors": [],
+      "response": "Hier sind die Projekte für heute, den 15. Januar 2026:\n\n| Projektname | Ort         | Dienstleistung     | Fahrzeug | Mitarbeiter           |\n|-------------|-------------|--------------------|----------|-----------------------|\n| Sell        | Essen       | Entrümpelung       | L4U      | Ali, Jim, Las         |\n| UTZ         | Düsseldorf  | Entrümpelung       | L4N      | Achim, Flo, Pi        |\n| Benkwitz    | Heiligenhaus| Kartonlieferung    | -        | Las                   |\n| Lammert     | Neuss       | Kartonlieferung    | -        | Chris                 |\n| Bauta       | Erkrath     | InHausUmzug        | L4N      | Achim, Flo, Pi, Raf   |\n\nFalls du weitere Informationen zu einem der Projekte benötigst, lass es mich wissen!",
+      "responseLength": 743
+    },
+    {
+      "id": "LANG003",
+      "input": "List all employees",
+      "passed": false,
+      "duration": 6446,
+      "errors": [
+        "Expected \"employee\" not found in response"
+      ],
+      "response": "Hier ist eine Liste aller Mitarbeiter:\n\n| Name    | Vertragsart | Stundensatz | Status  |\n|---------|-------------|-------------|---------|\n| Flo     | Intern      | 25          | Aktiv   |\n| Pi      | Intern      | 25          | Aktiv   |\n| Las     | Intern      | 25          | Aktiv   |\n| Raf     | Intern      | 25          | Aktiv   |\n| Jim     | Intern      | 25          | Aktiv   |\n| Khalid  | Extern      | 35          | Aktiv   |\n| Sco     | Extern      | 30          | Aktiv   |\n| Mari    | Extern      | 30          | Aktiv   |\n| Thom    | Extern      | 30          | Aktiv   |\n| Thor    | Extern      | 30          | Aktiv   |\n| Den     | Intern      | 25          | Aktiv   |\n| Achim   | Intern      | 25          | Aktiv   |\n| Fatih   | Extern      | 35          | Aktiv   |\n| Mohamed | Extern      | 35          | Aktiv   |\n| Youssef | Extern      | 35          | Aktiv   |\n| Ali     | Extern      | 35          | Aktiv   |\n| Björn   | Extern      | 35          | Aktiv   |\n| Chris   ...",
+      "responseLength": 1103
+    },
+    {
+      "id": "LANG004",
+      "input": "What is planned for tomorrow?",
+      "passed": false,
+      "duration": 5700,
+      "errors": [
+        "Expected \"tomorrow\" not found in response"
+      ],
+      "response": "Für morgen, den 16. Januar 2026, sind folgende Projekte geplant:\n\n1. **Projekt Hädler**\n   - Ort: Hilden\n   - Dienstleistung: Umzug\n   - Mitarbeiter:\n     - Chris\n\n2. **Projekt Bahr**\n   - Ort: Erkrath\n   - Dienstleistung: Küche demontieren & entsorgen + Transport E-Geräte\n   - Startzeit: 14:00 Uhr\n   - Mitarbeiter:\n     - Achim (Fahrer)\n     - Ali (Fahrer)\n     - Björn (Fahrer)\n     - Chris (Fahrer)\n\n3. **Projekt Sell**\n   - Ort: Essen\n   - Dienstleistung: Umzug + Packhilfe\n   - Mitarbeiter: Unbekannt\n\nFalls du weitere Details zu einem der Projekte benötigst, lass es mich wissen!",
+      "responseLength": 587
+    }
+  ]
+}

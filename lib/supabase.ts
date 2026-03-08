@@ -1,25 +1,44 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+// Get and trim environment variables
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim()
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
+
+// Validate URL format
+const isValidUrl = (url: string | undefined): boolean => {
+  if (!url) return false
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:'
+  } catch {
+    return false
+  }
+}
 
 if (!supabaseUrl || !supabaseAnonKey) {
   console.error('Missing Supabase environment variables:', {
     hasUrl: !!supabaseUrl,
     hasAnonKey: !!supabaseAnonKey,
     hasServiceKey: !!supabaseServiceKey,
+    urlValue: supabaseUrl ? `${supabaseUrl.substring(0, 20)}...` : 'undefined',
   })
   // Don't throw at module level - allow the app to start and handle errors gracefully
+} else if (!isValidUrl(supabaseUrl)) {
+  console.error('Invalid Supabase URL format:', {
+    url: supabaseUrl,
+    urlLength: supabaseUrl.length,
+    startsWithHttp: supabaseUrl.startsWith('http://') || supabaseUrl.startsWith('https://'),
+  })
 }
 
 // Client for client-side operations
-export const supabase = supabaseUrl && supabaseAnonKey
+export const supabase = supabaseUrl && supabaseAnonKey && isValidUrl(supabaseUrl)
   ? createClient(supabaseUrl, supabaseAnonKey)
   : null
 
 // Admin client for server-side operations (with service role key)
-export const supabaseAdmin = supabaseUrl && supabaseServiceKey
+export const supabaseAdmin = supabaseUrl && supabaseServiceKey && isValidUrl(supabaseUrl)
   ? createClient(supabaseUrl, supabaseServiceKey)
   : null
 

@@ -89,7 +89,25 @@ export function getUserFriendlyErrorMessage(
   switch (operation) {
     case 'INSERT':
       if (lowerMessage.includes('duplicate') || lowerMessage.includes('already exists')) {
+        // Check if it's a staff assignment (t_morningplan_staff)
+        if (tableName === 't_morningplan_staff') {
+          return 'Der Mitarbeiter ist bereits diesem Projekt zugeordnet.'
+        }
         return 'Ein Eintrag mit diesen Daten existiert bereits.'
+      }
+      // Check for missing values errors
+      if (lowerMessage.includes('missing values') || lowerMessage.includes('required')) {
+        if (tableName === 't_morningplan_staff') {
+          return 'Fehler beim Hinzufügen des Mitarbeiters: Bitte stelle sicher, dass sowohl der Mitarbeiter als auch das Projekt existieren.'
+        }
+        return 'Es fehlen erforderliche Angaben. Bitte überprüfe deine Eingaben.'
+      }
+      // Check for foreign key errors (employee or plan not found)
+      if (lowerMessage.includes('foreign key') || lowerMessage.includes('violates foreign key')) {
+        if (tableName === 't_morningplan_staff') {
+          return 'Der Mitarbeiter oder das Projekt konnte nicht gefunden werden. Bitte überprüfe die Namen.'
+        }
+        return 'Ein referenzierter Eintrag existiert nicht. Bitte überprüfe deine Eingaben.'
       }
       return 'Der Eintrag konnte nicht erstellt werden. Bitte überprüfe deine Eingaben.'
     case 'UPDATE':

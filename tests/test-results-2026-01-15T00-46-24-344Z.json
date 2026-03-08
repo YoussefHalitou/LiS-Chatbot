@@ -1,0 +1,63 @@
+{
+  "timestamp": "2026-01-15T00:46:24.345Z",
+  "config": {
+    "baseUrl": "http://localhost:3000",
+    "verbose": true,
+    "categoryFilter": "datumsbereich",
+    "parallel": 2
+  },
+  "summary": {
+    "total": 5,
+    "passed": 5,
+    "failed": 0,
+    "duration": 44567,
+    "passRate": "100.0%"
+  },
+  "results": [
+    {
+      "id": "DAT001",
+      "input": "Projekte vom 15. bis 20. Januar",
+      "passed": true,
+      "duration": 4664,
+      "errors": [],
+      "response": "Hier sind die Projekte, die zwischen dem 15. und 20. Januar 2026 geplant sind:\n\n| Projektname | Ort        | Datum       | Service-Typ                  | Mitarbeiter              |\n|-------------|------------|-------------|------------------------------|--------------------------|\n| Sell        | Essen      | 15. Januar  | Entrümpelung                 | Ali, Jim, Las            |\n| UTZ         | Düsseldorf | 15. Januar  | Entrümpelung                 | Achim, Flo, Pi           |\n| Hädler      | Hilden     | 16. Januar  | Umzug                        | Chris                    |\n| Michel      | Düsseldorf | 20. Januar  | Entrümpelung ohne Küche      | Unbekannt                |\n\nFalls du weitere Informationen zu einem bestimmten Projekt benötigst, lass es mich wissen!",
+      "responseLength": 777
+    },
+    {
+      "id": "DAT002",
+      "input": "Einsätze zwischen Montag und Freitag",
+      "passed": true,
+      "duration": 7625,
+      "errors": [],
+      "response": "Hier sind einige Einsätze, die zwischen Montag und Freitag geplant sind:\n\n| Projektname       | Ort        | Datum       | Service-Typ                           | Mitarbeiter             |\n|-------------------|------------|-------------|---------------------------------------|-------------------------|\n| Volke             | Neuss      | 19. Februar | Umzug                                | Unbekannt               |\n| Michel            | Düsseldorf | 20. Januar  | Entrümpelung ohne Küche              | Unbekannt               |\n| Seier             | Remscheid  | 17. Februar | Umzug                                | Unbekannt               |\n| Dworak            | Mühltal    | 5. Januar   | Umzug                                | Unbekannt               |\n| Bettina Küpper    | Wuppertal  | 12. Januar  | Umzug + Entrümpelung + Transport     | Unbekannt               |\n| Petersilie bei Moser | Düsseldorf | 13. Januar | Transport + Entrümpelung + Bodenentfernen | Unbekannt           |\n| Hädler ...",
+      "responseLength": 1616
+    },
+    {
+      "id": "DAT003",
+      "input": "Alle Projekte im Q1 2026",
+      "passed": true,
+      "duration": 9713,
+      "errors": [],
+      "response": "Hier sind die Projekte, die im ersten Quartal 2026 geplant sind:\n\n| Projektname | Ort | Datum | Dienstleistungen | Status |\n|-------------|-----|-------|------------------|--------|\n| Montag | Düsseldorf | 14. Januar 2026 | Umzug + Entrümpelung | In Planung |\n| Albert | Düsseldorf | 5. Januar 2026 bis 6. Januar 2026 | Entrümpelung | In Planung |\n| Lammert | Neuss | 13. Februar 2026 | Umzug | In Planung |\n| Bauta | Erkrath | 15. Januar 2026 | InHausUmzug | In Planung |\n| Otto | Willich | 6. Januar 2026 bis 7. Januar 2026 | Entrümpelung | In Planung |\n| Dworak | Mühltal | 5. Januar 2026 bis 6. Januar 2026 | Umzug | In Planung |\n| Hueßmanns | Düsseldorf | 7. Januar 2026 | Entrümpelung | In Planung |\n| Schwarz | Erkrath | 19. Januar 2026 | Entrümpelung + Boden entfernen | In Planung |\n| Seier | Remscheid | 17. Februar 2026 bis 18. Februar 2026 | Umzug | In Planung |\n| Sun Dental Labs GmbH | Düsseldorf | 20. Januar 2026 | Umtragearbeiten | In Planung |\n\nDies sind einige der Projekte, die im...",
+      "responseLength": 1090
+    },
+    {
+      "id": "DAT004",
+      "input": "Mitarbeiter-Einsätze letzte 7 Tage",
+      "passed": true,
+      "duration": 13865,
+      "errors": [],
+      "response": "In den letzten 7 Tagen gab es folgende Mitarbeiter-Einsätze:\n\n- **Unbekannt**: 44 Einsätze\n- **Den, Las**: 3 Einsätze\n- **Chris**: 2 Einsätze\n- **Achim, Ali, Mohamed**: 1 Einsatz\n- **Achim, Ali, Björn**: 3 Einsätze\n- **Achim, Flo**: 1 Einsatz\n- **Jim**: 1 Einsatz\n- **Ali, Jim, Las**: 1 Einsatz\n- **Fatih**: 1 Einsatz\n- **Achim, Flo, Pi**: 1 Einsatz\n- **Jim, Las, Mari**: 1 Einsatz\n- **Las**: 2 Einsätze\n- **Achim, Flo, Pi, Raf**: 2 Einsätze\n- **Achim, Ali, Björn, Chris, Den**: 1 Einsatz\n- **Den (Helfer), Flo (Helfer), Jim (Helfer)**: 1 Einsatz\n- **Achim (Fahrer), Ali (Fahrer), Björn (Fahrer), Chris (Fahrer)**: 1 Einsatz\n- **Achim, Ali**: 1 Einsatz\n- **Achim, Den, Flo, Las, Pi, Raf**: 1 Einsatz\n- **Pi, Raf**: 1 Einsatz\n- **Achim, Ali, Björn, Unbekannt**: 1 Einsatz\n- **Fatih, Khalid**: 1 Einsatz\n- **Achim, Ali, Chris**: 1 Einsatz\n\nFalls du weitere Details zu einem bestimmten Einsatz benötigst, lass es mich wissen!",
+      "responseLength": 922
+    },
+    {
+      "id": "DAT005",
+      "input": "Projekte nächste 2 Wochen",
+      "passed": true,
+      "duration": 8700,
+      "errors": [],
+      "response": "Ich werde dir die Projekte für die nächsten zwei Wochen anzeigen. Einen Moment bitte.Hier sind die Projekte, die in den nächsten zwei Wochen geplant sind:\n\n| Projektname | Ort         | Datum       | Dienstleistung                  | Mitarbeiter         |\n|-------------|-------------|-------------|---------------------------------|---------------------|\n| Sell        | Essen       | 15.01.2026  | Entrümpelung                   | Ali, Jim, Las       |\n| UTZ         | Düsseldorf  | 15.01.2026  | Entrümpelung                   | Achim, Flo, Pi      |\n| Benkwitz    | Heiligenhaus| 15.01.2026  | Kartonlieferung                 | Las                 |\n| Lammert     | Neuss       | 15.01.2026  | Kartonlieferung                 | Chris               |\n| Bauta       | Erkrath     | 15.01.2026  | InHausUmzug                    | Achim, Flo, Pi, Raf |\n| Bahr        | Erkrath     | 16.01.2026  | Küche demontieren & entsorgen  | Achim, Ali, Björn, Chris |\n| Hädler      | Hilden      | 16.01.2026  |...",
+      "responseLength": 1739
+    }
+  ]
+}

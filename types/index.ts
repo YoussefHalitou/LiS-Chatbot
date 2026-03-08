@@ -15,10 +15,23 @@ export interface Message {
     }
   }>
   tool_call_id?: string
+  reactions?: { [emoji: string]: number }
 }
 
 export interface ChatRequest {
   messages: Message[]
+  chatId?: string
+}
+
+export interface Chat {
+  id: string
+  title: string
+  createdAt: Date
+  updatedAt: Date
+  messageCount: number
+  lastMessage?: string
+  isPinned?: boolean
+  icon?: string
 }
 
 export interface STTResponse {

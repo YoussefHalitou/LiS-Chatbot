@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { rateLimitMiddleware } from '@/lib/rate-limit'
 
-const DEEPGRAM_API_KEY = process.env.DEEPGRAM_API_KEY
 const MAX_AUDIO_SIZE = 10 * 1024 * 1024 // 10MB
 const DEEPGRAM_API_URL = 'https://api.deepgram.com/v1/listen'
 
-if (!DEEPGRAM_API_KEY) {
-  throw new Error('DEEPGRAM_API_KEY is not set')
+function getDeepgramApiKey(): string {
+  const apiKey = process.env.DEEPGRAM_API_KEY
+  if (!apiKey) {
+    throw new Error('DEEPGRAM_API_KEY is not set')
+  }
+  return apiKey
 }
 
 /**
@@ -111,7 +114,7 @@ export async function POST(req: NextRequest) {
     const response = await fetch(apiUrl.toString(), {
       method: 'POST',
       headers: {
-        'Authorization': `Token ${DEEPGRAM_API_KEY}`,
+        'Authorization': `Token ${getDeepgramApiKey()}`,
         // Remove Content-Type to let Deepgram auto-detect
       },
       body: audioBuffer,

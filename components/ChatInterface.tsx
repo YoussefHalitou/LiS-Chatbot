@@ -1,11 +1,21 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { Mic, MicOff, Volume2, Send, Loader2, Copy, Check, Trash2, X } from 'lucide-react'
+import { Mic, MicOff, Volume2, Send, Loader2, Copy, Check, Trash2, X, MessageSquare, Plus, Menu, Search, Download, Keyboard, Moon, Sun, ChevronDown, Sparkles, RefreshCw, Share2, User, LogOut, Pin, RotateCcw, Archive } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Message } from '@/types'
+import { Message, Chat } from '@/types'
 import { APP_CONFIG, AUDIO_CONFIG, ERROR_MESSAGES, UI_CONFIG } from '@/lib/constants'
+import {
+  getAllChats,
+  getChatMessages,
+  saveChatMessages,
+  createNewChat,
+  deleteChat,
+  getCurrentChatId,
+  setCurrentChatId,
+} from '@/lib/chat-management-supabase'
+import { migrateOldChatFormat } from '@/lib/chat-management'
 import {
   delay,
   formatTextForSpeech,
@@ -14,14 +24,33 @@ import {
   getFileExtensionFromMimeType,
   getMicrophoneErrorMessage,
   sanitizeInput,
+  sanitizeBotResponse,
+  triggerHaptic,
 } from '@/lib/utils'
 import ConnectionStatus from '@/components/ConnectionStatus'
+import SearchModal from '@/components/SearchModal'
+import ExportChatModal from '@/components/ExportChatModal'
+import KeyboardShortcutsModal from '@/components/KeyboardShortcutsModal'
+import SettingsModal from '@/components/SettingsModal'
+import BottomNav from '@/components/BottomNav'
+import EmojiPicker from '@/components/EmojiPicker'
+import EmptyState from '@/components/EmptyState'
+import { useTheme } from '@/lib/theme-context'
 import { showToast } from '@/lib/toast'
 
-export default function ChatInterface() {
+interface ChatInterfaceProps {
+  user?: any
+  onLoginClick?: () => void
+  onLogout?: () => void
+}
+
+export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [currentChatId, setCurrentChatId] = useState<string | null>(null)
+  const [chats, setChats] = useState<Chat[]>([])
+  const [showChatSidebar, setShowChatSidebar] = useState(false)
   const [isStreamingResponse, setIsStreamingResponse] = useState(false)
   const [showLoadingBubble, setShowLoadingBubble] = useState(false)
   const [isQueryingDatabase, setIsQueryingDatabase] = useState(false)
@@ -34,10 +63,32 @@ export default function ChatInterface() {
   const [isProcessingVoice, setIsProcessingVoice] = useState(false)
   const [audioLevel, setAudioLevel] = useState(0)
   const [silenceStartTime, setSilenceStartTime] = useState<number | null>(null)
+  const [showSearchModal, setShowSearchModal] = useState(false)
+  const [showExportModal, setShowExportModal] = useState(false)
+  const [showShortcutsModal, setShowShortcutsModal] = useState(false)
+  const [showSettingsModal, setShowSettingsModal] = useState(false)
+  const [activeBottomTab, setActiveBottomTab] = useState<'chat' | 'history' | 'search' | 'settings'>('chat')
+  const [showScrollButton, setShowScrollButton] = useState(false)
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+  const [isPullRefreshing, setIsPullRefreshing] = useState(false)
+  const [pullDistance, setPullDistance] = useState(0)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; messageIndex: number } | null>(null)
+  const [swipingMessageIndex, setSwipingMessageIndex] = useState<number | null>(null)
+  const [swipeOffset, setSwipeOffset] = useState(0)
+  const [pinnedMessages, setPinnedMessages] = useState<Set<number>>(new Set())
+  const [pinnedChats, setPinnedChats] = useState<Set<string>>(new Set())
+  const [chatSearchQuery, setChatSearchQuery] = useState('')
+  const [swipingChatId, setSwipingChatId] = useState<string | null>(null)
+  const [chatSwipeOffset, setChatSwipeOffset] = useState(0)
+  const [showSmartReplies, setShowSmartReplies] = useState(true)
+  const [reactionPicker, setReactionPicker] = useState<{ messageIndex: number; x: number; y: number } | null>(null)
+  const [isLoadingChats, setIsLoadingChats] = useState(true)
+  const { theme, toggleTheme } = useTheme()
   const abortControllerRef = useRef<AbortController | null>(null)
   const streamTimeoutRef = useRef<number | null>(null)
   const loadingBubbleTimeoutRef = useRef<number | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messagesContainerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
@@ -48,6 +99,13 @@ export default function ChatInterface() {
   const streamRef = useRef<MediaStream | null>(null)
   const silenceStartTimeRef = useRef<number | null>(null)
   const voiceOnlyModeRef = useRef<boolean>(false) // Use ref to track voice-only mode reliably
+  const pullStartY = useRef<number>(0)
+  const touchStartX = useRef<number>(0)
+  const touchStartY = useRef<number>(0)
+  const longPressTimer = useRef<NodeJS.Timeout | null>(null)
+  const swipeHapticTriggered = useRef<boolean>(false)
+  const chatTouchStartX = useRef<number>(0)
+  const chatTouchStartY = useRef<number>(0)
   const streamingDisabled = useMemo(
     () =>
       process.env.NEXT_PUBLIC_DISABLE_STREAMING === 'true' ||
@@ -55,41 +113,579 @@ export default function ChatInterface() {
     []
   )
 
-  // Load chat history from localStorage on mount
+  // Initialize chats on mount
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const savedMessages = localStorage.getItem(APP_CONFIG.CHAT_HISTORY_KEY)
-      if (savedMessages) {
-        try {
-          const parsed = JSON.parse(savedMessages)
-          // Limit stored messages to prevent localStorage overflow
-          const limitedMessages = parsed.slice(-APP_CONFIG.MAX_MESSAGES_TO_STORE)
-          // Convert timestamp strings back to Date objects
-          const messagesWithDates = limitedMessages.map((msg: Message) => ({
-            ...msg,
-            timestamp: msg.timestamp ? new Date(msg.timestamp) : new Date(),
-          }))
-          setMessages(messagesWithDates)
-        } catch (e) {
-          console.error('Failed to load chat history:', e)
+    if (typeof window === 'undefined') return
+    
+    async function loadChats() {
+      setIsLoadingChats(true)
+      try {
+        // Migrate old format if needed (localStorage only)
+        migrateOldChatFormat()
+        
+        // Load chat list (Supabase if authenticated, localStorage otherwise)
+        const loadedChats = await getAllChats()
+        
+        // Enhance chats with last message preview
+        const enhancedChats = await Promise.all(
+          loadedChats.map(async (chat) => {
+            const messages = await getChatMessages(chat.id)
+            const lastMessage = messages.length > 0 
+              ? messages[messages.length - 1].content.substring(0, 60) + (messages[messages.length - 1].content.length > 60 ? '...' : '')
+              : ''
+            return { ...chat, lastMessage }
+          })
+        )
+        
+        setChats(enhancedChats)
+        
+        // Load current chat
+        const currentId = getCurrentChatId()
+        if (currentId) {
+            const chatExists = loadedChats.some(c => c.id === currentId)
+          if (chatExists) {
+            setCurrentChatId(currentId)
+            const chatMessages = await getChatMessages(currentId)
+            setMessages(chatMessages)
+          } else {
+            // Current chat doesn't exist, create new one
+            const newChat = await createNewChat()
+            setCurrentChatId(newChat.id)
+            setChats([newChat, ...loadedChats])
+            setMessages([])
+          }
+        } else if (loadedChats.length > 0) {
+          // No current chat, use first one
+          const firstChat = loadedChats[0]
+          setCurrentChatId(firstChat.id)
+          const chatMessages = await getChatMessages(firstChat.id)
+          setMessages(chatMessages)
+        } else {
+          // No chats exist, create new one
+          const newChat = await createNewChat()
+          setCurrentChatId(newChat.id)
+          setChats([newChat])
+          setMessages([])
         }
+      } finally {
+        setIsLoadingChats(false)
       }
     }
+    
+    loadChats()
   }, [])
 
-  // Save chat history to localStorage whenever messages change
+  // Save chat messages with debounce to prevent duplicate saves during streaming
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const lastSavedMessagesRef = useRef<string>('')
+  
   useEffect(() => {
-    if (typeof window !== 'undefined' && messages.length > 0) {
-      // Limit stored messages to prevent localStorage overflow
-      const messagesToStore = messages.slice(-APP_CONFIG.MAX_MESSAGES_TO_STORE)
-      localStorage.setItem(APP_CONFIG.CHAT_HISTORY_KEY, JSON.stringify(messagesToStore))
+    if (typeof window === 'undefined' || !currentChatId) return
+    
+    // Don't save during streaming - wait for completion
+    if (isStreamingResponse) return
+    
+    // Create a hash of current messages to prevent duplicate saves
+    const messagesHash = JSON.stringify(messages.map(m => ({ role: m.role, content: m.content })))
+    if (messagesHash === lastSavedMessagesRef.current) return
+    
+    // Clear any pending save
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current)
     }
-  }, [messages])
+    
+    // Debounce save by 500ms to batch rapid changes
+    saveTimeoutRef.current = setTimeout(async () => {
+      if (messages.length > 0 && currentChatId) {
+        lastSavedMessagesRef.current = messagesHash
+        await saveChatMessages(currentChatId, messages)
+        // Update chat list to reflect changes
+        const updatedChats = await getAllChats()
+        setChats(updatedChats)
+      }
+    }, 500)
+    
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current)
+      }
+    }
+  }, [messages, currentChatId, isStreamingResponse])
 
   // Scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  // Handle scroll position tracking for scroll-to-bottom button
+  const handleMessagesScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.currentTarget
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight
+    setShowScrollButton(distanceFromBottom > 150)
+  }, [])
+
+  // Auto-expand textarea as user types (up to 5 lines)
+  const autoExpandTextarea = useCallback(() => {
+    if (!textareaRef.current) return
+    
+    const textarea = textareaRef.current
+    textarea.style.height = 'auto'
+    
+    // Calculate new height (max 5 lines)
+    const lineHeight = 24 // approximate line height
+    const maxLines = 5
+    const maxHeight = lineHeight * maxLines
+    const newHeight = Math.min(textarea.scrollHeight, maxHeight)
+    
+    textarea.style.height = `${newHeight}px`
+  }, [])
+
+  // Handle emoji selection
+  const handleEmojiSelect = useCallback((emoji: string) => {
+    setInput(prev => prev + emoji)
+    triggerHaptic('light')
+    // Focus back on textarea after selecting emoji
+    setTimeout(() => textareaRef.current?.focus(), 50)
+  }, [])
+
+  // Scroll to bottom function with haptic feedback
+  const scrollToBottom = useCallback(() => {
+    triggerHaptic('light')
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [])
+
+  // Handle quick action from empty state
+  const handleQuickAction = useCallback((text: string) => {
+    triggerHaptic('medium')
+    setInput(text)
+    setTimeout(() => {
+      textareaRef.current?.focus()
+      // Trigger send automatically
+      const event = new KeyboardEvent('keypress', { key: 'Enter' })
+      textareaRef.current?.dispatchEvent(event)
+    }, 100)
+  }, [])
+
+  // Toggle chat pin
+  const toggleChatPin = useCallback((chatId: string) => {
+    setPinnedChats(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(chatId)) {
+        newSet.delete(chatId)
+        showToast('Chat nicht mehr angepinnt', 'success', 2000)
+      } else {
+        newSet.add(chatId)
+        showToast('Chat angepinnt', 'success', 2000)
+      }
+      return newSet
+    })
+    triggerHaptic('light')
+  }, [])
+
+  // Get chat icon based on content/title
+  const getChatIcon = useCallback((chat: Chat): string => {
+    const title = chat.title.toLowerCase()
+    if (title.includes('projekt')) return '📋'
+    if (title.includes('mitarbeiter') || title.includes('team')) return '👥'
+    if (title.includes('termin') || title.includes('kalender')) return '📅'
+    if (title.includes('aufgabe') || title.includes('task')) return '✅'
+    if (title.includes('bericht') || title.includes('report')) return '📊'
+    return '💬'
+  }, [])
+
+  // Filter and sort chats
+  const filteredAndSortedChats = useMemo(() => {
+    let filtered = chats
+    
+    // Apply search filter
+    if (chatSearchQuery.trim()) {
+      const query = chatSearchQuery.toLowerCase()
+      filtered = chats.filter(chat => 
+        chat.title.toLowerCase().includes(query) ||
+        chat.lastMessage?.toLowerCase().includes(query)
+      )
+    }
+    
+    // Sort: pinned first, then by updatedAt
+    return filtered.sort((a, b) => {
+      const aPin = pinnedChats.has(a.id)
+      const bPin = pinnedChats.has(b.id)
+      
+      if (aPin && !bPin) return -1
+      if (!aPin && bPin) return 1
+      
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    })
+  }, [chats, chatSearchQuery, pinnedChats])
+
+  // Chat swipe handlers
+  const handleChatTouchStart = useCallback((e: React.TouchEvent, chatId: string) => {
+    chatTouchStartX.current = e.touches[0].clientX
+    chatTouchStartY.current = e.touches[0].clientY
+  }, [])
+
+  const handleChatTouchMove = useCallback((e: React.TouchEvent, chatId: string) => {
+    const deltaX = e.touches[0].clientX - chatTouchStartX.current
+    const deltaY = Math.abs(e.touches[0].clientY - chatTouchStartY.current)
+    
+    // Only swipe horizontally
+    if (deltaY < 30 && Math.abs(deltaX) > 10) {
+      setSwipingChatId(chatId)
+      // Only allow left swipe (negative deltaX)
+      setChatSwipeOffset(Math.max(-100, Math.min(0, deltaX)))
+    }
+  }, [])
+
+  const handleChatTouchEnd = useCallback((chatId: string) => {
+    if (swipingChatId === chatId && chatSwipeOffset < -60) {
+      // Trigger delete
+      triggerHaptic('medium')
+      handleDeleteChat(chatId)
+    }
+    
+    setSwipingChatId(null)
+    setChatSwipeOffset(0)
+  }, [swipingChatId, chatSwipeOffset])
+
+  // Generate smart reply suggestions based on last bot message
+  const smartReplySuggestions = useMemo(() => {
+    if (messages.length === 0 || !showSmartReplies) return []
+    
+    const lastBotMessage = [...messages].reverse().find(m => m.role === 'assistant')
+    if (!lastBotMessage) return []
+    
+    const content = lastBotMessage.content.toLowerCase()
+    const suggestions: string[] = []
+    
+    // Question detection
+    if (content.includes('?')) {
+      if (content.includes('möchtest') || content.includes('willst') || content.includes('soll ich')) {
+        suggestions.push('Ja, bitte', 'Nein, danke')
+      } else if (content.includes('weitere') || content.includes('mehr')) {
+        suggestions.push('Ja, mehr Details', 'Nein, das reicht')
+      } else {
+        suggestions.push('Ja', 'Nein', 'Mehr Informationen')
+      }
+    }
+    
+    // List/Options detection
+    if (content.includes('wählen') || content.includes('auswählen') || content.includes('option')) {
+      suggestions.push('Option 1', 'Option 2', 'Zeige alle')
+    }
+    
+    // Data query response
+    if (content.includes('projekt') || content.includes('mitarbeiter') || content.includes('termin')) {
+      if (!suggestions.length) {
+        suggestions.push('Mehr Details', 'Nächster', 'Danke')
+      }
+    }
+    
+    // Success/completion messages
+    if (content.includes('fertig') || content.includes('erledigt') || content.includes('gespeichert')) {
+      suggestions.push('Danke', 'Weiter', 'Neuer Chat')
+    }
+    
+    // Error/problem messages
+    if (content.includes('fehler') || content.includes('problem') || content.includes('nicht gefunden')) {
+      suggestions.push('Nochmal versuchen', 'Anders formulieren', 'Hilfe')
+    }
+    
+    // Default contextual suggestions
+    if (suggestions.length === 0) {
+      suggestions.push('Verstanden', 'Mehr Details', 'Danke')
+    }
+    
+    // Return max 3 suggestions
+    return suggestions.slice(0, 3)
+  }, [messages, showSmartReplies])
+
+  // Handle smart reply selection
+  const handleSmartReplyClick = useCallback((reply: string) => {
+    triggerHaptic('light')
+    setInput(reply)
+    setShowSmartReplies(false)
+    // Auto-focus the textarea
+    setTimeout(() => textareaRef.current?.focus(), 50)
+  }, [])
+
+  // Reset smart replies when new assistant message arrives
+  useEffect(() => {
+    if (messages.length > 0) {
+      const lastMessage = messages[messages.length - 1]
+      if (lastMessage.role === 'assistant' && !showSmartReplies) {
+        setShowSmartReplies(true)
+      }
+    }
+  }, [messages])
+
+  // Available reaction emojis
+  const reactionEmojis = ['👍', '❤️', '😄', '🤔', '🎉', '👏']
+
+  // Add reaction to message
+  const handleAddReaction = useCallback((messageIndex: number, emoji: string) => {
+    triggerHaptic('light')
+    setMessages(prev => {
+      const newMessages = [...prev]
+      const message = newMessages[messageIndex]
+      
+      if (!message.reactions) {
+        message.reactions = {}
+      }
+      
+      message.reactions[emoji] = (message.reactions[emoji] || 0) + 1
+      
+      return newMessages
+    })
+    setReactionPicker(null)
+    showToast('Reaktion hinzugefügt', 'success', 1500)
+  }, [])
+
+  // Show reaction picker on double-tap
+  const handleMessageDoubleTap = useCallback((e: React.TouchEvent, index: number) => {
+    e.preventDefault()
+    const touch = e.touches[0] || e.changedTouches[0]
+    setReactionPicker({
+      messageIndex: index,
+      x: touch.clientX,
+      y: touch.clientY
+    })
+    triggerHaptic('medium')
+  }, [])
+
+  // Close reaction picker
+  useEffect(() => {
+    const handleClickOutside = () => setReactionPicker(null)
+    if (reactionPicker) {
+      document.addEventListener('click', handleClickOutside)
+      document.addEventListener('touchstart', handleClickOutside)
+      return () => {
+        document.removeEventListener('click', handleClickOutside)
+        document.removeEventListener('touchstart', handleClickOutside)
+      }
+    }
+  }, [reactionPicker])
+
+  // Helper function to format date for time separators
+  const formatDateSeparator = useCallback((date: Date): string => {
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000)
+    const messageDate = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+    
+    if (messageDate.getTime() === today.getTime()) {
+      return 'Heute'
+    } else if (messageDate.getTime() === yesterday.getTime()) {
+      return 'Gestern'
+    } else {
+      return date.toLocaleDateString('de-DE', { 
+        weekday: 'long', 
+        day: 'numeric', 
+        month: 'long' 
+      })
+    }
+  }, [])
+
+  // Check if we should show a date separator before a message
+  const shouldShowDateSeparator = useCallback((currentIndex: number): boolean => {
+    if (currentIndex === 0) return true
+    
+    const currentMsg = messages[currentIndex]
+    const prevMsg = messages[currentIndex - 1]
+    
+    if (!currentMsg.timestamp || !prevMsg.timestamp) return false
+    
+    const currentDate = new Date(currentMsg.timestamp)
+    const prevDate = new Date(prevMsg.timestamp)
+    
+    return currentDate.toDateString() !== prevDate.toDateString()
+  }, [messages])
+
+  // Pull-to-refresh handlers
+  const handlePullStart = useCallback((e: React.TouchEvent) => {
+    if (messagesContainerRef.current?.scrollTop === 0) {
+      pullStartY.current = e.touches[0].clientY
+    }
+  }, [])
+
+  const handlePullMove = useCallback((e: React.TouchEvent) => {
+    if (pullStartY.current === 0 || messagesContainerRef.current?.scrollTop !== 0) return
+    
+    const currentY = e.touches[0].clientY
+    const distance = Math.max(0, currentY - pullStartY.current)
+    
+    if (distance > 0) {
+      setPullDistance(Math.min(distance * 0.5, 80))
+    }
+  }, [])
+
+  const handlePullEnd = useCallback(async () => {
+    if (pullDistance > 60) {
+      setIsPullRefreshing(true)
+      triggerHaptic('medium')
+      
+      // Refresh chat data
+      if (currentChatId) {
+        const chatMessages = await getChatMessages(currentChatId)
+        setMessages(chatMessages)
+      }
+      
+      setTimeout(() => {
+        setIsPullRefreshing(false)
+        setPullDistance(0)
+        pullStartY.current = 0
+      }, 1000)
+    } else {
+      setPullDistance(0)
+      pullStartY.current = 0
+    }
+  }, [pullDistance, currentChatId])
+
+  // Long press handler for context menu
+  const handleMessageTouchStart = useCallback((e: React.TouchEvent, index: number) => {
+    touchStartX.current = e.touches[0].clientX
+    touchStartY.current = e.touches[0].clientY
+    
+    longPressTimer.current = setTimeout(() => {
+      triggerHaptic('medium')
+      setContextMenu({
+        x: e.touches[0].clientX,
+        y: e.touches[0].clientY,
+        messageIndex: index
+      })
+    }, 500)
+  }, [])
+
+  const handleMessageTouchMove = useCallback((e: React.TouchEvent, index: number) => {
+    const deltaX = e.touches[0].clientX - touchStartX.current
+    const deltaY = Math.abs(e.touches[0].clientY - touchStartY.current)
+    
+    // Cancel long press if finger moved too much
+    if (Math.abs(deltaX) > 10 || deltaY > 10) {
+      if (longPressTimer.current) {
+        clearTimeout(longPressTimer.current)
+        longPressTimer.current = null
+      }
+    }
+    
+    // Handle swipe (only horizontal movement, minimal vertical)
+    if (deltaY < 30 && Math.abs(deltaX) > 20) {
+      setSwipingMessageIndex(index)
+      const newOffset = Math.max(-80, Math.min(80, deltaX))
+      setSwipeOffset(newOffset)
+      
+      // Trigger haptic at action threshold (50px)
+      if (!swipeHapticTriggered.current && Math.abs(newOffset) >= 50) {
+        triggerHaptic('light')
+        swipeHapticTriggered.current = true
+      }
+    }
+  }, [])
+
+  const handleMessageTouchEnd = useCallback((index: number) => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current)
+      longPressTimer.current = null
+    }
+    
+    // Handle swipe action completion
+    if (swipingMessageIndex === index) {
+      if (swipeOffset > 50) {
+        // Swipe right - copy
+        triggerHaptic('light')
+        copyToClipboard(messages[index].content, index)
+        showToast('Nachricht kopiert', 'success', 2000)
+      } else if (swipeOffset < -50) {
+        // Swipe left - delete (only for user messages)
+        if (messages[index].role === 'user') {
+          triggerHaptic('medium')
+          const newMessages = messages.filter((_, i) => i !== index)
+          setMessages(newMessages)
+          showToast('Nachricht gelöscht', 'success', 2000)
+        }
+      }
+      
+      setSwipingMessageIndex(null)
+      setSwipeOffset(0)
+      swipeHapticTriggered.current = false
+    }
+  }, [swipingMessageIndex, swipeOffset, messages])
+
+  // Close context menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = () => setContextMenu(null)
+    if (contextMenu) {
+      document.addEventListener('click', handleClickOutside)
+      document.addEventListener('touchstart', handleClickOutside)
+      return () => {
+        document.removeEventListener('click', handleClickOutside)
+        document.removeEventListener('touchstart', handleClickOutside)
+      }
+    }
+  }, [contextMenu])
+
+  // Context menu actions
+  const handleContextMenuAction = useCallback((action: 'copy' | 'share' | 'delete' | 'pin' | 'regenerate') => {
+    if (!contextMenu) return
+    
+    const message = messages[contextMenu.messageIndex]
+    
+    switch (action) {
+      case 'copy':
+        triggerHaptic('light')
+        copyToClipboard(message.content, contextMenu.messageIndex)
+        showToast('Nachricht kopiert', 'success', 2000)
+        break
+      case 'share':
+        triggerHaptic('light')
+        if (navigator.share) {
+          navigator.share({ text: message.content })
+        } else {
+          copyToClipboard(message.content, contextMenu.messageIndex)
+          showToast('Nachricht kopiert (Teilen nicht verfügbar)', 'success', 2000)
+        }
+        break
+      case 'pin':
+        triggerHaptic('light')
+        setPinnedMessages(prev => {
+          const newSet = new Set(prev)
+          if (newSet.has(contextMenu.messageIndex)) {
+            newSet.delete(contextMenu.messageIndex)
+            showToast('Nachricht nicht mehr angepinnt', 'success', 2000)
+          } else {
+            newSet.add(contextMenu.messageIndex)
+            showToast('Nachricht angepinnt', 'success', 2000)
+          }
+          return newSet
+        })
+        break
+      case 'regenerate':
+        if (message.role === 'assistant' && contextMenu.messageIndex > 0) {
+          triggerHaptic('medium')
+          // Get the user message that prompted this response
+          const userMessageIndex = contextMenu.messageIndex - 1
+          const userMessage = messages[userMessageIndex]
+          if (userMessage && userMessage.role === 'user') {
+            // Remove all messages after the user message
+            const newMessages = messages.slice(0, userMessageIndex + 1)
+            setMessages(newMessages)
+            // Re-send the user message
+            startChatRequest(userMessage)
+            showToast('Antwort wird neu generiert...', 'info', 2000)
+          }
+        }
+        break
+      case 'delete':
+        if (message.role === 'user') {
+          triggerHaptic('medium')
+          const newMessages = messages.filter((_, i) => i !== contextMenu.messageIndex)
+          setMessages(newMessages)
+          showToast('Nachricht gelöscht', 'success', 2000)
+        }
+        break
+    }
+    
+    setContextMenu(null)
+  }, [contextMenu, messages]) // startChatRequest is omitted as it's defined later and is stable
 
   // Cleanup audio on unmount
   useEffect(() => {
@@ -447,6 +1043,8 @@ export default function ChatInterface() {
       console.log(`[STT] Starting MediaRecorder with ${APP_CONFIG.AUDIO_CHUNK_SIZE_MS}ms timeslices`)
       mediaRecorder.start(APP_CONFIG.AUDIO_CHUNK_SIZE_MS)
       
+      // Haptic feedback on recording start
+      triggerHaptic('heavy')
       setIsRecording(true)
     } catch (error: any) {
       console.error('Error accessing microphone:', error)
@@ -460,24 +1058,34 @@ export default function ChatInterface() {
     }
   }
 
-  const stopRecording = () => {
+  const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current && isRecording) {
+      // Haptic feedback on recording stop
+      triggerHaptic('medium')
       mediaRecorderRef.current.stop()
       // setIsRecording will be set to false in onstop handler
     }
-  }
+  }, [isRecording])
 
 
-  const speakText = async (text: string) => {
+  const speakText = useCallback(async (text: string) => {
     // Stop any currently playing audio
     if (audioRef.current) {
       audioRef.current.pause()
       audioRef.current = null
       setIsPlayingAudio(false)
     }
+    
+    // Cancel any ongoing speech synthesis
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel()
+    }
 
     let audioUrl: string | null = null
     let fallbackTimeout: number | null = null
+    
+    // Detect iOS
+    const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent)
 
     const speakWithWebSpeech = (fallbackText: string) => {
       if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
@@ -492,10 +1100,10 @@ export default function ChatInterface() {
       utterance.volume = 1
 
       setIsPlayingAudio(true)
+      setIsGeneratingTTS(false)
 
       utterance.onend = () => {
         setIsPlayingAudio(false)
-        setIsGeneratingTTS(false)
         if (voiceOnlyModeRef.current && !isRecording && !isLoading) {
           setTimeout(() => {
             if (voiceOnlyModeRef.current && !isRecording && !isLoading) {
@@ -505,9 +1113,9 @@ export default function ChatInterface() {
         }
       }
 
-      utterance.onerror = () => {
+      utterance.onerror = (e) => {
+        console.error('[TTS] Web Speech error:', e)
         setIsPlayingAudio(false)
-        setIsGeneratingTTS(false)
       }
 
       window.speechSynthesis.speak(utterance)
@@ -516,6 +1124,13 @@ export default function ChatInterface() {
     try {
       setIsGeneratingTTS(true)
       const preparedText = formatTextForSpeech(text)
+      
+      // On iOS, prefer Web Speech API as it's more reliable
+      if (isIOS) {
+        console.log('[TTS] iOS detected, using Web Speech API directly')
+        speakWithWebSpeech(preparedText)
+        return
+      }
       const ttsStartTime = Date.now()
       
       console.log('[TTS] Starting TTS for text length:', preparedText.length)
@@ -753,9 +1368,10 @@ export default function ChatInterface() {
         showToast('Audio konnte nicht erzeugt oder abgespielt werden. Bitte versuch es erneut.', 'error', 4000)
       }
     }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRecording, isLoading, voiceOnlyMode]) // startRecording is stable, no need to include
 
-  const stopSpeaking = () => {
+  const stopSpeaking = useCallback(() => {
     console.log('[TTS] Stop speaking requested', { 
       hasAudio: !!audioRef.current, 
       isPlayingAudio,
@@ -785,7 +1401,17 @@ export default function ChatInterface() {
         }
       }, 300)
     }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRecording, isLoading, isPlayingAudio]) // startRecording is stable, no need to include
+
+  const exitVoiceOnlyMode = useCallback(() => {
+    console.log('[Voice Mode] Exiting voice-only mode')
+    setVoiceOnlyMode(false)
+    voiceOnlyModeRef.current = false // Sync ref immediately - this stops the loop
+    stopRecording()
+    stopSpeaking()
+    stopAudioMonitoring()
+  }, [stopRecording, stopSpeaking])
 
   // Voice Activity Detection - monitor audio levels
   const startAudioMonitoring = (stream: MediaStream) => {
@@ -919,15 +1545,64 @@ export default function ChatInterface() {
     }
   }, [])
 
-  const clearChat = useCallback(() => {
+  const clearChat = useCallback(async () => {
     if (confirm('Möchtest du den gesamten Chatverlauf wirklich löschen?')) {
       setMessages([])
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem(APP_CONFIG.CHAT_HISTORY_KEY)
+      if (currentChatId) {
+        await saveChatMessages(currentChatId, [])
+        const updatedChats = await getAllChats()
+        setChats(updatedChats)
       }
       showToast('Chatverlauf wurde gelöscht', 'success', 3000)
     }
-  }, [])
+  }, [currentChatId])
+
+  // Chat management functions
+  const handleNewChat = async () => {
+    // Save current chat before switching
+    if (currentChatId && messages.length > 0) {
+      await saveChatMessages(currentChatId, messages)
+    }
+    
+    const newChat = await createNewChat()
+    setCurrentChatId(newChat.id)
+    const updatedChats = await getAllChats()
+    setChats(updatedChats)
+    setMessages([])
+    setShowChatSidebar(false)
+  }
+
+  const handleSwitchChat = async (chatId: string) => {
+    // Save current chat before switching
+    if (currentChatId && messages.length > 0) {
+      await saveChatMessages(currentChatId, messages)
+    }
+    
+    setCurrentChatId(chatId)
+    const chatMessages = await getChatMessages(chatId)
+    setMessages(chatMessages)
+    const updatedChats = await getAllChats()
+    setChats(updatedChats)
+    setShowChatSidebar(false)
+  }
+
+  const handleDeleteChat = async (chatId: string, e?: React.MouseEvent) => {
+    e?.stopPropagation()
+    if (window.confirm('Möchtest du diesen Chat wirklich löschen?')) {
+      await deleteChat(chatId)
+      const updatedChats = await getAllChats()
+      setChats(updatedChats)
+      
+      // If deleted chat was current, switch to another
+      if (chatId === currentChatId) {
+        if (updatedChats.length > 0) {
+          await handleSwitchChat(updatedChats[0].id)
+        } else {
+          await handleNewChat()
+        }
+      }
+    }
+  }
 
   const clearStreamTimeout = () => {
     if (streamTimeoutRef.current) {
@@ -955,18 +1630,20 @@ export default function ChatInterface() {
 
     if (message) {
       const timestamp = new Date()
+      // Sanitize message to remove JSON
+      const sanitizedMessage = sanitizeBotResponse(message)
       setMessages((prev) => [
         ...prev,
         {
           role: 'assistant',
-          content: message,
+          content: sanitizedMessage,
           timestamp,
         },
       ])
     }
   }
 
-  const readSseStream = async (
+  const readSseStream = useCallback(async (
     response: Response,
     assistantIndex: number,
     { speakResponse }: { speakResponse?: boolean } = {}
@@ -1002,13 +1679,18 @@ export default function ChatInterface() {
             setIsStreamingResponse(true)
             setShowLoadingBubble(false)
             assembledContent += payload.content
-            setMessages((prev) =>
-              prev.map((msg, idx) =>
+            // Sanitize content to remove JSON as it streams in
+            // Use functional update to get current state
+            setMessages((prev) => {
+              const currentContent = prev[assistantIndex]?.content || ''
+              const newContent = currentContent + payload.content
+              const sanitizedContent = sanitizeBotResponse(newContent)
+              return prev.map((msg, idx) =>
                 idx === assistantIndex
-                  ? { ...msg, content: (msg.content || '') + payload.content, timestamp: assistantTimestamp }
+                  ? { ...msg, content: sanitizedContent, timestamp: assistantTimestamp }
                   : msg
               )
-            )
+            })
           } else if (payload.type === 'tool_calls' && payload.tool_calls) {
             // Preserve tool calls in the message
             setMessages((prev) =>
@@ -1019,16 +1701,9 @@ export default function ChatInterface() {
               )
             )
           } else if (payload.type === 'tool_response' && payload.tool_call_id) {
-            // Preserve tool response messages
-            setMessages((prev) => [
-              ...prev,
-              {
-                role: 'tool',
-                content: payload.content,
-                tool_call_id: payload.tool_call_id,
-                timestamp: new Date(),
-              },
-            ])
+            // Tool response messages are for the AI only, not for display
+            // Don't add them to the messages array - they're internal
+            // The AI will use them to generate the final response
           } else if (payload.type === 'done') {
             if (speakResponse) {
               speakText(assembledContent).catch((error) => {
@@ -1044,9 +1719,9 @@ export default function ChatInterface() {
         }
       }
     }
-  }
+  }, [speakText]) // speakText is now memoized with useCallback
 
-  const startChatRequest = async (
+  const startChatRequest = useCallback(async (
     userMessage: Message,
     { speakResponse }: { speakResponse?: boolean } = {}
   ) => {
@@ -1100,7 +1775,10 @@ export default function ChatInterface() {
           'Content-Type': 'application/json',
           ...(streamingDisabled ? { 'X-Disable-Streaming': 'true' } : {}),
         },
-        body: JSON.stringify({ messages: conversationMessages }),
+        body: JSON.stringify({ 
+          messages: conversationMessages,
+          chatId: currentChatId || undefined,
+        }),
         signal: controller.signal,
       })
 
@@ -1112,17 +1790,22 @@ export default function ChatInterface() {
       }
 
       const contentType = response.headers.get('content-type') || ''
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:response-received',message:'Chat response received',data:{status:response.status,contentType,streaming:!streamingDisabled&&contentType.includes('text/event-stream')},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
+      // #endregion
 
       if (!streamingDisabled && contentType.includes('text/event-stream')) {
         await readSseStream(response, assistantIndex, { speakResponse })
       } else {
         const data = await response.json()
+        // Sanitize non-streaming response to remove JSON
+        const sanitizedContent = sanitizeBotResponse(data.message?.content || 'Antwort konnte nicht geladen werden.')
         setMessages((prev) =>
           prev.map((msg, idx) =>
             idx === assistantIndex
               ? {
                   ...msg,
-                  content: data.message?.content || 'Antwort konnte nicht geladen werden.',
+                  content: sanitizedContent,
                   timestamp: assistantTimestamp,
                 }
               : msg
@@ -1138,6 +1821,9 @@ export default function ChatInterface() {
       }
     } catch (error) {
       console.error('Error sending message:', error)
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:startChatRequest-error',message:'Chat request error',data:{error:error instanceof Error?error.message:String(error)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
+      // #endregion
       setShowLoadingBubble(false)
       setIsQueryingDatabase(false)
       const isAbort = error instanceof DOMException && error.name === 'AbortError'
@@ -1166,17 +1852,26 @@ export default function ChatInterface() {
       setIsLoading(false)
       setIsQueryingDatabase(false)
     }
-  }
+  }, [messages, currentChatId, streamingDisabled, readSseStream, clearLoadingBubbleTimeout, clearStreamTimeout, speakText])
 
   const sendMessage = useCallback(async () => {
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:sendMessage',message:'sendMessage called',data:{inputLength:input?.length,isLoading},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
+    // #endregion
     const sanitizedInput = sanitizeInput(input)
     if (!sanitizedInput || isLoading) return
+
+    // Haptic feedback on message send
+    triggerHaptic('medium')
 
     const userMessage: Message = {
       role: 'user',
       content: sanitizedInput,
       timestamp: new Date(),
     }
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:sendMessage-prepared',message:'User message prepared',data:{content:sanitizedInput.substring(0,50)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
+    // #endregion
 
     setInput('')
     await startChatRequest(userMessage)
@@ -1220,13 +1915,31 @@ export default function ChatInterface() {
           sendMessage()
         }
       }
+
+      // Ctrl/Cmd + F: Open search modal
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+        e.preventDefault()
+        setShowSearchModal(true)
+      }
+
+      // Ctrl/Cmd + E: Open export modal
+      if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
+        e.preventDefault()
+        setShowExportModal(true)
+      }
+
+      // Ctrl/Cmd + /: Open keyboard shortcuts modal
+      if ((e.ctrlKey || e.metaKey) && e.key === '/') {
+        e.preventDefault()
+        setShowShortcutsModal(true)
+      }
     }
 
     window.addEventListener('keydown', handleKeyboardShortcuts)
     return () => {
       window.removeEventListener('keydown', handleKeyboardShortcuts)
     }
-  }, [isRecording, voiceOnlyMode, isLoading, input, sendMessage])
+  }, [isRecording, voiceOnlyMode, isLoading, input, sendMessage, exitVoiceOnlyMode, stopRecording])
 
   // Auto-resize textarea
   useEffect(() => {
@@ -1249,21 +1962,39 @@ export default function ChatInterface() {
     await startChatRequest(userMessage, { speakResponse: true })
   }
 
+  // Unlock audio for iOS - must be called from user gesture
+  const unlockAudioForIOS = () => {
+    // Create and play a silent audio to unlock audio playback on iOS
+    const silentAudio = new Audio()
+    silentAudio.src = 'data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdH2Onr2+wL29vb29ubi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4uLi4t7e3t7e3t7e3t7e3'
+    silentAudio.volume = 0.01
+    silentAudio.play().then(() => {
+      silentAudio.pause()
+      console.log('[iOS Audio] Audio unlocked successfully')
+    }).catch(() => {
+      console.log('[iOS Audio] Silent audio unlock failed, will try with real audio')
+    })
+    
+    // Also resume AudioContext if it exists
+    if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+      audioContextRef.current.resume().then(() => {
+        console.log('[iOS Audio] AudioContext resumed')
+      }).catch(() => {
+        console.log('[iOS Audio] AudioContext resume failed')
+      })
+    }
+  }
+
   const enterVoiceOnlyMode = async () => {
     console.log('[Voice Mode] Entering voice-only mode')
+    
+    // Unlock audio on iOS (must be done from user gesture)
+    unlockAudioForIOS()
+    
     setVoiceOnlyMode(true)
     voiceOnlyModeRef.current = true // Sync ref immediately
     // Start recording immediately
     await startRecording()
-  }
-
-  const exitVoiceOnlyMode = () => {
-    console.log('[Voice Mode] Exiting voice-only mode')
-    setVoiceOnlyMode(false)
-    voiceOnlyModeRef.current = false // Sync ref immediately - this stops the loop
-    stopRecording()
-    stopSpeaking()
-    stopAudioMonitoring()
   }
 
   // Cleanup on unmount
@@ -1277,6 +2008,9 @@ export default function ChatInterface() {
   }, [])
 
   const playLastResponse = () => {
+    // Unlock audio on iOS (called from button click = user gesture)
+    unlockAudioForIOS()
+    
     const lastAssistantMessage = [...messages]
       .reverse()
       .find((m) => m.role === 'assistant')
@@ -1287,25 +2021,284 @@ export default function ChatInterface() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-white safe-area-inset">
-      {/* Header - Mobile optimized */}
-      <div className={`${voiceOnlyMode ? 'bg-blue-600' : 'bg-white'} border-b ${voiceOnlyMode ? 'border-blue-700' : 'border-gray-100'} px-3 py-3 sm:px-4 sm:py-3 sticky top-0 z-10 safe-area-inset-top transition-colors`}>
+    <div className="flex flex-col h-screen-safe bg-white dark:bg-slate-900 safe-area-inset relative pb-16 sm:pb-0">
+      {/* Chat Sidebar */}
+      {showChatSidebar && (
+        <div className="fixed inset-0 z-50 flex sm:relative sm:z-auto">
+          {/* Overlay for mobile */}
+          <div 
+            className="fixed inset-0 bg-black/50 sm:hidden modal-overlay"
+            onClick={() => {
+              triggerHaptic('light')
+              setShowChatSidebar(false)
+              setActiveBottomTab('chat')
+            }}
+          />
+          {/* Sidebar */}
+          <div className="w-80 sm:w-96 bg-white dark:bg-slate-800 border-r border-gray-200 dark:border-slate-700 flex flex-col h-full z-50 sm:z-auto sidebar-enter">
+            {/* Header */}
+            <div className="p-4 border-b border-gray-200 dark:border-slate-700">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Chats</h2>
+                <button
+                  onClick={() => {
+                    triggerHaptic('medium')
+                    handleNewChat()
+                  }}
+                  className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 active:scale-95 transition-all touch-manipulation"
+                  title="Neuer Chat"
+                >
+                  <Plus className="h-5 w-5 text-gray-600 dark:text-slate-400" />
+                </button>
+              </div>
+              
+              {/* Search Bar */}
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Chats durchsuchen..."
+                  value={chatSearchQuery}
+                  onChange={(e) => setChatSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 text-sm bg-gray-100 dark:bg-slate-700 border border-transparent rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white dark:focus:bg-slate-600 transition-colors"
+                />
+                {chatSearchQuery && (
+                  <button
+                    onClick={() => setChatSearchQuery('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-200 dark:hover:bg-slate-600 rounded"
+                  >
+                    <X className="h-3 w-3 text-gray-500" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Chat List */}
+            <div className="flex-1 overflow-y-auto">
+              {isLoadingChats ? (
+                <div className="p-2 space-y-2">
+                  {[1, 2, 3, 4, 5].map((i) => (
+                    <div key={i} className="flex items-start gap-3 p-3 rounded-lg bg-gray-50 dark:bg-slate-700/30 relative overflow-hidden">
+                      <div className="absolute inset-0 skeleton-shimmer" />
+                      <div className="w-10 h-10 rounded-xl bg-gray-200 dark:bg-slate-600" />
+                      <div className="flex-1 space-y-2">
+                        <div className="h-4 bg-gray-200 dark:bg-slate-600 rounded w-3/4" />
+                        <div className="h-3 bg-gray-200 dark:bg-slate-600 rounded w-full" />
+                        <div className="h-2 bg-gray-200 dark:bg-slate-600 rounded w-1/2" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : filteredAndSortedChats.length === 0 ? (
+                <div className="p-4 text-center text-gray-500">
+                  {chatSearchQuery ? (
+                    <>
+                      <Search className="h-12 w-12 mx-auto mb-2 text-gray-400" />
+                      <p className="text-sm">Keine Chats gefunden</p>
+                      <p className="text-xs mt-1">Versuche es mit anderen Suchbegriffen</p>
+                    </>
+                  ) : (
+                    <>
+                      <MessageSquare className="h-12 w-12 mx-auto mb-2 text-gray-400" />
+                      <p>Noch keine Chats</p>
+                      <button
+                        onClick={handleNewChat}
+                        className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                      >
+                        Ersten Chat erstellen
+                      </button>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <div className="p-2">
+                  {filteredAndSortedChats.map((chat) => {
+                    const isPinned = pinnedChats.has(chat.id)
+                    const isSwiping = swipingChatId === chat.id
+                    const icon = getChatIcon(chat)
+                    
+                    return (
+                      <div
+                        key={chat.id}
+                        className="relative mb-2 overflow-hidden rounded-lg"
+                        onTouchStart={(e) => handleChatTouchStart(e, chat.id)}
+                        onTouchMove={(e) => handleChatTouchMove(e, chat.id)}
+                        onTouchEnd={() => handleChatTouchEnd(chat.id)}
+                      >
+                        {/* Swipe Delete Background */}
+                        <div className={`absolute inset-0 bg-red-500 flex items-center justify-end pr-4 transition-opacity ${
+                          isSwiping && chatSwipeOffset < -30 ? 'opacity-100' : 'opacity-0'
+                        }`}>
+                          <Trash2 className="h-5 w-5 text-white" />
+                        </div>
+
+                        {/* Chat Item */}
+                        <div
+                          onClick={() => handleSwitchChat(chat.id)}
+                          className={`relative bg-white dark:bg-slate-800 p-3 cursor-pointer transition-all group border ${
+                            chat.id === currentChatId
+                              ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700'
+                              : 'hover:bg-gray-50 dark:hover:bg-slate-700/50 border-transparent'
+                          }`}
+                          style={{
+                            transform: isSwiping ? `translateX(${chatSwipeOffset}px)` : undefined,
+                            transition: isSwiping ? 'none' : 'transform 0.2s ease-out'
+                          }}
+                        >
+                          <div className="flex items-start gap-3">
+                            {/* Chat Icon */}
+                            <div className={`flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center text-xl ${
+                              chat.id === currentChatId
+                                ? 'bg-blue-100 dark:bg-blue-800/40'
+                                : 'bg-gray-100 dark:bg-slate-700'
+                            }`}>
+                              {icon}
+                            </div>
+
+                            {/* Chat Info */}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-start justify-between gap-2 mb-1">
+                                <p className={`font-medium truncate flex items-center gap-1.5 ${
+                                  chat.id === currentChatId 
+                                    ? 'text-blue-900 dark:text-blue-100' 
+                                    : 'text-gray-900 dark:text-slate-100'
+                                }`}>
+                                  {isPinned && (
+                                    <Pin className="h-3 w-3 text-purple-500 fill-current flex-shrink-0" />
+                                  )}
+                                  <span className="truncate">{chat.title}</span>
+                                </p>
+                                <span className="text-[10px] text-gray-500 dark:text-slate-400 flex-shrink-0">
+                                  {new Date(chat.updatedAt).toLocaleDateString('de-DE', {
+                                    day: '2-digit',
+                                    month: '2-digit',
+                                  })}
+                                </span>
+                              </div>
+
+                              {/* Last Message Preview */}
+                              {chat.lastMessage && (
+                                <p className="text-xs text-gray-500 dark:text-slate-400 truncate mb-1">
+                                  {chat.lastMessage}
+                                </p>
+                              )}
+
+                              <p className="text-[10px] text-gray-400 dark:text-slate-500">
+                                {chat.messageCount} {chat.messageCount === 1 ? 'Nachricht' : 'Nachrichten'}
+                              </p>
+                            </div>
+
+                            {/* Actions */}
+                            <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  toggleChatPin(chat.id)
+                                }}
+                                className={`p-1.5 rounded hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors ${
+                                  isPinned ? 'text-purple-600 dark:text-purple-400' : 'text-gray-400'
+                                }`}
+                                title={isPinned ? 'Nicht mehr anpinnen' : 'Anpinnen'}
+                              >
+                                <Pin className={`h-3.5 w-3.5 ${isPinned ? 'fill-current' : ''}`} />
+                              </button>
+                              <button
+                                onClick={(e) => handleDeleteChat(chat.id, e)}
+                                className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                                title="Chat löschen"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Header - Glassmorphism style */}
+      <div className={`${voiceOnlyMode ? 'bg-blue-600' : 'glass-header'} px-3 py-3 sm:px-4 sm:py-3 sticky top-0 z-10 safe-area-inset-top transition-colors`}>
         <div className="max-w-3xl mx-auto">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5 min-w-0 flex-1">
-              <div className={`w-10 h-10 sm:w-10 sm:h-10 rounded-lg ${voiceOnlyMode ? 'bg-white' : 'bg-gradient-to-br from-blue-500 to-blue-600'} flex items-center justify-center shadow-sm flex-shrink-0`}>
+              <div className={`relative w-11 h-11 sm:w-11 sm:h-11 rounded-xl ${voiceOnlyMode ? 'bg-white' : 'bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-600'} flex items-center justify-center shadow-lg flex-shrink-0`}>
                 <span className={`font-bold text-sm sm:text-base ${voiceOnlyMode ? 'text-blue-600' : 'text-white'}`}>LiS</span>
+                {/* Online status dot */}
+                <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 ${voiceOnlyMode ? 'border-blue-600' : 'border-white dark:border-slate-900'} ${
+                  isLoading ? 'status-dot-connecting' : 'status-dot-online'
+                }`} />
               </div>
               <div className="min-w-0 flex-1">
-                <h1 className={`text-base sm:text-lg font-semibold truncate ${voiceOnlyMode ? 'text-white' : 'text-gray-900'}`}>
-                  {voiceOnlyMode ? 'Sprachmodus' : 'LiS Chatbot'}
-                </h1>
-                <p className={`text-[11px] sm:text-xs truncate ${voiceOnlyMode ? 'text-blue-100' : 'text-gray-500'}`}>
-                  {voiceOnlyMode ? 'Sprich weiter, um das Gespräch fortzusetzen' : 'Stelle deine Fragen per Text oder Sprache'}
+                <div className="flex items-center gap-2">
+                  <h1 className={`text-base sm:text-lg font-semibold truncate ${voiceOnlyMode ? 'text-white' : 'text-gray-900 dark:text-slate-100'}`}>
+                    {voiceOnlyMode ? 'Sprachmodus' : 'LiS Chatbot'}
+                  </h1>
+                </div>
+                <p className={`text-[11px] sm:text-xs truncate ${voiceOnlyMode ? 'text-blue-100' : 'text-gray-500 dark:text-slate-400'}`}>
+                  {voiceOnlyMode 
+                    ? 'Sprich weiter, um das Gespräch fortzusetzen' 
+                    : isLoading 
+                      ? 'Antwortet...' 
+                      : 'Online • Bereit zu helfen'}
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1 sm:gap-2">
+              {!voiceOnlyMode && (
+                <>
+                  <button
+                    onClick={() => setShowSearchModal(true)}
+                    className="p-2 sm:p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors touch-manipulation flex-shrink-0 hidden sm:flex"
+                    title="Suchen (Ctrl+F)"
+                    aria-label="Suchen"
+                  >
+                    <Search className="h-4 w-4 sm:h-5 sm:w-5" />
+                  </button>
+                  <button
+                    onClick={() => setShowExportModal(true)}
+                    className="p-2 sm:p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors touch-manipulation flex-shrink-0 hidden sm:flex"
+                    title="Exportieren (Ctrl+E)"
+                    aria-label="Chat exportieren"
+                  >
+                    <Download className="h-4 w-4 sm:h-5 sm:w-5" />
+                  </button>
+                  <button
+                    onClick={() => setShowShortcutsModal(true)}
+                    className="p-2 sm:p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors touch-manipulation flex-shrink-0 hidden sm:flex"
+                    title="Tastenkürzel (Ctrl+/)"
+                    aria-label="Tastenkürzel anzeigen"
+                  >
+                    <Keyboard className="h-4 w-4 sm:h-5 sm:w-5" />
+                  </button>
+                  <button
+                    onClick={toggleTheme}
+                    className="p-2 sm:p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors touch-manipulation flex-shrink-0 hidden sm:flex"
+                    title={theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+                    aria-label="Theme umschalten"
+                  >
+                    {theme === 'dark' ? (
+                      <Sun className="h-4 w-4 sm:h-5 sm:w-5" />
+                    ) : (
+                      <Moon className="h-4 w-4 sm:h-5 sm:w-5" />
+                    )}
+                  </button>
+                  <div className="w-px h-5 bg-gray-200 dark:bg-slate-700 mx-1 hidden sm:block" />
+                  <button
+                    onClick={() => setShowChatSidebar(!showChatSidebar)}
+                    className="p-2 sm:p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors touch-manipulation flex-shrink-0 hidden sm:flex"
+                    title="Chats anzeigen"
+                    aria-label="Chats anzeigen"
+                  >
+                    <MessageSquare className="h-4 w-4 sm:h-5 sm:w-5" />
+                  </button>
+                </>
+              )}
               {!voiceOnlyMode && <ConnectionStatus className="hidden sm:flex" />}
               {voiceOnlyMode && (
                 <button
@@ -1320,124 +2313,290 @@ export default function ChatInterface() {
               {!voiceOnlyMode && messages.length > 0 && (
                 <button
                   onClick={clearChat}
-                  className="p-2.5 sm:p-2 rounded-lg text-gray-500 active:text-red-600 active:bg-red-50 transition-colors touch-manipulation flex-shrink-0"
+                  className="p-2 sm:p-2 rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors touch-manipulation flex-shrink-0 hidden sm:flex"
                   title="Chatverlauf löschen"
                   aria-label="Chatverlauf löschen"
                 >
-                  <Trash2 className="h-5 w-5 sm:h-5 sm:w-5" />
+                  <Trash2 className="h-4 w-4 sm:h-5 sm:w-5" />
                 </button>
+              )}
+              {/* Auth button - integrated in header (desktop only, mobile in settings) */}
+              {!voiceOnlyMode && (
+                <>
+                  <div className="w-px h-5 bg-gray-200 dark:bg-slate-700 mx-1 hidden sm:block" />
+                  {user ? (
+                    <button
+                      onClick={onLogout}
+                      className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors touch-manipulation text-xs sm:text-sm font-medium"
+                      title="Abmelden"
+                    >
+                      <LogOut className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                      <span>Abmelden</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={onLoginClick}
+                      className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors touch-manipulation text-xs sm:text-sm font-medium"
+                      title="Anmelden"
+                    >
+                      <User className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                      <span>Anmelden</span>
+                    </button>
+                  )}
+                </>
               )}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Messages - Mobile optimized scrolling */}
-      <div className="flex-1 overflow-y-auto bg-gray-50 px-3 py-4 sm:px-4 sm:py-5 overscroll-contain">
-        <div className="max-w-3xl mx-auto space-y-3 sm:space-y-4">
-          {messages.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-full min-h-[50vh] text-center px-4 py-8">
-              <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl bg-blue-50 flex items-center justify-center mb-4">
-                <Mic className="h-8 w-8 sm:h-10 sm:w-10 text-blue-600" />
-              </div>
-              <h2 className="text-lg sm:text-xl font-semibold text-gray-900 mb-2">
-                Starte ein Gespräch
-              </h2>
-              <p className="text-sm sm:text-base text-gray-600 max-w-sm leading-relaxed">
-                Schreibe eine Nachricht oder nutze das Mikrofon. Ich helfe dir gerne bei Abfragen deiner Supabase-Datenbank.
-              </p>
-            </div>
-          )}
+      {/* Messages - Mobile optimized scrolling with pull-to-refresh */}
+      <div 
+        ref={messagesContainerRef}
+        onScroll={handleMessagesScroll}
+        onTouchStart={handlePullStart}
+        onTouchMove={handlePullMove}
+        onTouchEnd={handlePullEnd}
+        className="flex-1 overflow-y-auto bg-gray-50 dark:bg-slate-900 px-3 py-4 sm:px-4 sm:py-5 overscroll-contain relative"
+        style={{ paddingTop: pullDistance > 0 ? `${16 + pullDistance}px` : undefined }}
+      >
+        {/* Pull-to-refresh indicator */}
+        <div 
+          className={`pull-refresh-indicator ${pullDistance > 20 ? 'visible' : ''} ${isPullRefreshing ? 'refreshing' : ''}`}
+          style={{ top: pullDistance > 20 ? `${Math.min(pullDistance - 30, 20)}px` : '-50px' }}
+        >
+          <div className="flex items-center gap-2 bg-white dark:bg-slate-800 px-4 py-2 rounded-full shadow-lg border border-gray-200 dark:border-slate-700">
+            <RefreshCw className={`h-4 w-4 text-blue-600 dark:text-blue-400 ${isPullRefreshing ? 'animate-spin' : ''}`} />
+            <span className="text-sm text-gray-600 dark:text-slate-300">
+              {isPullRefreshing ? 'Aktualisiere...' : pullDistance > 60 ? 'Loslassen zum Aktualisieren' : 'Ziehen zum Aktualisieren'}
+            </span>
+          </div>
+        </div>
 
-          {messages.map((message, index) => (
-            <div
-              key={index}
-              className={`flex ${
-                message.role === 'user' ? 'justify-end' : 'justify-start'
-              } animate-in fade-in slide-in-from-bottom-2 duration-200 group`}
-            >
-              <div
-                className={`max-w-[90%] sm:max-w-[75%] rounded-2xl sm:rounded-xl px-4 py-3 sm:px-4 sm:py-2.5 relative ${
-                  message.role === 'user'
-                    ? 'bg-blue-600 text-white rounded-br-sm'
-                    : 'bg-white text-gray-900 rounded-bl-sm border border-gray-200 shadow-sm'
-                }`}
+        {/* Loading skeleton when loading chat history */}
+        {isLoadingHistory && (
+          <div className="max-w-3xl mx-auto space-y-4 mb-4 animate-fade-in">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className={`flex ${i % 2 === 0 ? 'justify-end' : 'justify-start'} items-end gap-2`}>
+                {i % 2 !== 0 && (
+                  <div className="w-7 h-7 rounded-full bg-gray-200 dark:bg-slate-700 relative overflow-hidden">
+                    <div className="absolute inset-0 skeleton-shimmer" />
+                  </div>
+                )}
+                <div 
+                  className={`relative overflow-hidden rounded-2xl bg-gray-200 dark:bg-slate-700 ${i % 2 === 0 ? 'ml-auto rounded-br-sm' : 'rounded-bl-sm'}`}
+                  style={{ 
+                    width: `${45 + (i * 8)}%`,
+                    height: `${60 + i * 12}px`
+                  }}
+                >
+                  <div className="absolute inset-0 skeleton-shimmer" />
+                  {/* Content placeholder lines */}
+                  <div className="p-3 space-y-2">
+                    <div className="h-3 bg-gray-300 dark:bg-slate-600 rounded w-3/4" />
+                    <div className="h-3 bg-gray-300 dark:bg-slate-600 rounded w-full" />
+                    {i > 2 && <div className="h-3 bg-gray-300 dark:bg-slate-600 rounded w-5/6" />}
+                  </div>
+                </div>
+                {i % 2 === 0 && (
+                  <div className="w-7 h-7 rounded-full bg-gray-200 dark:bg-slate-700 relative overflow-hidden">
+                    <div className="absolute inset-0 skeleton-shimmer" />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {messages.length === 0 && !isLoadingHistory ? (
+          <EmptyState onQuickAction={handleQuickAction} />
+        ) : (
+          <div className="max-w-3xl mx-auto space-y-3 sm:space-y-4">
+            {messages.map((message, index) => (
+            // Skip rendering empty assistant messages (they show while streaming starts)
+            message.role === 'assistant' && !message.content ? null : (
+            <div key={index}>
+              {/* Time Separator */}
+              {shouldShowDateSeparator(index) && message.timestamp && (
+                <div className="time-separator my-4">
+                  <span className="text-xs font-medium text-gray-500 dark:text-slate-400 bg-gray-50 dark:bg-slate-900 px-3 py-1 rounded-full">
+                    {formatDateSeparator(new Date(message.timestamp))}
+                  </span>
+                </div>
+              )}
+              
+              {/* Swipeable message container */}
+              <div 
+                className="message-swipe-container"
+                onTouchStart={(e) => handleMessageTouchStart(e, index)}
+                onTouchMove={(e) => handleMessageTouchMove(e, index)}
+                onTouchEnd={() => handleMessageTouchEnd(index)}
               >
-                <div className="flex items-start justify-between gap-2.5">
-                  <div className="text-[15px] sm:text-[15px] leading-relaxed flex-1 break-words">
+                {/* Swipe action indicators */}
+                <div className={`message-swipe-action message-swipe-action-left ${swipingMessageIndex === index && swipeOffset > 30 ? 'visible' : ''}`}>
+                  <Copy className="h-5 w-5 text-white" />
+                </div>
+                <div className={`message-swipe-action message-swipe-action-right ${swipingMessageIndex === index && swipeOffset < -30 && message.role === 'user' ? 'visible' : ''}`}>
+                  <Trash2 className="h-5 w-5 text-white" />
+                </div>
+                
+                <div
+                  className={`message-swipe-content flex items-end gap-2 ${
+                    message.role === 'user' ? 'justify-end' : 'justify-start'
+                  } animate-spring-in group`}
+                  style={{ 
+                    transform: swipingMessageIndex === index ? `translateX(${swipeOffset}px)` : undefined 
+                  }}
+                >
+                  {/* Bot Avatar - only show for assistant messages */}
+                  {message.role === 'assistant' && (
+                    <div className="message-avatar message-avatar-bot mb-1">
+                      LiS
+                    </div>
+                  )}
+                  
+                  <div
+                    className={`rounded-2xl relative ${
+                      message.role === 'user'
+                        ? 'max-w-[85%] sm:max-w-[70%] bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-br-md shadow-lg px-4 py-3 message-bubble-user'
+                        : 'max-w-[95%] sm:max-w-[85%] bg-white dark:bg-slate-800/95 text-gray-900 dark:text-slate-100 rounded-bl-md border border-gray-100 dark:border-slate-700/80 shadow-md px-3 py-3 sm:px-5 sm:py-4 message-bubble-bot'
+                    }`}
+                  >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className={`flex-1 overflow-hidden ${message.role === 'user' ? 'text-[15px] leading-relaxed' : 'text-[15px] leading-[1.7]'}`} style={{ wordBreak: 'normal', overflowWrap: 'break-word' }}>
                     {message.role === 'user' ? (
-                      <p className="whitespace-pre-wrap">{message.content}</p>
+                      <p className="whitespace-pre-wrap" style={{ wordBreak: 'normal', overflowWrap: 'break-word' }}>{message.content}</p>
                     ) : (
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
                         components={{
-                          // Headings
-                          h1: ({ node, ...props }) => <h1 className="text-xl font-bold mt-4 mb-2 text-gray-900" {...props} />,
-                          h2: ({ node, ...props }) => <h2 className="text-lg font-bold mt-3 mb-2 text-gray-900" {...props} />,
-                          h3: ({ node, ...props }) => <h3 className="text-base font-bold mt-2 mb-1 text-gray-900" {...props} />,
+                          // Headings - with visual hierarchy
+                          h1: ({ node, ...props }) => (
+                            <h1 className="text-xl font-bold mt-5 mb-3 text-gray-900 dark:text-slate-100 pb-2 border-b border-gray-200 dark:border-slate-700" {...props} />
+                          ),
+                          h2: ({ node, ...props }) => (
+                            <h2 className="text-lg font-bold mt-4 mb-2 text-gray-900 dark:text-slate-100 flex items-center gap-2" {...props} />
+                          ),
+                          h3: ({ node, ...props }) => (
+                            <h3 className="text-base font-semibold mt-3 mb-2 text-gray-800 dark:text-slate-200" {...props} />
+                          ),
+                          h4: ({ node, ...props }) => (
+                            <h4 className="text-sm font-semibold mt-2 mb-1 text-gray-700 dark:text-slate-300" {...props} />
+                          ),
                           
-                          // Paragraphs
-                          p: ({ node, ...props }) => <p className="mb-2 last:mb-0 text-gray-900 leading-relaxed" {...props} />,
+                          // Paragraphs - improved spacing
+                          p: ({ node, ...props }) => (
+                            <p className="mb-3 last:mb-0 text-gray-800 dark:text-slate-200 leading-[1.7]" {...props} />
+                          ),
                           
-                          // Lists
-                          ul: ({ node, ...props }) => <ul className="list-disc list-outside ml-5 mb-3 space-y-1.5" {...props} />,
-                          ol: ({ node, ...props }) => <ol className="list-decimal list-outside ml-5 mb-3 space-y-1.5" {...props} />,
-                          li: ({ node, ...props }) => <li className="pl-1.5 text-gray-900 leading-relaxed" {...props} />,
+                          // Unordered Lists - custom bullet styling
+                          ul: ({ node, ...props }) => (
+                            <ul className="my-3 space-y-2 pl-0 list-none" {...props} />
+                          ),
                           
-                          // Code
+                          // Ordered Lists - enhanced number styling
+                          ol: ({ node, ...props }) => (
+                            <ol className="my-3 space-y-2 pl-0 list-none counter-reset-list" style={{ counterReset: 'list-counter' }} {...props} />
+                          ),
+                          
+                          // List Items - card-like styling with icons
+                          li: ({ node, ordered, ...props }: any) => {
+                            // Check if this is inside an ordered list by looking at parent
+                            const isOrdered = node?.position?.start?.column === 1 && /^\d+\./.test(String(props.children?.[0] || '').trim().split(' ')[0] || '');
+                            return (
+                              <li 
+                                className="relative pl-6 text-gray-800 dark:text-slate-200 leading-[1.65] py-0.5 list-item-custom"
+                                style={{ wordBreak: 'normal', overflowWrap: 'break-word' }}
+                                {...props} 
+                              />
+                            );
+                          },
+                          
+                          // Code - enhanced with better contrast
                           code: ({ node, inline, className, children, ...props }: any) => {
                             return inline ? (
-                              <code className="bg-gray-100 text-blue-700 px-1.5 py-0.5 rounded text-sm font-mono border border-gray-200" {...props}>
+                              <code 
+                                className="bg-blue-50 dark:bg-slate-700 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded text-[0.9em] font-mono border border-blue-100 dark:border-slate-600" 
+                                {...props}
+                              >
                                 {children}
                               </code>
                             ) : (
-                              <code className="block bg-gray-50 text-gray-800 p-3 rounded-lg text-sm font-mono overflow-x-auto my-3 border border-gray-200 shadow-sm" {...props}>
+                              <code 
+                                className="block bg-gray-900 dark:bg-slate-950 text-gray-100 dark:text-slate-200 p-4 rounded-xl text-sm font-mono overflow-x-auto my-4 shadow-lg border border-gray-700 dark:border-slate-700" 
+                                {...props}
+                              >
                                 {children}
                               </code>
                             )
                           },
-                          pre: ({ node, ...props }) => <pre className="my-3" {...props} />,
+                          pre: ({ node, ...props }) => <pre className="my-4" {...props} />,
                           
-                          // Links
+                          // Links - more visible
                           a: ({ node, ...props }) => (
                             <a 
-                              className="text-blue-600 hover:text-blue-800 underline transition-colors" 
+                              className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 underline decoration-blue-300 dark:decoration-blue-600 underline-offset-2 transition-colors font-medium" 
                               target="_blank" 
                               rel="noopener noreferrer" 
                               {...props} 
                             />
                           ),
                           
-                          // Tables - Enhanced styling for query results
+                          // Tables - Mobile-optimized with scroll hint
                           table: ({ node, ...props }) => (
-                            <div className="overflow-x-auto my-4 rounded-lg border border-gray-200 shadow-sm">
-                              <table className="min-w-full border-collapse bg-white" {...props} />
+                            <div className="table-wrapper my-4 -mx-4 sm:mx-0">
+                              <div className="table-scroll-hint text-xs text-gray-400 dark:text-slate-500 text-center pb-1 sm:hidden flex items-center justify-center gap-1">
+                                <span>←</span>
+                                <span>Wischen zum Scrollen</span>
+                                <span>→</span>
+                              </div>
+                              <div className="overflow-x-auto rounded-lg sm:rounded-xl border border-gray-200 dark:border-slate-600 shadow-md bg-white dark:bg-slate-800/90 mx-2 sm:mx-0">
+                                <table className="w-full border-collapse text-sm" style={{ minWidth: '400px' }} {...props} />
+                              </div>
                             </div>
                           ),
-                          thead: ({ node, ...props }) => <thead className="bg-gradient-to-r from-blue-50 to-blue-100" {...props} />,
-                          tbody: ({ node, ...props }) => <tbody className="divide-y divide-gray-100" {...props} />,
-                          tr: ({ node, ...props }) => <tr className="border-b border-gray-100 hover:bg-gray-50 transition-colors" {...props} />,
+                          thead: ({ node, ...props }) => (
+                            <thead className="bg-blue-600 dark:bg-blue-700 text-white sticky top-0" {...props} />
+                          ),
+                          tbody: ({ node, ...props }) => (
+                            <tbody className="divide-y divide-gray-100 dark:divide-slate-700 bg-white dark:bg-slate-800" {...props} />
+                          ),
+                          tr: ({ node, ...props }) => (
+                            <tr className="hover:bg-blue-50 dark:hover:bg-slate-700/70 transition-colors" {...props} />
+                          ),
                           th: ({ node, ...props }) => (
-                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider border-b border-gray-200" {...props} />
+                            <th className="px-3 py-2.5 sm:px-4 sm:py-3 text-left text-[11px] sm:text-xs font-semibold text-white uppercase tracking-wider whitespace-nowrap" {...props} />
                           ),
                           td: ({ node, ...props }) => (
-                            <td className="px-4 py-3 text-sm text-gray-900 border-b border-gray-100" {...props} />
+                            <td 
+                              className="px-3 py-2.5 sm:px-4 sm:py-3 text-[13px] sm:text-sm text-gray-800 dark:text-slate-200 whitespace-nowrap" 
+                              {...props} 
+                            />
                           ),
                           
-                          // Blockquotes
+                          // Blockquotes - improved styling
                           blockquote: ({ node, ...props }) => (
-                            <blockquote className="border-l-4 border-blue-400 pl-4 py-2 my-3 italic text-gray-700 bg-blue-50 rounded-r" {...props} />
+                            <blockquote 
+                              className="border-l-4 border-blue-500 dark:border-blue-400 pl-4 py-3 my-4 text-gray-700 dark:text-slate-300 bg-gradient-to-r from-blue-50 to-transparent dark:from-slate-800 dark:to-transparent rounded-r-lg" 
+                              {...props} 
+                            />
                           ),
                           
-                          // Strong & Em
-                          strong: ({ node, ...props }) => <strong className="font-semibold text-gray-900" {...props} />,
-                          em: ({ node, ...props }) => <em className="italic text-gray-800" {...props} />,
+                          // Strong & Em - enhanced visibility
+                          strong: ({ node, ...props }) => (
+                            <strong className="font-semibold text-gray-900 dark:text-white" {...props} />
+                          ),
+                          em: ({ node, ...props }) => (
+                            <em className="italic text-gray-700 dark:text-slate-300" {...props} />
+                          ),
                           
-                          // Horizontal Rule
-                          hr: ({ node, ...props }) => <hr className="my-4 border-t-2 border-gray-200" {...props} />,
+                          // Horizontal Rule - styled divider
+                          hr: ({ node, ...props }) => (
+                            <hr className="my-6 border-none h-px bg-gradient-to-r from-transparent via-gray-300 dark:via-slate-600 to-transparent" {...props} />
+                          ),
                         }}
                       >
-                        {message.content}
+                        {sanitizeBotResponse(message.content)}
                       </ReactMarkdown>
                     )}
                   </div>
@@ -1446,7 +2605,7 @@ export default function ChatInterface() {
                     className={`opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity p-2 sm:p-1 rounded-lg touch-manipulation active:scale-95 flex-shrink-0 ${
                       message.role === 'user'
                         ? 'active:bg-blue-700 text-white'
-                        : 'active:bg-gray-100 text-gray-600'
+                        : 'active:bg-gray-100 dark:active:bg-slate-700 text-gray-600 dark:text-slate-400'
                     }`}
                     title="Nachricht kopieren"
                     aria-label="Nachricht kopieren"
@@ -1459,34 +2618,116 @@ export default function ChatInterface() {
                   </button>
                 </div>
                     {message.timestamp && (
-                  <p
-                    className={`text-[11px] sm:text-xs mt-2 sm:mt-1.5 ${
-                      message.role === 'user'
-                        ? 'text-blue-100'
-                        : 'text-gray-400'
+                  <div
+                    className={`flex items-center gap-1.5 mt-2 sm:mt-1.5 ${
+                      message.role === 'user' ? 'justify-end' : 'justify-start'
                     }`}
                   >
-                    {formatTimestamp(message.timestamp)}
-                  </p>
+                    <span
+                      className={`text-[11px] sm:text-xs ${
+                        message.role === 'user'
+                          ? 'text-blue-100'
+                          : 'text-gray-400 dark:text-slate-500'
+                      }`}
+                    >
+                      {formatTimestamp(message.timestamp)}
+                    </span>
+                    {/* Delivery status for user messages */}
+                    {message.role === 'user' && (
+                      <span className="delivery-check delivered" title="Zugestellt">
+                        ✓✓
+                      </span>
+                    )}
+                    {/* Pin indicator */}
+                    {pinnedMessages.has(index) && (
+                      <span title="Angepinnt">
+                        <Pin className="h-3 w-3 text-purple-500 dark:text-purple-400 fill-current ml-1" />
+                      </span>
+                    )}
+                  </div>
                 )}
-              </div>
-            </div>
-          ))}
 
-          {isLoading && showLoadingBubble && !isStreamingResponse && (
-            <div className="flex justify-start animate-in fade-in slide-in-from-bottom-2 duration-200">
-              <div className="bg-white rounded-2xl sm:rounded-xl rounded-bl-sm px-4 py-3 sm:px-4 sm:py-2.5 border border-gray-200 shadow-sm">
-                <div className="flex items-center gap-2.5">
-                  <Loader2 className="animate-spin h-4 w-4 sm:h-4 sm:w-4 text-blue-600" />
-                  <span className="text-sm sm:text-sm text-gray-600">Denke nach...</span>
+                {/* Message Reactions */}
+                {message.reactions && Object.keys(message.reactions).length > 0 && (
+                  <div className={`flex items-center gap-1 mt-2 flex-wrap ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    {Object.entries(message.reactions).map(([emoji, count]) => (
+                      <button
+                        key={emoji}
+                        onClick={() => handleAddReaction(index, emoji)}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 dark:bg-slate-700 rounded-full text-xs hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors active:scale-95"
+                      >
+                        <span>{emoji}</span>
+                        <span className="font-medium text-gray-600 dark:text-gray-300">{count}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Add Reaction Button */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    setReactionPicker({
+                      messageIndex: index,
+                      x: rect.left,
+                      y: rect.top - 10
+                    })
+                    triggerHaptic('light')
+                  }}
+                  className={`absolute -bottom-2 ${
+                    message.role === 'user' ? 'right-2' : 'left-2'
+                  } opacity-0 group-hover:opacity-100 w-6 h-6 rounded-full bg-white dark:bg-slate-700 border-2 border-gray-200 dark:border-slate-600 flex items-center justify-center hover:scale-110 transition-all shadow-md`}
+                  title="Reaktion hinzufügen"
+                >
+                  <span className="text-xs">😊</span>
+                </button>
+                </div>
+                
+                {/* User Avatar - only show for user messages */}
+                {message.role === 'user' && (
+                  <div className="message-avatar message-avatar-user mb-1">
+                    Du
+                  </div>
+                )}
                 </div>
               </div>
             </div>
-          )}
+            )
+          ))}
 
-          <div ref={messagesEndRef} />
-        </div>
+            {isLoading && showLoadingBubble && !isStreamingResponse && (
+              <div className="flex justify-start items-end gap-2 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                {/* Bot Avatar */}
+                <div className="message-avatar message-avatar-bot mb-1">
+                  LiS
+                </div>
+                <div className="bg-white dark:bg-slate-800 rounded-2xl sm:rounded-xl rounded-bl-sm px-4 py-4 sm:px-4 sm:py-3.5 border border-gray-200 dark:border-slate-700 shadow-sm">
+                  {/* Bouncing dots typing indicator */}
+                  <div className="flex items-center gap-1.5">
+                    <div className="typing-dot" />
+                    <div className="typing-dot" />
+                    <div className="typing-dot" />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div ref={messagesEndRef} />
+          </div>
+        )}
       </div>
+
+      {/* Scroll to Bottom Button - Floating */}
+      {showScrollButton && !voiceOnlyMode && (
+        <button
+          onClick={scrollToBottom}
+          className="fixed bottom-28 right-4 sm:bottom-24 sm:right-6 p-3 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg active:scale-95 transition-all z-20 touch-manipulation animate-in fade-in slide-in-from-bottom-2 duration-200"
+          aria-label="Nach unten scrollen"
+        >
+          <ChevronDown className="h-5 w-5" />
+        </button>
+      )}
 
       {/* Input Area - Mobile optimized with larger touch targets */}
       {voiceOnlyMode ? (
@@ -1495,59 +2736,73 @@ export default function ChatInterface() {
             <div className="flex flex-col items-center gap-4">
               {isRecording ? (
                 <>
-                  {/* Audio Level Visualization */}
-                  <div className="relative w-24 h-24 sm:w-28 sm:h-28 rounded-full bg-red-500 flex items-center justify-center shadow-lg overflow-hidden">
+                  {/* Audio Level Visualization - Improved */}
+                  <div className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-full bg-gradient-to-br from-red-500 to-red-600 flex items-center justify-center shadow-xl overflow-hidden animate-pulse-recording">
+                    {/* Ripple effect */}
                     <div 
-                      className="absolute inset-0 bg-red-600 transition-all duration-100"
+                      className="absolute inset-0 rounded-full bg-red-400 transition-transform duration-150"
                       style={{ 
-                        transform: `scale(${0.7 + audioLevel * 0.3})`,
-                        opacity: 0.8 + audioLevel * 0.2
+                        transform: `scale(${0.6 + audioLevel * 0.5})`,
+                        opacity: 0.3 + audioLevel * 0.3
                       }}
                     />
-                    <MicOff className="h-10 w-10 sm:h-12 sm:w-12 text-white relative z-10" />
-                    {/* Audio level bars */}
-                    <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 flex gap-0.5">
-                      {[0, 1, 2, 3, 4].map((i) => (
-                        <div
-                          key={i}
-                          className={`w-1 h-2 sm:h-3 rounded-full transition-all duration-100 ${
-                            audioLevel > i * 0.2 ? 'bg-white' : 'bg-white/30'
-                          }`}
-                          style={{
-                            height: `${2 + audioLevel * 8}px`,
-                          }}
-                        />
-                      ))}
-                    </div>
+                    <div 
+                      className="absolute inset-0 rounded-full bg-red-300 transition-transform duration-200"
+                      style={{ 
+                        transform: `scale(${0.4 + audioLevel * 0.3})`,
+                        opacity: 0.2 + audioLevel * 0.2
+                      }}
+                    />
+                    <MicOff className="h-12 w-12 sm:h-14 sm:w-14 text-white relative z-10 drop-shadow-lg" />
                   </div>
+                  
+                  {/* Voice Wave Animation Bars */}
+                  <div className="flex items-end justify-center gap-1 h-8">
+                    {[0, 1, 2, 3, 4].map((i) => (
+                      <div
+                        key={i}
+                        className={`w-1.5 rounded-full transition-all ${
+                          audioLevel > 0.1 ? 'voice-wave-bar bg-white' : 'bg-white/40'
+                        }`}
+                        style={{
+                          height: audioLevel > 0.1 ? `${12 + audioLevel * 16}px` : '8px',
+                          animationDelay: `${i * 0.1}s`,
+                        }}
+                      />
+                    ))}
+                  </div>
+                  
                   <div className="text-center">
-                    <p className="text-white text-lg sm:text-xl font-semibold mb-1">
-                      Ich höre zu ...
+                    <p className="text-white text-xl sm:text-2xl font-semibold mb-1">
+                      {audioLevel > 0.1 ? '🎤 Ich höre dich!' : 'Ich höre zu ...'}
                     </p>
                     <p className="text-blue-100 text-sm sm:text-base">
-                      {audioLevel > 0.1 ? 'Sprich jetzt' : 'Warte auf deine Stimme ...'}
+                      {audioLevel > 0.1 ? 'Sprich weiter...' : 'Warte auf deine Stimme ...'}
                     </p>
                     {silenceStartTime && (
-                      <p className="text-blue-200 text-xs mt-1">
-                        Automatischer Stopp in {Math.max(0, Math.ceil((APP_CONFIG.SILENCE_DURATION_MS - (Date.now() - silenceStartTime)) / 1000))}s
+                      <p className="text-blue-200 text-xs mt-2 bg-blue-700/30 px-3 py-1 rounded-full inline-block">
+                        ⏱️ Stopp in {Math.max(0, Math.ceil((APP_CONFIG.SILENCE_DURATION_MS - (Date.now() - silenceStartTime)) / 1000))}s
                       </p>
                     )}
                   </div>
                   <button
-                    onClick={stopRecording}
-                    className="px-6 py-3 bg-white text-red-600 rounded-xl font-semibold touch-manipulation active:scale-95 shadow-lg"
+                    onClick={() => {
+                      triggerHaptic('medium')
+                      stopRecording()
+                    }}
+                    className="px-8 py-3.5 bg-white text-red-600 rounded-2xl font-semibold touch-manipulation active:scale-95 shadow-lg transition-transform text-base"
                   >
                     Aufnahme stoppen
                   </button>
                 </>
               ) : isProcessingVoice || isLoading ? (
                 <>
-                  <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-blue-500 flex items-center justify-center">
-                    <Loader2 className="h-10 w-10 sm:h-12 sm:w-12 text-white animate-spin" />
+                  <div className="w-28 h-28 sm:w-32 sm:h-32 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center shadow-xl">
+                    <Loader2 className="h-12 w-12 sm:h-14 sm:w-14 text-white animate-spin drop-shadow-lg" />
                   </div>
                   <div className="text-center">
-                    <p className="text-white text-lg sm:text-xl font-semibold mb-1">
-                      {isProcessingVoice ? 'Verarbeite...' : 'Denke nach...'}
+                    <p className="text-white text-xl sm:text-2xl font-semibold mb-1">
+                      {isProcessingVoice ? '🎯 Verarbeite...' : '💭 Denke nach...'}
                     </p>
                     <p className="text-blue-100 text-sm sm:text-base">
                       {isProcessingVoice ? 'Transkribiere deine Stimme' : 'Antwort wird erstellt'}
@@ -1556,19 +2811,34 @@ export default function ChatInterface() {
                 </>
               ) : isPlayingAudio ? (
                 <>
-                  <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-green-500 flex items-center justify-center animate-pulse shadow-lg">
-                    <Volume2 className="h-10 w-10 sm:h-12 sm:w-12 text-white" />
+                  <div className="w-28 h-28 sm:w-32 sm:h-32 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center shadow-xl animate-pulse-recording">
+                    <Volume2 className="h-12 w-12 sm:h-14 sm:w-14 text-white drop-shadow-lg" />
                   </div>
+                  
+                  {/* Speaking wave animation */}
+                  <div className="flex items-center justify-center gap-1 h-8">
+                    {[0, 1, 2, 3, 4].map((i) => (
+                      <div
+                        key={i}
+                        className="w-1.5 bg-white rounded-full voice-wave-bar"
+                        style={{ animationDelay: `${i * 0.1}s` }}
+                      />
+                    ))}
+                  </div>
+                  
                   <div className="text-center">
-                    <p className="text-white text-lg sm:text-xl font-semibold mb-1">
-                      Assistent spricht ...
+                    <p className="text-white text-xl sm:text-2xl font-semibold mb-1">
+                      🔊 Assistent spricht
                     </p>
-                    <p className="text-blue-100 text-sm sm:text-base mb-3">
+                    <p className="text-blue-100 text-sm sm:text-base mb-4">
                       Höre dir die Antwort an
                     </p>
                     <button
-                      onClick={stopSpeaking}
-                      className="px-6 py-3 bg-white text-green-600 rounded-xl font-semibold touch-manipulation active:scale-95 shadow-lg"
+                      onClick={() => {
+                        triggerHaptic('medium')
+                        stopSpeaking()
+                      }}
+                      className="px-8 py-3.5 bg-white text-green-600 rounded-2xl font-semibold touch-manipulation active:scale-95 shadow-lg transition-transform text-base"
                     >
                       Unterbrechen & sprechen
                     </button>
@@ -1576,23 +2846,36 @@ export default function ChatInterface() {
                 </>
               ) : (
                 <>
-                  <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-white flex items-center justify-center shadow-lg">
-                    <Mic className="h-10 w-10 sm:h-12 sm:w-12 text-blue-600" />
+                  <div className="w-28 h-28 sm:w-32 sm:h-32 rounded-full bg-white flex items-center justify-center shadow-xl">
+                    <Mic className="h-12 w-12 sm:h-14 sm:w-14 text-blue-600 drop-shadow" />
                   </div>
                   <div className="text-center">
-                    <p className="text-white text-lg sm:text-xl font-semibold mb-1">
-                      Bereit zuzuhören
+                    <p className="text-white text-xl sm:text-2xl font-semibold mb-1">
+                      👋 Bereit zuzuhören
                     </p>
                     <p className="text-blue-100 text-sm sm:text-base">
-                      Tippe, um zu sprechen
+                      Tippe den Button, um zu sprechen
                     </p>
                   </div>
                   <button
-                    onClick={startRecording}
-                    className="px-6 py-3 bg-white text-blue-600 rounded-xl font-semibold touch-manipulation active:scale-95 shadow-lg"
+                    onClick={() => {
+                      triggerHaptic('heavy')
+                      startRecording()
+                    }}
+                    className="px-8 py-3.5 bg-white text-blue-600 rounded-2xl font-semibold touch-manipulation active:scale-95 shadow-lg transition-transform text-base"
                   >
-                    Jetzt sprechen
+                    🎤 Jetzt sprechen
                   </button>
+
+                  {/* Voice Command Hints */}
+                  <div className="mt-4 px-4 py-3 bg-white/10 backdrop-blur-sm rounded-xl border border-white/20">
+                    <p className="text-white/90 text-xs font-semibold mb-2 text-center">💡 Sprachbefehle</p>
+                    <div className="space-y-1 text-white/70 text-[11px]">
+                      <p>• Sage &quot;Stop&quot; zum Beenden</p>
+                      <p>• Sage &quot;Wiederholen&quot; für letzte Antwort</p>
+                      <p>• Spreche klar und deutlich</p>
+                    </div>
+                  </div>
                 </>
               )}
               <button
@@ -1606,39 +2889,105 @@ export default function ChatInterface() {
           </div>
         </div>
       ) : (
-        <div className="bg-white border-t border-gray-100 px-3 py-3 sm:px-4 sm:py-3 safe-area-inset-bottom">
+        <div className="glass-header border-t border-gray-100 dark:border-slate-800 px-3 py-3 sm:px-4 sm:py-3 safe-area-inset-bottom">
           <div className="max-w-3xl mx-auto">
+            {/* Recording indicator with waveform */}
+            {isRecording && !voiceOnlyMode && (
+              <div className="mb-3 flex items-center gap-3 bg-red-50 dark:bg-red-900/20 rounded-xl px-4 py-3 border border-red-200 dark:border-red-800">
+                <div className="flex items-center justify-center gap-1 h-8">
+                  {[0, 1, 2, 3, 4].map((i) => (
+                    <div
+                      key={i}
+                      className="w-1 bg-red-500 dark:bg-red-400 rounded-full voice-wave-bar"
+                      style={{ animationDelay: `${i * 0.1}s` }}
+                    />
+                  ))}
+                </div>
+                <span className="text-red-600 dark:text-red-400 font-medium text-sm flex-1">
+                  Aufnahme läuft...
+                </span>
+                <span className="text-red-500 dark:text-red-400 text-xs animate-pulse">
+                  ● REC
+                </span>
+              </div>
+            )}
+
+            {/* Smart Reply Suggestions */}
+            {smartReplySuggestions.length > 0 && !isRecording && messages.length > 0 && (
+              <div className="mb-3 flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide">
+                <Sparkles className="h-4 w-4 text-purple-500 dark:text-purple-400 flex-shrink-0" />
+                {smartReplySuggestions.map((suggestion, index) => (
+                  <button
+                    key={index}
+                    onClick={() => handleSmartReplyClick(suggestion)}
+                    className="flex-shrink-0 px-3 py-1.5 bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 text-purple-700 dark:text-purple-300 rounded-full text-sm font-medium border border-purple-200 dark:border-purple-700 hover:from-purple-100 hover:to-blue-100 dark:hover:from-purple-900/30 dark:hover:to-blue-900/30 active:scale-95 transition-all touch-manipulation shadow-sm"
+                  >
+                    {suggestion}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setShowSmartReplies(false)}
+                  className="flex-shrink-0 p-1 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
+                  title="Vorschläge ausblenden"
+                >
+                  <X className="h-3 w-3 text-gray-400" />
+                </button>
+              </div>
+            )}
+            
             <div className="flex items-end gap-2.5 sm:gap-2">
-              <div className="flex-1 relative">
+              <div className="flex-1 relative input-gradient-focus">
                 <textarea
                   ref={textareaRef}
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
+                  onChange={(e) => {
+                    setInput(e.target.value)
+                    autoExpandTextarea()
+                  }}
                   onKeyPress={handleKeyPress}
                   placeholder="Nachricht eingeben..."
-                  className="w-full p-3 sm:p-3 pr-14 sm:pr-12 pb-10 sm:pb-8 border-2 border-gray-200 rounded-xl sm:rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white text-gray-900 placeholder-gray-400 text-[16px] sm:text-[15px] transition-all"
+                  className="w-full p-3 sm:p-3 pr-14 sm:pr-12 pb-10 sm:pb-8 border-2 border-gray-200 dark:border-slate-600 rounded-xl sm:rounded-lg resize-none focus:outline-none focus:border-transparent bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 placeholder-gray-400 dark:placeholder-slate-500 text-[16px] sm:text-[15px] transition-all shadow-sm focus:shadow-md overflow-y-auto"
                   rows={1}
                   maxLength={APP_CONFIG.MAX_INPUT_LENGTH}
                   style={{ 
                     minHeight: `${UI_CONFIG.TEXTAREA_MIN_HEIGHT}px`, 
-                    maxHeight: `${UI_CONFIG.TEXTAREA_MAX_HEIGHT}px` 
+                    maxHeight: `120px` 
                   }}
                 />
-                <div className="absolute bottom-2 right-3 sm:bottom-1.5 sm:right-2 flex items-center gap-2">
-                  <span className="text-[11px] sm:text-xs text-gray-400">
+                {/* Bottom row: hints and character count */}
+                <div className="absolute bottom-2 left-3 right-3 sm:bottom-1.5 sm:left-2 sm:right-2 flex items-center justify-between gap-2 pointer-events-none">
+                  <span className="hidden sm:block text-[10px] text-gray-400 dark:text-slate-500 italic">
+                    Shift+Enter für neue Zeile
+                  </span>
+                  <span className={`text-[11px] sm:text-xs font-medium transition-colors ml-auto ${
+                    input.length > APP_CONFIG.MAX_INPUT_LENGTH * 0.9
+                      ? 'text-red-500'
+                      : input.length > APP_CONFIG.MAX_INPUT_LENGTH * 0.75
+                        ? 'text-orange-500'
+                        : 'text-gray-400 dark:text-slate-500'
+                  }`}>
                     {input.length} / {APP_CONFIG.MAX_INPUT_LENGTH}
                   </span>
                 </div>
               </div>
 
               <div className="flex items-center gap-2 sm:gap-1.5 flex-shrink-0">
+                {/* Emoji Picker */}
+                <EmojiPicker onEmojiSelect={handleEmojiSelect} />
                 <button
-                  onClick={isRecording ? stopRecording : enterVoiceOnlyMode}
+                  onClick={() => {
+                    triggerHaptic(isRecording ? 'medium' : 'heavy')
+                    if (isRecording) {
+                      stopRecording()
+                    } else {
+                      enterVoiceOnlyMode()
+                    }
+                  }}
                   disabled={isLoading}
                   className={`p-3 sm:p-2.5 rounded-xl sm:rounded-lg transition-all duration-150 touch-manipulation active:scale-95 ${
                     isRecording
                       ? 'bg-red-500 text-white animate-pulse'
-                      : 'bg-gray-100 text-gray-700 active:bg-gray-200'
+                      : 'bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-slate-300 active:bg-gray-200 dark:active:bg-slate-600'
                   } disabled:opacity-50 disabled:cursor-not-allowed min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center`}
                   title={isRecording ? 'Aufnahme stoppen' : 'Sprachmodus starten'}
                   aria-label={isRecording ? 'Aufnahme stoppen' : 'Sprachmodus starten'}
@@ -1652,12 +3001,19 @@ export default function ChatInterface() {
 
                 {messages.length > 0 && (
                   <button
-                    onClick={isPlayingAudio ? stopSpeaking : playLastResponse}
+                    onClick={() => {
+                      triggerHaptic('light')
+                      if (isPlayingAudio) {
+                        stopSpeaking()
+                      } else {
+                        playLastResponse()
+                      }
+                    }}
                     disabled={isLoading}
                     className={`p-3 sm:p-2.5 rounded-xl sm:rounded-lg transition-all duration-150 touch-manipulation active:scale-95 ${
                       isPlayingAudio
                         ? 'bg-green-500 text-white'
-                        : 'bg-gray-100 text-gray-700 active:bg-gray-200'
+                        : 'bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-slate-300 active:bg-gray-200 dark:active:bg-slate-600'
                     } disabled:opacity-50 disabled:cursor-not-allowed min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center`}
                     title={isPlayingAudio ? 'Audio stoppen' : 'Letzte Antwort anhören'}
                     aria-label={isPlayingAudio ? 'Audio stoppen' : 'Letzte Antwort anhören'}
@@ -1678,7 +3034,10 @@ export default function ChatInterface() {
                 )}
 
                 <button
-                  onClick={sendMessage}
+                  onClick={() => {
+                    triggerHaptic('medium')
+                    sendMessage()
+                  }}
                   disabled={!input.trim() || isLoading}
                   className="p-3 sm:p-2.5 bg-blue-600 active:bg-blue-700 text-white rounded-xl sm:rounded-lg transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation active:scale-95 shadow-sm active:shadow min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center"
                   title="Nachricht senden"
@@ -1694,6 +3053,215 @@ export default function ChatInterface() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modals */}
+      <SearchModal
+        isOpen={showSearchModal}
+        onClose={() => {
+          setShowSearchModal(false)
+          setActiveBottomTab('chat')
+        }}
+        messages={messages}
+        onSelectMessage={(index) => {
+          setShowSearchModal(false)
+          setActiveBottomTab('chat')
+          const element = document.querySelector(`[data-message-index="${index}"]`)
+          element?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }}
+      />
+      <ExportChatModal
+        isOpen={showExportModal}
+        onClose={() => {
+          setShowExportModal(false)
+          setActiveBottomTab('chat')
+        }}
+        messages={messages}
+      />
+      <KeyboardShortcutsModal
+        isOpen={showShortcutsModal}
+        onClose={() => {
+          setShowShortcutsModal(false)
+          setActiveBottomTab('chat')
+        }}
+      />
+      <SettingsModal
+        isOpen={showSettingsModal}
+        onClose={() => {
+          setShowSettingsModal(false)
+          setActiveBottomTab('chat')
+        }}
+        onExportClick={() => {
+          setShowSettingsModal(false)
+          setShowExportModal(true)
+        }}
+        onShortcutsClick={() => {
+          setShowSettingsModal(false)
+          setShowShortcutsModal(true)
+        }}
+        onClearChat={() => {
+          setShowSettingsModal(false)
+          clearChat()
+        }}
+        user={user}
+        onLoginClick={onLoginClick}
+        onLogout={onLogout}
+      />
+
+      {/* Bottom Navigation (Mobile only) */}
+      <BottomNav
+        activeTab={activeBottomTab}
+        onNewChat={() => {
+          setActiveBottomTab('chat')
+          clearChat()
+        }}
+        onHistoryClick={() => {
+          setActiveBottomTab('history')
+          setShowChatSidebar(true)
+        }}
+        onSearchClick={() => {
+          setActiveBottomTab('search')
+          setShowSearchModal(true)
+        }}
+        onSettingsClick={() => {
+          setActiveBottomTab('settings')
+          setShowSettingsModal(true)
+        }}
+      />
+
+      {/* Context Menu / Action Sheet for long-press on messages */}
+      {contextMenu && (
+        <>
+          {/* Backdrop */}
+          <div 
+            className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 modal-overlay"
+            onClick={() => setContextMenu(null)}
+          />
+          
+          {/* Action Sheet (iOS-style bottom sheet on mobile, floating menu on desktop) */}
+          <div 
+            className="fixed bottom-0 left-0 right-0 sm:absolute sm:bottom-auto z-50 animate-slide-up-fast"
+            style={{ 
+              left: typeof window !== 'undefined' && window.innerWidth >= 640 ? Math.min(contextMenu.x, window.innerWidth - 220) : undefined,
+              top: typeof window !== 'undefined' && window.innerWidth >= 640 ? Math.min(contextMenu.y, window.innerHeight - 300) : undefined,
+              right: typeof window !== 'undefined' && window.innerWidth >= 640 ? 'auto' : undefined,
+              bottom: typeof window !== 'undefined' && window.innerWidth >= 640 ? 'auto' : 0
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="bg-white dark:bg-slate-800 rounded-t-3xl sm:rounded-2xl shadow-2xl border-t border-gray-200 dark:border-slate-700 sm:border overflow-hidden pb-safe">
+              {/* Drag handle (mobile only) */}
+              <div className="sm:hidden flex justify-center pt-2 pb-1">
+                <div className="w-10 h-1 bg-gray-300 dark:bg-slate-600 rounded-full" />
+              </div>
+
+              {/* Actions */}
+              <div className="p-2">
+                <button 
+                  className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-gray-100 dark:hover:bg-slate-700 rounded-xl transition-colors touch-manipulation"
+                  onClick={() => handleContextMenuAction('copy')}
+                >
+                  <div className="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                    <Copy className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <span className="flex-1 font-medium text-gray-900 dark:text-white">Kopieren</span>
+                </button>
+                
+                <button 
+                  className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-gray-100 dark:hover:bg-slate-700 rounded-xl transition-colors touch-manipulation"
+                  onClick={() => handleContextMenuAction('share')}
+                >
+                  <div className="w-8 h-8 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                    <Share2 className="h-4 w-4 text-green-600 dark:text-green-400" />
+                  </div>
+                  <span className="flex-1 font-medium text-gray-900 dark:text-white">Teilen</span>
+                </button>
+
+                <button 
+                  className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-gray-100 dark:hover:bg-slate-700 rounded-xl transition-colors touch-manipulation"
+                  onClick={() => handleContextMenuAction('pin')}
+                >
+                  <div className="w-8 h-8 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
+                    <Pin className={`h-4 w-4 text-purple-600 dark:text-purple-400 ${pinnedMessages.has(contextMenu.messageIndex) ? 'fill-current' : ''}`} />
+                  </div>
+                  <span className="flex-1 font-medium text-gray-900 dark:text-white">
+                    {pinnedMessages.has(contextMenu.messageIndex) ? 'Nicht mehr anpinnen' : 'Anpinnen'}
+                  </span>
+                </button>
+
+                {messages[contextMenu.messageIndex]?.role === 'assistant' && (
+                  <button 
+                    className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-gray-100 dark:hover:bg-slate-700 rounded-xl transition-colors touch-manipulation"
+                    onClick={() => handleContextMenuAction('regenerate')}
+                  >
+                    <div className="w-8 h-8 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
+                      <RotateCcw className="h-4 w-4 text-orange-600 dark:text-orange-400" />
+                    </div>
+                    <span className="flex-1 font-medium text-gray-900 dark:text-white">Neu generieren</span>
+                  </button>
+                )}
+                
+                {messages[contextMenu.messageIndex]?.role === 'user' && (
+                  <>
+                    <div className="h-px bg-gray-200 dark:bg-slate-700 my-2" />
+                    <button 
+                      className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors touch-manipulation"
+                      onClick={() => handleContextMenuAction('delete')}
+                    >
+                      <div className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center">
+                        <Trash2 className="h-4 w-4 text-red-600 dark:text-red-400" />
+                      </div>
+                      <span className="flex-1 font-medium text-red-600 dark:text-red-400">Löschen</span>
+                    </button>
+                  </>
+                )}
+              </div>
+
+              {/* Cancel button (mobile only) */}
+              <div className="sm:hidden px-2 pb-2 pt-1">
+                <button 
+                  onClick={() => setContextMenu(null)}
+                  className="w-full py-3.5 bg-gray-100 dark:bg-slate-700 rounded-xl font-semibold text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors"
+                >
+                  Abbrechen
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Reaction Picker */}
+      {reactionPicker && (
+        <>
+          {/* Backdrop */}
+          <div 
+            className="fixed inset-0 z-40"
+            onClick={() => setReactionPicker(null)}
+          />
+          
+          {/* Picker */}
+          <div 
+            className="fixed z-50 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-slate-700 p-2 animate-scale-up"
+            style={{
+              left: Math.min(reactionPicker.x, window.innerWidth - 250),
+              top: Math.max(50, reactionPicker.y - 60),
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex gap-1">
+              {reactionEmojis.map((emoji) => (
+                <button
+                  key={emoji}
+                  onClick={() => handleAddReaction(reactionPicker.messageIndex, emoji)}
+                  className="w-10 h-10 rounded-xl hover:bg-gray-100 dark:hover:bg-slate-700 flex items-center justify-center text-2xl transition-all active:scale-90"
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
       )}
     </div>
   )

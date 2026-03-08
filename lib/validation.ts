@@ -202,8 +202,8 @@ export function validateSingleRowFilters(filters: Record<string, any>): {
   // Check if we have at least one unique identifier
   // Common unique identifiers in the schema
   const uniqueIdentifiers = [
-    'project_id', 'employee_id', 'vehicle_id', 'plan_id',
-    'project_code', 'name', 'employee_code', 'vehicle_nickname'
+    'project_id', 'employee_id', 'vehicle_id', 'plan_id', 'service_id', 'material_id',
+    'project_code', 'name', 'employee_code', 'vehicle_nickname', 'nickname'
   ]
 
   const hasUniqueIdentifier = Object.keys(filters).some(key => 
