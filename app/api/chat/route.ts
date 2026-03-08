@@ -10,6 +10,7 @@ import { INSERT_ALLOWED_TABLES } from '@/lib/constants'
 import { rateLimitMiddleware, getClientIdentifier } from '@/lib/rate-limit'
 import { authenticateRequest } from '@/lib/auth-middleware'
 import { checkPermission, getPermissionDeniedMessage } from '@/lib/rbac'
+import { createRequestLogger } from '@/lib/logger'
 import type { ChatRequest } from '@/types'
 
 // Extracted modules
@@ -50,33 +51,30 @@ function getOpenAIClient(): OpenAI {
 setOpenAIClientGetter(getOpenAIClient)
 
 export async function POST(req: NextRequest) {
+  const requestId = req.headers.get('x-request-id') || crypto.randomUUID()
+  const correlationId = req.headers.get('x-correlation-id') || undefined
+  const log = createRequestLogger(requestId, correlationId, { route: '/api/chat' })
+
   // Authenticate request
   const { user: authUser, role: userRole, error: authError } = await authenticateRequest(req)
   if (authError) return authError
 
-  // #region agent log
-  fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'app/api/chat/route.ts:POST', message: 'Chat API called', data: { method: 'POST', userId: authUser?.id, role: userRole }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H1' }) }).catch(() => { });
-  // #endregion
+  log.info({ userId: authUser?.id, role: userRole }, 'Chat API called')
+
   // Apply rate limiting (use authenticated user ID for accurate per-user limiting)
   const rateLimitResult = await rateLimitMiddleware(req, '/api/chat', authUser?.id)
   if (!rateLimitResult.allowed) {
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'app/api/chat/route.ts:rate-limit', message: 'Rate limit hit', data: { allowed: false }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H2' }) }).catch(() => { });
-    // #endregion
+    log.warn({ userId: authUser?.id }, 'Rate limit hit')
     return rateLimitResult.response!
   }
 
   try {
     const body: ChatRequest = await req.json()
     const { messages, chatId } = body
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'app/api/chat/route.ts:body-parsed', message: 'Request body parsed', data: { messageCount: messages?.length, hasChatId: !!chatId }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H1' }) }).catch(() => { });
-    // #endregion
+    log.debug({ messageCount: messages?.length, hasChatId: !!chatId }, 'Request body parsed')
 
     if (!messages || !Array.isArray(messages)) {
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'app/api/chat/route.ts:invalid-messages', message: 'Invalid messages array', data: { messages }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H3' }) }).catch(() => { });
-      // #endregion
+      log.warn('Invalid messages array')
       return NextResponse.json(
         { error: 'Messages array is required' },
         { status: 400 }
@@ -84,9 +82,8 @@ export async function POST(req: NextRequest) {
     }
 
     // Chat ID is optional - can be used for future Supabase chat persistence
-    // For now, it's just logged for debugging
     if (chatId) {
-      console.log('Chat ID:', chatId)
+      log.debug({ chatId }, 'Chat ID received')
     }
 
     const lastUserMessage =
@@ -95,10 +92,6 @@ export async function POST(req: NextRequest) {
       [...messages].reverse().find((message) => message.role === 'assistant')?.content || ''
 
     // Check for recent insertRow, updateRow, or deleteRow tool calls in message history
-    // #region agent log
-    const messagesWithToolCalls = messages.filter((m: any) => m.tool_calls && m.tool_calls.length > 0);
-    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'chat/route.ts:tool-calls-check', message: 'Checking for tool calls in messages', data: { totalMessages: messages.length, messagesWithToolCalls: messagesWithToolCalls.length, toolCallNames: messagesWithToolCalls.flatMap((m: any) => m.tool_calls?.map((tc: any) => tc.function?.name) || []) }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H11' }) }).catch(() => { });
-    // #endregion
 
     // Helper to check if a tool call was already executed (success message exists after it)
     const wasToolCallExecuted = (toolCallMessage: any, successPatterns: string[]): boolean => {
@@ -146,9 +139,7 @@ export async function POST(req: NextRequest) {
         )
       })
 
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'chat/route.ts:confirmation-check', message: 'Checking confirmation', data: { lastUserMessage, isConfirmation: isConfirmationMessage(lastUserMessage), hasInsertToolCall: !!recentInsertToolCall, hasUpdateToolCall: !!recentUpdateToolCall, hasDeleteToolCall: !!recentDeleteToolCall }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H10' }) }).catch(() => { });
-    // #endregion
+    log.debug({ isConfirmation: isConfirmationMessage(lastUserMessage), hasInsertToolCall: !!recentInsertToolCall, hasUpdateToolCall: !!recentUpdateToolCall, hasDeleteToolCall: !!recentDeleteToolCall }, 'Checking confirmation')
     if (isConfirmationMessage(lastUserMessage)) {
       // Check if all pending tool calls are already executed
       const deleteAlreadyExecuted = wasToolCallExecuted(recentDeleteToolCall, ['erfolgreich gelöscht', 'wurde gelöscht', 'entfernt'])
@@ -164,9 +155,7 @@ export async function POST(req: NextRequest) {
         (!recentInsertToolCall || insertAlreadyExecuted)
 
       if (hasAnyToolCall && allAlreadyExecuted) {
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'chat/route.ts:all-executed-skip', message: 'All tool calls already executed, skipping confirmation', data: { lastUserMessage }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H16' }) }).catch(() => { });
-        // #endregion
+        log.debug('All tool calls already executed, skipping confirmation')
         // User said "ja" after success - likely wants to see details
         // Return early with a message to avoid OpenAI generating new tool calls
         // If there was an insert, try to show the created entry
@@ -222,9 +211,7 @@ export async function POST(req: NextRequest) {
           { headers: NO_CACHE_HEADERS }
         )
       } else {
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'chat/route.ts:is-confirmation', message: 'Confirmation detected', data: { lastUserMessage, recentInsertToolCall: recentInsertToolCall?.tool_calls?.map((tc: any) => tc.function?.name), recentUpdateToolCall: recentUpdateToolCall?.tool_calls?.map((tc: any) => tc.function?.name), recentDeleteToolCall: recentDeleteToolCall?.tool_calls?.map((tc: any) => tc.function?.name) }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H10' }) }).catch(() => { });
-        // #endregion
+        log.info('Confirmation detected, processing pending tool calls')
         // Priority: delete > update > insert
         // First, check for delete confirmation
         if (recentDeleteToolCall?.tool_calls && !deleteAlreadyExecuted) {
@@ -247,10 +234,7 @@ export async function POST(req: NextRequest) {
                   )
                 }
 
-                console.log('Re-executing delete from tool call:', {
-                  table: functionArgs.tableName,
-                  filters: functionArgs.filters
-                })
+                log.info({ table: functionArgs.tableName, filters: functionArgs.filters }, 'Re-executing delete from tool call')
                 const clientId = getClientIdentifier(req)
                 const deleteResult = await deleteRow(functionArgs.tableName, functionArgs.filters, {
                   ipAddress: clientId,
@@ -258,7 +242,7 @@ export async function POST(req: NextRequest) {
                 })
 
                 if (deleteResult.error) {
-                  console.error('Delete error:', deleteResult.error)
+                  log.error({ error: deleteResult.error }, 'Delete failed')
                   return NextResponse.json(
                     {
                       message: {
@@ -285,7 +269,7 @@ export async function POST(req: NextRequest) {
                 )
               }
             } catch (error) {
-              console.error('Error parsing delete tool call arguments:', error)
+              log.error({ error }, 'Error parsing delete tool call arguments')
             }
             // Return here to prevent checking update/insert if delete was attempted
             return
@@ -313,11 +297,7 @@ export async function POST(req: NextRequest) {
                   )
                 }
 
-                console.log('Re-executing update from tool call:', {
-                  table: functionArgs.tableName,
-                  filters: functionArgs.filters,
-                  values: functionArgs.values
-                })
+                log.info({ table: functionArgs.tableName, filters: functionArgs.filters }, 'Re-executing update from tool call')
                 const clientId = getClientIdentifier(req)
                 const updateResult = await updateRow(
                   functionArgs.tableName,
@@ -329,7 +309,7 @@ export async function POST(req: NextRequest) {
                 )
 
                 if (updateResult.error) {
-                  console.error('Update error:', updateResult.error)
+                  log.error({ error: updateResult.error }, 'Update failed')
                   return NextResponse.json(
                     {
                       message: {
@@ -353,7 +333,7 @@ export async function POST(req: NextRequest) {
                 )
               }
             } catch (error) {
-              console.error('Error parsing update tool call arguments:', error)
+              log.error({ error }, 'Error parsing update tool call arguments')
             }
             // Return here to prevent checking insert if update was attempted
             return
@@ -361,31 +341,21 @@ export async function POST(req: NextRequest) {
         }
 
         // Finally, try to use a recent insert tool call if available
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'chat/route.ts:insert-block-start', message: 'Entering insert confirmation block', data: { hasToolCalls: !!recentInsertToolCall?.tool_calls, toolCallsCount: recentInsertToolCall?.tool_calls?.length, alreadyExecuted: insertAlreadyExecuted }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H12' }) }).catch(() => { });
-        // #endregion
+
         if (recentInsertToolCall?.tool_calls && !insertAlreadyExecuted) {
           const insertToolCall = recentInsertToolCall.tool_calls.find(
             (tc: any) => tc.function?.name === 'insertRow'
           )
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'chat/route.ts:insert-tool-call-found', message: 'Looking for insertRow tool call', data: { found: !!insertToolCall, functionName: insertToolCall?.function?.name, hasArguments: !!insertToolCall?.function?.arguments }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H12' }) }).catch(() => { });
-          // #endregion
+
           if (insertToolCall) {
             try {
-              // #region agent log
-              fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'chat/route.ts:insert-raw-args', message: 'Raw insert arguments', data: { rawArguments: insertToolCall.function.arguments }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H13' }) }).catch(() => { });
-              // #endregion
+
               const functionArgs = JSON.parse(insertToolCall.function.arguments || '{}')
-              // #region agent log
-              fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'chat/route.ts:insert-args-parsed', message: 'Parsed insert arguments', data: { tableName: functionArgs.tableName, hasValues: !!functionArgs.values, valueKeys: Object.keys(functionArgs.values || {}), fullArgs: functionArgs }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H12' }) }).catch(() => { });
-              // #endregion
+              log.debug({ tableName: functionArgs.tableName, valueKeys: Object.keys(functionArgs.values || {}) }, 'Parsed insert arguments')
 
               // FALLBACK: If AI didn't include values, try to extract from conversation
               if (functionArgs.tableName && !functionArgs.values) {
-                // #region agent log
-                fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'chat/route.ts:insert-fallback-start', message: 'Values missing, attempting fallback extraction', data: { tableName: functionArgs.tableName }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H14' }) }).catch(() => { });
-                // #endregion
+                log.debug({ tableName: functionArgs.tableName }, 'Values missing, attempting fallback extraction')
 
                 // Get all user messages to extract values
                 const userMessages = messages
@@ -415,9 +385,7 @@ export async function POST(req: NextRequest) {
                       name: nameMatch[1].trim(),
                       status: 'In Planung'
                     };
-                    // #region agent log
-                    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'chat/route.ts:insert-fallback-success', message: 'Extracted values from conversation', data: { extractedValues: functionArgs.values }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H14' }) }).catch(() => { });
-                    // #endregion
+                    log.info({ extractedValues: functionArgs.values }, 'Extracted values from conversation')
                   }
                 } else if (functionArgs.tableName === 't_employees') {
                   // Extract employee name - handle various patterns
@@ -441,9 +409,7 @@ export async function POST(req: NextRequest) {
 
               if (functionArgs.tableName && functionArgs.values) {
                 // Re-execute the insert with confirm: true
-                // #region agent log
-                fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'chat/route.ts:insert-table-check', message: 'Checking if table is allowed', data: { tableName: functionArgs.tableName, isAllowed: INSERT_ALLOWED_TABLES.has(functionArgs.tableName) }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H12' }) }).catch(() => { });
-                // #endregion
+
                 if (!INSERT_ALLOWED_TABLES.has(functionArgs.tableName)) {
                   return NextResponse.json(
                     {
@@ -456,20 +422,15 @@ export async function POST(req: NextRequest) {
                   )
                 }
 
-                console.log('Re-executing insert from tool call:', {
-                  table: functionArgs.tableName,
-                  values: functionArgs.values
-                })
+                log.info({ table: functionArgs.tableName }, 'Re-executing insert from tool call')
                 const clientId = getClientIdentifier(req)
                 const insertResult = await insertRow(functionArgs.tableName, functionArgs.values, {
                   ipAddress: clientId,
                 })
-                // #region agent log
-                fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'chat/route.ts:insert-result', message: 'Insert result received', data: { hasError: !!insertResult.error, error: insertResult.error, hasData: !!insertResult.data }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H15' }) }).catch(() => { });
-                // #endregion
+                log.debug({ hasError: !!insertResult.error, hasData: !!insertResult.data }, 'Insert result received')
 
                 if (insertResult.error) {
-                  console.error('Insert error:', insertResult.error)
+                  log.error({ error: insertResult.error }, 'Insert failed')
                   return NextResponse.json(
                     {
                       message: {
@@ -492,7 +453,7 @@ export async function POST(req: NextRequest) {
                 )
               }
             } catch (error) {
-              console.error('Error parsing tool call arguments:', error)
+              log.error({ error }, 'Error parsing tool call arguments')
             }
           }
         } else if (recentInsertToolCall?.tool_calls && insertAlreadyExecuted) {
@@ -543,14 +504,14 @@ export async function POST(req: NextRequest) {
               )
             }
 
-            console.log('Attempting insert:', { table: inferredTable, values: insertValues })
+            log.info({ table: inferredTable }, 'Attempting insert from extracted payload')
             const clientId = getClientIdentifier(req)
             const insertResult = await insertRow(inferredTable, insertValues, {
               ipAddress: clientId,
             })
 
             if (insertResult.error) {
-              console.error('Insert error:', insertResult.error)
+              log.error({ error: insertResult.error }, 'Insert failed')
               return NextResponse.json(
                 {
                   message: {
@@ -575,12 +536,7 @@ export async function POST(req: NextRequest) {
 
           // If we have payload but missing table or values, provide helpful error
           if (insertPayload || inferredTable) {
-            console.log('Insert attempt failed:', {
-              hasPayload: !!insertPayload,
-              hasTable: !!inferredTable,
-              hasValues: !!insertValues,
-              payload: insertPayload
-            })
+            log.warn({ hasPayload: !!insertPayload, hasTable: !!inferredTable, hasValues: !!insertValues }, 'Insert attempt failed — incomplete data')
             return NextResponse.json(
               {
                 message: {
@@ -782,7 +738,7 @@ export async function POST(req: NextRequest) {
       userRole
     )
   } catch (error) {
-    console.error('Chat API error:', error)
+    log.error({ error }, 'Chat API error')
 
     // Provide more detailed error information
     let errorMessage = 'Ein Fehler ist aufgetreten.'

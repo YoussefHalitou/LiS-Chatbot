@@ -34,7 +34,7 @@ function rateMetric(name: keyof typeof THRESHOLDS, value: number): MetricRating 
 async function sendToAnalytics(metric: Metric & { rating: MetricRating }) {
   // In production, you would send this to your analytics service
   // For now, we'll log it and store in localStorage for debugging
-  
+
   const metricsLog = JSON.parse(localStorage.getItem('webVitalsLog') || '[]')
   metricsLog.push({
     ...metric,
@@ -42,24 +42,24 @@ async function sendToAnalytics(metric: Metric & { rating: MetricRating }) {
     url: window.location.href,
     userAgent: navigator.userAgent,
   })
-  
+
   // Keep only last 50 metrics
   if (metricsLog.length > 50) {
     metricsLog.shift()
   }
-  
+
   localStorage.setItem('webVitalsLog', JSON.stringify(metricsLog))
-  
+
   // Log to console in development
   if (process.env.NODE_ENV === 'development') {
-    const color = metric.rating === 'good' ? '#0cce6b' : 
-                  metric.rating === 'needs-improvement' ? '#ffa400' : '#ff4e42'
+    const color = metric.rating === 'good' ? '#0cce6b' :
+      metric.rating === 'needs-improvement' ? '#ffa400' : '#ff4e42'
     console.log(
       `%c[Web Vital] ${metric.name}: ${metric.value.toFixed(2)} (${metric.rating})`,
       `color: ${color}; font-weight: bold;`
     )
   }
-  
+
   // Send to backend if endpoint is configured
   const analyticsEndpoint = process.env.NEXT_PUBLIC_ANALYTICS_ENDPOINT
   if (analyticsEndpoint) {
@@ -101,7 +101,7 @@ export function initWebVitals() {
   onLCP(reportMetric)
   onINP(reportMetric)
   onCLS(reportMetric)
-  
+
   // Additional metrics
   onFCP(reportMetric)
   onTTFB(reportMetric)
@@ -129,21 +129,21 @@ export function trackPerformance(name: string, startMark: string, endMark?: stri
  */
 export function trackApiCall(endpoint: string, startTime: number) {
   const duration = performance.now() - startTime
-  
+
   const apiMetrics = JSON.parse(localStorage.getItem('apiMetricsLog') || '[]')
   apiMetrics.push({
     endpoint,
     duration,
     timestamp: Date.now(),
   })
-  
+
   // Keep only last 100 API calls
   if (apiMetrics.length > 100) {
     apiMetrics.shift()
   }
-  
+
   localStorage.setItem('apiMetricsLog', JSON.stringify(apiMetrics))
-  
+
   if (process.env.NODE_ENV === 'development') {
     const color = duration < 200 ? '#0cce6b' : duration < 1000 ? '#ffa400' : '#ff4e42'
     console.log(
@@ -194,17 +194,17 @@ export function reportError(
     console.error('[Error Report]', report)
   }
 
-  // Send to error tracking service (e.g., Sentry)
-  const errorEndpoint = process.env.NEXT_PUBLIC_ERROR_ENDPOINT
-  if (errorEndpoint) {
-    fetch(errorEndpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(report),
-      keepalive: true,
-    }).catch(() => {
-      // Silently fail
+  // Send to Sentry
+  try {
+    const Sentry = require('@sentry/nextjs')
+    Sentry.captureException(error, {
+      extra: { ...metadata, componentStack },
+      tags: {
+        url: report.url,
+      },
     })
+  } catch {
+    // Sentry not available — fall through silently
   }
 }
 
@@ -213,7 +213,7 @@ export function reportError(
  */
 export function getStoredMetrics() {
   if (typeof window === 'undefined') return { webVitals: [], apiMetrics: [], errors: [] }
-  
+
   return {
     webVitals: JSON.parse(localStorage.getItem('webVitalsLog') || '[]'),
     apiMetrics: JSON.parse(localStorage.getItem('apiMetricsLog') || '[]'),
@@ -226,7 +226,7 @@ export function getStoredMetrics() {
  */
 export function clearStoredMetrics() {
   if (typeof window === 'undefined') return
-  
+
   localStorage.removeItem('webVitalsLog')
   localStorage.removeItem('apiMetricsLog')
   errorLog.length = 0
@@ -242,21 +242,21 @@ export function observeLongTasks(callback?: (duration: number) => void) {
     const observer = new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) {
         const duration = entry.duration
-        
+
         if (process.env.NODE_ENV === 'development') {
           console.warn(`[Long Task] Duration: ${duration.toFixed(0)}ms`)
         }
-        
+
         callback?.(duration)
       }
     })
 
     observer.observe({ entryTypes: ['longtask'] })
-    
+
     return () => observer.disconnect()
   } catch (error) {
     // PerformanceObserver not supported
-    return () => {}
+    return () => { }
   }
 }
 
@@ -267,7 +267,7 @@ export function analyzeResourceTiming() {
   if (typeof window === 'undefined' || !window.performance) return null
 
   const resources = performance.getEntriesByType('resource') as PerformanceResourceTiming[]
-  
+
   const analysis = {
     total: resources.length,
     byType: {} as Record<string, number>,
@@ -279,10 +279,10 @@ export function analyzeResourceTiming() {
     // Count by type
     const type = resource.initiatorType || 'other'
     analysis.byType[type] = (analysis.byType[type] || 0) + 1
-    
+
     // Track transfer size
     analysis.totalTransferSize += resource.transferSize || 0
-    
+
     // Track slow resources
     const duration = resource.responseEnd - resource.startTime
     if (duration > 500) {

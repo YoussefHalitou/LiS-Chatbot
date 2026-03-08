@@ -44,3 +44,16 @@ next-env.d.ts
 
 *storybook.log
 storybook-static
+
+# Test results & reports
+tests/test-results-*.json
+tests/test-results-*.txt
+tests/*-test-results-*.json
+tests/e2e/test-results.json
+/test-results/
+/playwright-report/
+/blob-report/
+
+# Sentry
+.sentryclirc
+.sentry/

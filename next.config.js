@@ -132,4 +132,26 @@ const nextConfig = {
   },
 }
 
-module.exports = withPWA(nextConfig)
+const { withSentryConfig } = require('@sentry/nextjs')
+
+module.exports = withSentryConfig(withPWA(nextConfig), {
+  // Suppress source map upload logs in CI
+  silent: true,
+
+  // Upload source maps to Sentry
+  org: process.env.SENTRY_ORG,
+  project: process.env.SENTRY_PROJECT,
+
+  // Hide source maps from client
+  hideSourceMaps: true,
+
+  // Automatically instrument server functions (webpack namespace)
+  autoInstrumentServerFunctions: false,
+  webpack: {
+    autoInstrumentServerFunctions: true,
+  },
+
+  // Disable Sentry webpack plugin if no auth token is set (local dev)
+  disableServerWebpackPlugin: !process.env.SENTRY_AUTH_TOKEN,
+  disableClientWebpackPlugin: !process.env.SENTRY_AUTH_TOKEN,
+})

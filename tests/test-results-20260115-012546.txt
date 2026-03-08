@@ -1,74 +1,0 @@
-🧪 LiS Operations Assistant - Automated Test Runner
-============================================================
-🌐 API URL: http://localhost:3000
-📁 Category: all
-🔢 Test ID: P001,P002,P003,P004,P005,P006,P007,P008,P009,P010,M001,M002,M003,M004,M005,M006,M007,M008,M009,M010
-⚡ Parallel: 1
-📝 Verbose: true
-
-📋 Loaded 6 categories
-🎯 Running 20 tests...
-
-🔄 [P001] Welche Projekte sind heute geplant?...✅ [P001] Welche Projekte sind heute geplant?... (5291ms)
-🔄 [P002] Projekte diese Woche...✅ [P002] Projekte diese Woche... (4998ms)
-🔄 [P003] Projekte diesen Monat...✅ [P003] Projekte diesen Monat... (2738ms)
-🔄 [P004] Welche Projekte gibt es in Düsseldorf?...✅ [P004] Welche Projekte gibt es in Düsseldorf?... (7007ms)
-🔄 [P005] Details zum Projekt Müller...✅ [P005] Details zum Projekt Müller... (3017ms)
-🔄 [P006] Projekte morgen...✅ [P006] Projekte morgen... (2955ms)
-🔄 [P007] Alle Umzugs-Projekte...✅ [P007] Alle Umzugs-Projekte... (3087ms)
-🔄 [P008] Wie viele Projekte gibt es insgesamt?...✅ [P008] Wie viele Projekte gibt es insgesamt?... (3773ms)
-🔄 [P009] Projekte letzte Woche...✅ [P009] Projekte letzte Woche... (6120ms)
-🔄 [P010] Welches Projekt hat die meisten Mitarbei...✅ [P010] Welches Projekt hat die meisten Mitarbei... (3139ms)
-🔄 [M001] Liste aller Mitarbeiter...✅ [M001] Liste aller Mitarbeiter... (6637ms)
-🔄 [M002] Welche Mitarbeiter sind aktiv?...✅ [M002] Welche Mitarbeiter sind aktiv?... (7708ms)
-🔄 [M003] Zeige alle internen Mitarbeiter...✅ [M003] Zeige alle internen Mitarbeiter... (6676ms)
-🔄 [M004] Welche externen Mitarbeiter gibt es?...✅ [M004] Welche externen Mitarbeiter gibt es?... (5278ms)
-🔄 [M005] Wer hat den höchsten Stundensatz?...❌ [M005] Wer hat den höchsten Stundensatz?... (2703ms)
-🔄 [M006] Details zu Mitarbeiter Achim...✅ [M006] Details zu Mitarbeiter Achim... (3915ms)
-🔄 [M007] Welche Mitarbeiter sind diese Woche eing...✅ [M007] Welche Mitarbeiter sind diese Woche eing... (3672ms)
-🔄 [M008] Wer ist heute im Einsatz?...✅ [M008] Wer ist heute im Einsatz?... (3871ms)
-🔄 [M009] Wie viele Mitarbeiter gibt es?...✅ [M009] Wie viele Mitarbeiter gibt es?... (2143ms)
-🔄 [M010] Mitarbeiter mit Stundensatz über 30€...✅ [M010] Mitarbeiter mit Stundensatz über 30€... (4033ms)
-
-============================================================
-TEST RESULTS
-============================================================
-
-📊 Summary:
-   Total: 20
-   ✅ Passed: 19
-   ❌ Failed: 1
-   ⏱️  Duration: 88.8s
-   📈 Pass Rate: 95.0%
-
-❌ Failed Tests:
-------------------------------------------------------------
-
-[M005] "Wer hat den höchsten Stundensatz?"
-   Duration: 2703ms
-   ⚠️  Expected "€" not found in response
-   Response (178 chars): Der höchste Stundensatz unter unseren Mitarbeitern beträgt 35 Euro. Wenn du wissen möchtest, welcher Mitarbeiter diesen Stundensatz hat, kann ich das gerne für dich herausfinden.
-
-✅ Passed Tests:
-------------------------------------------------------------
-[P001] "Welche Projekte sind heute geplant?" (5291ms)
-[P002] "Projekte diese Woche" (4998ms)
-[P003] "Projekte diesen Monat" (2738ms)
-[P004] "Welche Projekte gibt es in Düsseldorf?" (7007ms)
-[P005] "Details zum Projekt Müller" (3017ms)
-[P006] "Projekte morgen" (2955ms)
-[P007] "Alle Umzugs-Projekte" (3087ms)
-[P008] "Wie viele Projekte gibt es insgesamt?" (3773ms)
-[P009] "Projekte letzte Woche" (6120ms)
-[P010] "Welches Projekt hat die meisten Mitarbeiter?" (3139ms)
-[M001] "Liste aller Mitarbeiter" (6637ms)
-[M002] "Welche Mitarbeiter sind aktiv?" (7708ms)
-[M003] "Zeige alle internen Mitarbeiter" (6676ms)
-[M004] "Welche externen Mitarbeiter gibt es?" (5278ms)
-[M006] "Details zu Mitarbeiter Achim" (3915ms)
-[M007] "Welche Mitarbeiter sind diese Woche eingeplant?" (3672ms)
-[M008] "Wer ist heute im Einsatz?" (3871ms)
-[M009] "Wie viele Mitarbeiter gibt es?" (2143ms)
-[M010] "Mitarbeiter mit Stundensatz über 30€" (4033ms)
-
-============================================================
