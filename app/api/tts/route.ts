@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { rateLimitMiddleware } from '@/lib/rate-limit'
+import { authenticateRequest } from '@/lib/auth-middleware'
 
 const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || '21m00Tcm4TlvDq8ikWAM' // Default voice: Rachel
 const ELEVENLABS_API_URL = 'https://api.elevenlabs.io/v1/text-to-speech'
@@ -38,8 +39,12 @@ function getElevenLabsErrorMessage(status: number, errorText?: string): string {
 }
 
 export async function POST(req: NextRequest) {
-  // Apply rate limiting
-  const rateLimitResult = rateLimitMiddleware(req, '/api/tts')
+  // Authenticate request
+  const { user, error: authError } = await authenticateRequest(req)
+  if (authError) return authError
+
+  // Apply rate limiting (use user ID for more accurate limiting)
+  const rateLimitResult = await rateLimitMiddleware(req, '/api/tts', user?.id)
   if (!rateLimitResult.allowed) {
     return rateLimitResult.response!
   }
@@ -102,11 +107,11 @@ export async function POST(req: NextRequest) {
         error: errorText,
         textLength: text.length,
       })
-      
+
       const errorMessage = getElevenLabsErrorMessage(response.status, errorText)
-      
+
       return NextResponse.json(
-        { 
+        {
           error: errorMessage,
           status: response.status,
         },
@@ -134,7 +139,7 @@ export async function POST(req: NextRequest) {
     })
   } catch (error) {
     console.error('TTS API error:', error)
-    
+
     if (error instanceof Error) {
       if (error.name === 'AbortError' || error.name === 'TimeoutError') {
         return NextResponse.json(
@@ -143,7 +148,7 @@ export async function POST(req: NextRequest) {
         )
       }
     }
-    
+
     return NextResponse.json(
       {
         error: 'Ein Fehler ist aufgetreten. Bitte versuche es erneut.',

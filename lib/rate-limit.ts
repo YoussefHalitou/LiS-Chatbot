@@ -1,7 +1,11 @@
 /**
- * Simple in-memory rate limiting
- * Note: For production, use a proper rate limiting service like Redis or Upstash
+ * Rate limiting middleware
+ *
+ * Uses Upstash Redis when available (production) for distributed rate limiting.
+ * Falls back to in-memory store when Redis is not configured (local dev).
  */
+
+import { checkRedisRateLimit, isRedisAvailable } from './rate-limit-redis'
 
 interface RateLimitEntry {
   count: number
@@ -101,15 +105,55 @@ export function getClientIdentifier(req: Request): string {
 /**
  * Rate limit middleware for Next.js API routes
  */
-export function rateLimitMiddleware(
+/**
+ * Rate limit middleware for Next.js API routes.
+ *
+ * Tries Redis first (distributed, works across serverless instances).
+ * Falls back to in-memory if Redis is unavailable.
+ */
+export async function rateLimitMiddleware(
   req: Request,
-  endpoint: string
-): {
+  endpoint: string,
+  userId?: string | null
+): Promise<{
   allowed: boolean
   response?: Response
-} {
+}> {
+  const identifier = userId || getClientIdentifier(req)
+
+  // Try Redis-based rate limiting first
+  if (isRedisAvailable) {
+    const redisResult = await checkRedisRateLimit(identifier, endpoint)
+    if (redisResult) {
+      if (!redisResult.allowed) {
+        const resetSeconds = Math.ceil((redisResult.resetTime - Date.now()) / 1000)
+        return {
+          allowed: false,
+          response: new Response(
+            JSON.stringify({
+              error: 'Zu viele Anfragen. Bitte warte einen Moment.',
+              retryAfter: resetSeconds,
+            }),
+            {
+              status: 429,
+              headers: {
+                'Content-Type': 'application/json',
+                'Retry-After': resetSeconds.toString(),
+                'X-RateLimit-Limit': String(redisResult.remaining + 1),
+                'X-RateLimit-Remaining': '0',
+                'X-RateLimit-Reset': redisResult.resetTime.toString(),
+              },
+            }
+          ),
+        }
+      }
+      return { allowed: true }
+    }
+    // Redis returned null (error) — fall through to in-memory
+  }
+
+  // Fallback: in-memory rate limiting
   const config = RATE_LIMITS[endpoint] || RATE_LIMITS['/api/chat']
-  const identifier = getClientIdentifier(req)
   const result = checkRateLimit(identifier, config)
 
   if (!result.allowed) {
@@ -118,7 +162,7 @@ export function rateLimitMiddleware(
       allowed: false,
       response: new Response(
         JSON.stringify({
-          error: 'Rate limit exceeded. Please try again later.',
+          error: 'Zu viele Anfragen. Bitte warte einen Moment.',
           retryAfter: resetSeconds,
         }),
         {

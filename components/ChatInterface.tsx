@@ -2,8 +2,11 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { Mic, MicOff, Volume2, Send, Loader2, Copy, Check, Trash2, X, MessageSquare, Plus, Menu, Search, Download, Keyboard, Moon, Sun, ChevronDown, Sparkles, RefreshCw, Share2, User, LogOut, Pin, RotateCcw, Archive } from 'lucide-react'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import MarkdownRenderer from '@/components/chat/MarkdownRenderer'
+import ChatSidebar from '@/components/chat/ChatSidebar'
+import ChatHeader from '@/components/chat/ChatHeader'
+import VoiceOverlay from '@/components/chat/VoiceOverlay'
+import ChatInput from '@/components/chat/ChatInput'
 import { Message, Chat } from '@/types'
 import { APP_CONFIG, AUDIO_CONFIG, ERROR_MESSAGES, UI_CONFIG } from '@/lib/constants'
 import {
@@ -37,6 +40,24 @@ import EmojiPicker from '@/components/EmojiPicker'
 import EmptyState from '@/components/EmptyState'
 import { useTheme } from '@/lib/theme-context'
 import { showToast } from '@/lib/toast'
+import { supabase } from '@/lib/supabase'
+
+/**
+ * Get auth headers for API requests.
+ * Retrieves the current Supabase session token and returns it as a Bearer token.
+ */
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  if (!supabase) return {}
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session?.access_token) {
+      return { 'Authorization': `Bearer ${session.access_token}` }
+    }
+  } catch {
+    console.warn('[Auth] Could not retrieve session token')
+  }
+  return {}
+}
 
 interface ChatInterfaceProps {
   user?: any
@@ -116,33 +137,33 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
   // Initialize chats on mount
   useEffect(() => {
     if (typeof window === 'undefined') return
-    
+
     async function loadChats() {
       setIsLoadingChats(true)
       try {
         // Migrate old format if needed (localStorage only)
         migrateOldChatFormat()
-        
+
         // Load chat list (Supabase if authenticated, localStorage otherwise)
         const loadedChats = await getAllChats()
-        
+
         // Enhance chats with last message preview
         const enhancedChats = await Promise.all(
           loadedChats.map(async (chat) => {
             const messages = await getChatMessages(chat.id)
-            const lastMessage = messages.length > 0 
+            const lastMessage = messages.length > 0
               ? messages[messages.length - 1].content.substring(0, 60) + (messages[messages.length - 1].content.length > 60 ? '...' : '')
               : ''
             return { ...chat, lastMessage }
           })
         )
-        
+
         setChats(enhancedChats)
-        
+
         // Load current chat
         const currentId = getCurrentChatId()
         if (currentId) {
-            const chatExists = loadedChats.some(c => c.id === currentId)
+          const chatExists = loadedChats.some(c => c.id === currentId)
           if (chatExists) {
             setCurrentChatId(currentId)
             const chatMessages = await getChatMessages(currentId)
@@ -171,29 +192,29 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
         setIsLoadingChats(false)
       }
     }
-    
+
     loadChats()
   }, [])
 
   // Save chat messages with debounce to prevent duplicate saves during streaming
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const lastSavedMessagesRef = useRef<string>('')
-  
+
   useEffect(() => {
     if (typeof window === 'undefined' || !currentChatId) return
-    
+
     // Don't save during streaming - wait for completion
     if (isStreamingResponse) return
-    
+
     // Create a hash of current messages to prevent duplicate saves
     const messagesHash = JSON.stringify(messages.map(m => ({ role: m.role, content: m.content })))
     if (messagesHash === lastSavedMessagesRef.current) return
-    
+
     // Clear any pending save
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current)
     }
-    
+
     // Debounce save by 500ms to batch rapid changes
     saveTimeoutRef.current = setTimeout(async () => {
       if (messages.length > 0 && currentChatId) {
@@ -204,7 +225,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
         setChats(updatedChats)
       }
     }, 500)
-    
+
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current)
@@ -227,16 +248,16 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
   // Auto-expand textarea as user types (up to 5 lines)
   const autoExpandTextarea = useCallback(() => {
     if (!textareaRef.current) return
-    
+
     const textarea = textareaRef.current
     textarea.style.height = 'auto'
-    
+
     // Calculate new height (max 5 lines)
     const lineHeight = 24 // approximate line height
     const maxLines = 5
     const maxHeight = lineHeight * maxLines
     const newHeight = Math.min(textarea.scrollHeight, maxHeight)
-    
+
     textarea.style.height = `${newHeight}px`
   }, [])
 
@@ -296,24 +317,24 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
   // Filter and sort chats
   const filteredAndSortedChats = useMemo(() => {
     let filtered = chats
-    
+
     // Apply search filter
     if (chatSearchQuery.trim()) {
       const query = chatSearchQuery.toLowerCase()
-      filtered = chats.filter(chat => 
+      filtered = chats.filter(chat =>
         chat.title.toLowerCase().includes(query) ||
         chat.lastMessage?.toLowerCase().includes(query)
       )
     }
-    
+
     // Sort: pinned first, then by updatedAt
     return filtered.sort((a, b) => {
       const aPin = pinnedChats.has(a.id)
       const bPin = pinnedChats.has(b.id)
-      
+
       if (aPin && !bPin) return -1
       if (!aPin && bPin) return 1
-      
+
       return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
     })
   }, [chats, chatSearchQuery, pinnedChats])
@@ -327,7 +348,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
   const handleChatTouchMove = useCallback((e: React.TouchEvent, chatId: string) => {
     const deltaX = e.touches[0].clientX - chatTouchStartX.current
     const deltaY = Math.abs(e.touches[0].clientY - chatTouchStartY.current)
-    
+
     // Only swipe horizontally
     if (deltaY < 30 && Math.abs(deltaX) > 10) {
       setSwipingChatId(chatId)
@@ -342,7 +363,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
       triggerHaptic('medium')
       handleDeleteChat(chatId)
     }
-    
+
     setSwipingChatId(null)
     setChatSwipeOffset(0)
   }, [swipingChatId, chatSwipeOffset])
@@ -350,13 +371,13 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
   // Generate smart reply suggestions based on last bot message
   const smartReplySuggestions = useMemo(() => {
     if (messages.length === 0 || !showSmartReplies) return []
-    
+
     const lastBotMessage = [...messages].reverse().find(m => m.role === 'assistant')
     if (!lastBotMessage) return []
-    
+
     const content = lastBotMessage.content.toLowerCase()
     const suggestions: string[] = []
-    
+
     // Question detection
     if (content.includes('?')) {
       if (content.includes('möchtest') || content.includes('willst') || content.includes('soll ich')) {
@@ -367,34 +388,34 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
         suggestions.push('Ja', 'Nein', 'Mehr Informationen')
       }
     }
-    
+
     // List/Options detection
     if (content.includes('wählen') || content.includes('auswählen') || content.includes('option')) {
       suggestions.push('Option 1', 'Option 2', 'Zeige alle')
     }
-    
+
     // Data query response
     if (content.includes('projekt') || content.includes('mitarbeiter') || content.includes('termin')) {
       if (!suggestions.length) {
         suggestions.push('Mehr Details', 'Nächster', 'Danke')
       }
     }
-    
+
     // Success/completion messages
     if (content.includes('fertig') || content.includes('erledigt') || content.includes('gespeichert')) {
       suggestions.push('Danke', 'Weiter', 'Neuer Chat')
     }
-    
+
     // Error/problem messages
     if (content.includes('fehler') || content.includes('problem') || content.includes('nicht gefunden')) {
       suggestions.push('Nochmal versuchen', 'Anders formulieren', 'Hilfe')
     }
-    
+
     // Default contextual suggestions
     if (suggestions.length === 0) {
       suggestions.push('Verstanden', 'Mehr Details', 'Danke')
     }
-    
+
     // Return max 3 suggestions
     return suggestions.slice(0, 3)
   }, [messages, showSmartReplies])
@@ -427,13 +448,13 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
     setMessages(prev => {
       const newMessages = [...prev]
       const message = newMessages[messageIndex]
-      
+
       if (!message.reactions) {
         message.reactions = {}
       }
-      
+
       message.reactions[emoji] = (message.reactions[emoji] || 0) + 1
-      
+
       return newMessages
     })
     setReactionPicker(null)
@@ -471,16 +492,16 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
     const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000)
     const messageDate = new Date(date.getFullYear(), date.getMonth(), date.getDate())
-    
+
     if (messageDate.getTime() === today.getTime()) {
       return 'Heute'
     } else if (messageDate.getTime() === yesterday.getTime()) {
       return 'Gestern'
     } else {
-      return date.toLocaleDateString('de-DE', { 
-        weekday: 'long', 
-        day: 'numeric', 
-        month: 'long' 
+      return date.toLocaleDateString('de-DE', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long'
       })
     }
   }, [])
@@ -488,15 +509,15 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
   // Check if we should show a date separator before a message
   const shouldShowDateSeparator = useCallback((currentIndex: number): boolean => {
     if (currentIndex === 0) return true
-    
+
     const currentMsg = messages[currentIndex]
     const prevMsg = messages[currentIndex - 1]
-    
+
     if (!currentMsg.timestamp || !prevMsg.timestamp) return false
-    
+
     const currentDate = new Date(currentMsg.timestamp)
     const prevDate = new Date(prevMsg.timestamp)
-    
+
     return currentDate.toDateString() !== prevDate.toDateString()
   }, [messages])
 
@@ -509,10 +530,10 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
 
   const handlePullMove = useCallback((e: React.TouchEvent) => {
     if (pullStartY.current === 0 || messagesContainerRef.current?.scrollTop !== 0) return
-    
+
     const currentY = e.touches[0].clientY
     const distance = Math.max(0, currentY - pullStartY.current)
-    
+
     if (distance > 0) {
       setPullDistance(Math.min(distance * 0.5, 80))
     }
@@ -522,13 +543,13 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
     if (pullDistance > 60) {
       setIsPullRefreshing(true)
       triggerHaptic('medium')
-      
+
       // Refresh chat data
       if (currentChatId) {
         const chatMessages = await getChatMessages(currentChatId)
         setMessages(chatMessages)
       }
-      
+
       setTimeout(() => {
         setIsPullRefreshing(false)
         setPullDistance(0)
@@ -544,7 +565,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
   const handleMessageTouchStart = useCallback((e: React.TouchEvent, index: number) => {
     touchStartX.current = e.touches[0].clientX
     touchStartY.current = e.touches[0].clientY
-    
+
     longPressTimer.current = setTimeout(() => {
       triggerHaptic('medium')
       setContextMenu({
@@ -558,7 +579,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
   const handleMessageTouchMove = useCallback((e: React.TouchEvent, index: number) => {
     const deltaX = e.touches[0].clientX - touchStartX.current
     const deltaY = Math.abs(e.touches[0].clientY - touchStartY.current)
-    
+
     // Cancel long press if finger moved too much
     if (Math.abs(deltaX) > 10 || deltaY > 10) {
       if (longPressTimer.current) {
@@ -566,13 +587,13 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
         longPressTimer.current = null
       }
     }
-    
+
     // Handle swipe (only horizontal movement, minimal vertical)
     if (deltaY < 30 && Math.abs(deltaX) > 20) {
       setSwipingMessageIndex(index)
       const newOffset = Math.max(-80, Math.min(80, deltaX))
       setSwipeOffset(newOffset)
-      
+
       // Trigger haptic at action threshold (50px)
       if (!swipeHapticTriggered.current && Math.abs(newOffset) >= 50) {
         triggerHaptic('light')
@@ -586,7 +607,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
       clearTimeout(longPressTimer.current)
       longPressTimer.current = null
     }
-    
+
     // Handle swipe action completion
     if (swipingMessageIndex === index) {
       if (swipeOffset > 50) {
@@ -603,7 +624,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
           showToast('Nachricht gelöscht', 'success', 2000)
         }
       }
-      
+
       setSwipingMessageIndex(null)
       setSwipeOffset(0)
       swipeHapticTriggered.current = false
@@ -626,9 +647,9 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
   // Context menu actions
   const handleContextMenuAction = useCallback((action: 'copy' | 'share' | 'delete' | 'pin' | 'regenerate') => {
     if (!contextMenu) return
-    
+
     const message = messages[contextMenu.messageIndex]
-    
+
     switch (action) {
       case 'copy':
         triggerHaptic('light')
@@ -683,7 +704,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
         }
         break
     }
-    
+
     setContextMenu(null)
   }, [contextMenu, messages]) // startChatRequest is omitted as it's defined later and is stable
 
@@ -710,14 +731,14 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
       // Check for getUserMedia support with fallbacks
       // Safari on macOS might need special handling
       const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
-      
+
       // Check what's actually available
       const hasMediaDevices = navigator.mediaDevices !== undefined && navigator.mediaDevices !== null
       const hasMediaDevicesGetUserMedia = hasMediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function'
       const hasWebkitGetUserMedia = typeof (navigator as any).webkitGetUserMedia === 'function'
       const hasNavigatorGetUserMedia = typeof (navigator as any).getUserMedia === 'function'
       const hasMozGetUserMedia = typeof (navigator as any).mozGetUserMedia === 'function'
-      
+
       // If mediaDevices is undefined, try to polyfill it for Safari
       if (!hasMediaDevices && hasWebkitGetUserMedia) {
         // Safari might need a polyfill - try to create mediaDevices
@@ -743,11 +764,11 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
           console.error('Failed to polyfill mediaDevices:', e)
         }
       }
-      
+
       // Re-check after potential polyfill
       const hasMediaDevicesAfterPolyfill = navigator.mediaDevices !== undefined && navigator.mediaDevices !== null
       const hasMediaDevicesGetUserMediaAfterPolyfill = hasMediaDevicesAfterPolyfill && typeof navigator.mediaDevices.getUserMedia === 'function'
-      
+
       if (!hasMediaDevicesGetUserMediaAfterPolyfill && !hasWebkitGetUserMedia && !hasNavigatorGetUserMedia && !hasMozGetUserMedia) {
         const userAgent = navigator.userAgent
         const isIOS = /iPad|iPhone|iPod/.test(userAgent)
@@ -756,7 +777,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
         const hostname = window.location.hostname
         const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]'
         const isSecure = protocol === 'https:' || isLocalhost
-        
+
         // Detailed debugging
         const debugInfo = {
           hasMediaDevices: !!navigator.mediaDevices,
@@ -774,15 +795,15 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
         console.error('getUserMedia not available:', debugInfo)
         console.error('Full navigator.mediaDevices:', navigator.mediaDevices)
         console.error('navigator.mediaDevices type:', typeof navigator.mediaDevices)
-        
+
         let errorMsg = 'Dein Browser erlaubt aktuell keinen Mikrofonzugriff.\n\n'
-        
+
         // Only warn about HTTPS if it's not localhost
         if (!isSecure && !isLocalhost && protocol === 'http:') {
           errorMsg += '⚠️ Wichtig: Mikrofonzugriff funktioniert nur über HTTPS oder auf localhost.\n'
           errorMsg += `Aktuell: ${protocol}//${hostname}\n\n`
         }
-        
+
         if (isIOS) {
           errorMsg += 'Für iOS gilt:\n- Verwende Safari (ab iOS 11)\n- Nutze HTTPS oder localhost\n- Prüfe in Safari unter Einstellungen → Websites → Mikrofon'
         } else if (isAndroid) {
@@ -806,14 +827,14 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
       // Request microphone access
       // Use the standard API directly - it should work in Safari 11+
       let stream: MediaStream
-      
+
       // Re-check after potential polyfill
       const finalHasMediaDevices = navigator.mediaDevices !== undefined && navigator.mediaDevices !== null
       const finalHasMediaDevicesGetUserMedia = finalHasMediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function'
-      
+
       if (finalHasMediaDevicesGetUserMedia) {
         // Modern standard API (Chrome, Firefox, Safari 11+)
-        stream = await navigator.mediaDevices.getUserMedia({ 
+        stream = await navigator.mediaDevices.getUserMedia({
           audio: AUDIO_CONFIG.RECORDING_OPTIONS
         })
       } else if (hasWebkitGetUserMedia) {
@@ -868,7 +889,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
       const mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
 
       audioChunksRef.current = []
-      
+
       // Start audio monitoring for voice-only mode
       if (voiceOnlyModeRef.current) {
         startAudioMonitoring(stream)
@@ -918,10 +939,10 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
           type: actualMimeType,
         })
 
-        console.log('[STT] Audio blob created:', { 
-          size: audioBlob.size, 
+        console.log('[STT] Audio blob created:', {
+          size: audioBlob.size,
           type: actualMimeType,
-          chunks: audioChunksRef.current.length 
+          chunks: audioChunksRef.current.length
         })
 
         // Check if blob is too small (likely no actual audio)
@@ -955,8 +976,12 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
 
           for (let attempt = 0; attempt < APP_CONFIG.STT_MAX_ATTEMPTS; attempt++) {
             try {
+              const authHeaders = await getAuthHeaders()
               const candidate = await fetch('/api/stt', {
                 method: 'POST',
+                headers: {
+                  ...authHeaders,
+                },
                 body: formData,
               })
 
@@ -1005,21 +1030,21 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
         } catch (error) {
           console.error('STT error:', error)
           console.error('Audio blob size:', audioBlob.size, 'Type:', actualMimeType)
-          
+
           let errorMsg = 'Die Spracherkennung ist fehlgeschlagen. '
           if (error instanceof Error) {
             errorMsg += error.message
           } else {
             errorMsg += 'Unbekannter Fehler'
           }
-          
+
           // Provide helpful mobile-specific error messages
           if (isMobile) {
             errorMsg += '\n\nAuf mobilen Geräten gilt:\n- Stelle eine stabile Internetverbindung sicher\n- Die Aufnahme sollte klar und nicht zu kurz sein\n- Sprich lauter oder näher am Mikrofon'
           }
-          
+
           showToast(errorMsg, 'error', 6000)
-          
+
           // In voice-only mode, restart recording after error
           if (voiceOnlyModeRef.current) {
             setTimeout(() => {
@@ -1036,24 +1061,24 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
       }
 
       mediaRecorderRef.current = mediaRecorder
-      
+
       // Always use timeslices to ensure data is captured reliably
       // This prevents the "first recording fails" issue where ondataavailable
       // doesn't fire if recording is stopped too quickly
       console.log(`[STT] Starting MediaRecorder with ${APP_CONFIG.AUDIO_CHUNK_SIZE_MS}ms timeslices`)
       mediaRecorder.start(APP_CONFIG.AUDIO_CHUNK_SIZE_MS)
-      
+
       // Haptic feedback on recording start
       triggerHaptic('heavy')
       setIsRecording(true)
     } catch (error: any) {
       console.error('Error accessing microphone:', error)
       setIsRecording(false)
-      
-      const errorMessage = error instanceof Error 
+
+      const errorMessage = error instanceof Error
         ? getMicrophoneErrorMessage(error)
         : ERROR_MESSAGES.MICROPHONE_ACCESS_DENIED
-      
+
       showToast(errorMessage, 'error', 6000)
     }
   }
@@ -1075,7 +1100,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
       audioRef.current = null
       setIsPlayingAudio(false)
     }
-    
+
     // Cancel any ongoing speech synthesis
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel()
@@ -1083,7 +1108,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
 
     let audioUrl: string | null = null
     let fallbackTimeout: number | null = null
-    
+
     // Detect iOS
     const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent)
 
@@ -1124,7 +1149,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
     try {
       setIsGeneratingTTS(true)
       const preparedText = formatTextForSpeech(text)
-      
+
       // On iOS, prefer Web Speech API as it's more reliable
       if (isIOS) {
         console.log('[TTS] iOS detected, using Web Speech API directly')
@@ -1132,7 +1157,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
         return
       }
       const ttsStartTime = Date.now()
-      
+
       console.log('[TTS] Starting TTS for text length:', preparedText.length)
 
       let ttsResponse: Response | null = null
@@ -1140,10 +1165,12 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
 
       for (let attempt = 0; attempt < APP_CONFIG.TTS_MAX_ATTEMPTS; attempt++) {
         try {
+          const authHeaders = await getAuthHeaders()
           const candidate = await fetch('/api/tts', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
+              ...authHeaders,
             },
             body: JSON.stringify({ text: preparedText }),
           })
@@ -1178,14 +1205,14 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
       // Create audio element immediately and start loading
       const audio = new Audio()
       audioRef.current = audio
-      
+
       // Store URL for cleanup
       const urlToCleanup = audioUrl
-      
+
       // Set state BEFORE setting up handlers to ensure button is visible immediately
       setIsPlayingAudio(true)
       setIsGeneratingTTS(false) // TTS generation is complete, now playing
-      
+
       // Set up event handlers before setting source
       audio.onplay = () => {
         console.log('[TTS] Audio onplay event fired')
@@ -1199,7 +1226,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
         }
         setIsPlayingAudio(true) // Ensure it's still true
       }
-      
+
       audio.onended = () => {
         console.log('[TTS] Audio onended event fired')
         setIsPlayingAudio(false)
@@ -1211,7 +1238,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
           window.clearTimeout(fallbackTimeout)
           fallbackTimeout = null
         }
-        
+
         // In voice-only mode, restart recording after audio finishes
         // Use ref to get current state reliably
         if (voiceOnlyModeRef.current && !isRecording && !isLoading) {
@@ -1223,7 +1250,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
           }, 500)
         }
       }
-      
+
       audio.onerror = (e) => {
         console.error('Audio playback error:', e, {
           error: audio.error,
@@ -1246,36 +1273,36 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
           showToast('Audio konnte nicht abgespielt werden. Bitte versuch es erneut.', 'error', 4000)
         }
       }
-      
+
       // Set source and preload
       audio.src = audioUrl
       audio.preload = 'auto'
       // Ensure consistent playback speed (1.0 = normal speed)
       audio.playbackRate = 1.0
-      
+
       console.log('[TTS] Audio element created, attempting to play...', {
         readyState: audio.readyState,
         src: audioUrl.substring(0, 50) + '...'
       })
-      
+
       // Simplified playback logic - just try to play, with one retry on failure
       let playAttempted = false
-      
+
       const attemptPlay = async () => {
         if (playAttempted) {
           console.log('[TTS] Play already attempted, skipping duplicate')
           return
         }
         playAttempted = true
-        
+
         console.log('[TTS] Attempting to play audio...', { readyState: audio.readyState })
-        
+
         try {
           await audio.play()
           console.log('[TTS] Audio playing successfully')
         } catch (playError: any) {
           console.error('[TTS] Play error:', playError)
-          
+
           // Handle play errors gracefully
           if (playError.name === 'NotAllowedError') {
             console.error('[TTS] Audio play blocked by browser autoplay policy')
@@ -1319,7 +1346,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
           }
         }
       }
-      
+
       // Try to play as soon as enough data is loaded
       if (audio.readyState >= 3) {
         // HAVE_FUTURE_DATA or higher - enough to start playing
@@ -1372,12 +1399,12 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
   }, [isRecording, isLoading, voiceOnlyMode]) // startRecording is stable, no need to include
 
   const stopSpeaking = useCallback(() => {
-    console.log('[TTS] Stop speaking requested', { 
-      hasAudio: !!audioRef.current, 
+    console.log('[TTS] Stop speaking requested', {
+      hasAudio: !!audioRef.current,
       isPlayingAudio,
-      voiceOnlyMode: voiceOnlyModeRef.current 
+      voiceOnlyMode: voiceOnlyModeRef.current
     })
-    
+
     // Always clean up audio, even if ref is null
     if (audioRef.current) {
       try {
@@ -1388,10 +1415,10 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
       }
       audioRef.current = null
     }
-    
+
     // Always set state to false, even if audio was already gone
     setIsPlayingAudio(false)
-    
+
     // In voice-only mode, restart recording after interrupting
     if (voiceOnlyModeRef.current && !isRecording && !isLoading) {
       console.log('[TTS] Restarting recording after interrupt')
@@ -1419,33 +1446,33 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
       const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
       const analyser = audioContext.createAnalyser()
       const microphone = audioContext.createMediaStreamSource(stream)
-      
+
       analyser.fftSize = 2048 // Larger FFT for better time domain analysis
       analyser.smoothingTimeConstant = 0.3 // Less smoothing for more responsive detection
       microphone.connect(analyser)
-      
+
       audioContextRef.current = audioContext
       analyserRef.current = analyser
       streamRef.current = stream
       silenceStartTimeRef.current = null // Reset silence timer
-      
+
       const dataArray = new Uint8Array(analyser.fftSize)
       const silenceDuration = APP_CONFIG.SILENCE_DURATION_MS
-      
+
       // Dynamic threshold: measure background noise first
       let backgroundNoiseLevel = 0
       let samplesCollected = 0
       const calibrationSamples = APP_CONFIG.VAD_CALIBRATION_SAMPLES
       let hasDetectedSpeech = false // Track if we've detected any speech
-      
+
       const monitorAudio = () => {
         if (!analyserRef.current || !voiceOnlyModeRef.current || !isRecording) {
           return
         }
-        
+
         // Use getByteTimeDomainData for amplitude-based VAD (better for speech detection)
         analyserRef.current.getByteTimeDomainData(dataArray)
-        
+
         // Calculate RMS (Root Mean Square) for better amplitude detection
         let sum = 0
         for (let i = 0; i < dataArray.length; i++) {
@@ -1454,11 +1481,11 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
         }
         const rms = Math.sqrt(sum / dataArray.length)
         const amplitude = Math.abs(rms) * 100 // Convert to 0-100 scale
-        
+
         // Normalize for visualization (0-1)
         const normalizedLevel = Math.min(amplitude / 50, 1)
         setAudioLevel(normalizedLevel)
-        
+
         // Calibrate background noise level during first few samples
         if (samplesCollected < calibrationSamples) {
           backgroundNoiseLevel = (backgroundNoiseLevel * samplesCollected + amplitude) / (samplesCollected + 1)
@@ -1469,12 +1496,12 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
             backgroundNoiseLevel * APP_CONFIG.VAD_THRESHOLD_MULTIPLIER,
             5
           ) // At least 5, or threshold multiplier x background
-          
+
           // Debug logging (can be removed later)
           if (samplesCollected === calibrationSamples + 1) {
             console.log('VAD calibrated:', { backgroundNoiseLevel, dynamicThreshold })
           }
-          
+
           // Detect if speech is present (amplitude significantly above background)
           if (amplitude > dynamicThreshold) {
             hasDetectedSpeech = true
@@ -1507,13 +1534,13 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
             }
           }
         }
-        
+
         // Continue monitoring
         if (voiceOnlyModeRef.current && isRecording) {
           animationFrameRef.current = requestAnimationFrame(monitorAudio)
         }
       }
-      
+
       monitorAudio()
     } catch (error) {
       console.error('Error starting audio monitoring:', error)
@@ -1563,7 +1590,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
     if (currentChatId && messages.length > 0) {
       await saveChatMessages(currentChatId, messages)
     }
-    
+
     const newChat = await createNewChat()
     setCurrentChatId(newChat.id)
     const updatedChats = await getAllChats()
@@ -1577,7 +1604,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
     if (currentChatId && messages.length > 0) {
       await saveChatMessages(currentChatId, messages)
     }
-    
+
     setCurrentChatId(chatId)
     const chatMessages = await getChatMessages(chatId)
     setMessages(chatMessages)
@@ -1592,7 +1619,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
       await deleteChat(chatId)
       const updatedChats = await getAllChats()
       setChats(updatedChats)
-      
+
       // If deleted chat was current, switch to another
       if (chatId === currentChatId) {
         if (updatedChats.length > 0) {
@@ -1769,13 +1796,15 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
     })
 
     try {
+      const authHeaders = await getAuthHeaders()
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...authHeaders,
           ...(streamingDisabled ? { 'X-Disable-Streaming': 'true' } : {}),
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           messages: conversationMessages,
           chatId: currentChatId || undefined,
         }),
@@ -1791,7 +1820,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
 
       const contentType = response.headers.get('content-type') || ''
       // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:response-received',message:'Chat response received',data:{status:response.status,contentType,streaming:!streamingDisabled&&contentType.includes('text/event-stream')},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'ChatInterface.tsx:response-received', message: 'Chat response received', data: { status: response.status, contentType, streaming: !streamingDisabled && contentType.includes('text/event-stream') }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H4' }) }).catch(() => { });
       // #endregion
 
       if (!streamingDisabled && contentType.includes('text/event-stream')) {
@@ -1804,10 +1833,10 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
           prev.map((msg, idx) =>
             idx === assistantIndex
               ? {
-                  ...msg,
-                  content: sanitizedContent,
-                  timestamp: assistantTimestamp,
-                }
+                ...msg,
+                content: sanitizedContent,
+                timestamp: assistantTimestamp,
+              }
               : msg
           )
         )
@@ -1822,17 +1851,17 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
     } catch (error) {
       console.error('Error sending message:', error)
       // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:startChatRequest-error',message:'Chat request error',data:{error:error instanceof Error?error.message:String(error)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'ChatInterface.tsx:startChatRequest-error', message: 'Chat request error', data: { error: error instanceof Error ? error.message : String(error) }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H5' }) }).catch(() => { });
       // #endregion
       setShowLoadingBubble(false)
       setIsQueryingDatabase(false)
       const isAbort = error instanceof DOMException && error.name === 'AbortError'
-      
+
       if (!isAbort) {
         const errorMessage = error instanceof Error ? error.message : 'Entschuldigung, es ist ein Fehler aufgetreten. Bitte versuch es noch einmal.'
         showToast(errorMessage, 'error', 5000)
       }
-      
+
       const assistantMessage: Message = {
         role: 'assistant',
         content: isAbort
@@ -1856,7 +1885,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
 
   const sendMessage = useCallback(async () => {
     // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:sendMessage',message:'sendMessage called',data:{inputLength:input?.length,isLoading},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'ChatInterface.tsx:sendMessage', message: 'sendMessage called', data: { inputLength: input?.length, isLoading }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H4' }) }).catch(() => { });
     // #endregion
     const sanitizedInput = sanitizeInput(input)
     if (!sanitizedInput || isLoading) return
@@ -1870,7 +1899,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
       timestamp: new Date(),
     }
     // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:sendMessage-prepared',message:'User message prepared',data:{content:sanitizedInput.substring(0,50)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'ChatInterface.tsx:sendMessage-prepared', message: 'User message prepared', data: { content: sanitizedInput.substring(0, 50) }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H4' }) }).catch(() => { });
     // #endregion
 
     setInput('')
@@ -1974,7 +2003,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
     }).catch(() => {
       console.log('[iOS Audio] Silent audio unlock failed, will try with real audio')
     })
-    
+
     // Also resume AudioContext if it exists
     if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
       audioContextRef.current.resume().then(() => {
@@ -1987,10 +2016,10 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
 
   const enterVoiceOnlyMode = async () => {
     console.log('[Voice Mode] Entering voice-only mode')
-    
+
     // Unlock audio on iOS (must be done from user gesture)
     unlockAudioForIOS()
-    
+
     setVoiceOnlyMode(true)
     voiceOnlyModeRef.current = true // Sync ref immediately
     // Start recording immediately
@@ -2010,7 +2039,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
   const playLastResponse = () => {
     // Unlock audio on iOS (called from button click = user gesture)
     unlockAudioForIOS()
-    
+
     const lastAssistantMessage = [...messages]
       .reverse()
       .find((m) => m.role === 'assistant')
@@ -2023,335 +2052,49 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
   return (
     <div className="flex flex-col h-screen-safe bg-white dark:bg-slate-900 safe-area-inset relative pb-16 sm:pb-0">
       {/* Chat Sidebar */}
-      {showChatSidebar && (
-        <div className="fixed inset-0 z-50 flex sm:relative sm:z-auto">
-          {/* Overlay for mobile */}
-          <div 
-            className="fixed inset-0 bg-black/50 sm:hidden modal-overlay"
-            onClick={() => {
-              triggerHaptic('light')
-              setShowChatSidebar(false)
-              setActiveBottomTab('chat')
-            }}
-          />
-          {/* Sidebar */}
-          <div className="w-80 sm:w-96 bg-white dark:bg-slate-800 border-r border-gray-200 dark:border-slate-700 flex flex-col h-full z-50 sm:z-auto sidebar-enter">
-            {/* Header */}
-            <div className="p-4 border-b border-gray-200 dark:border-slate-700">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Chats</h2>
-                <button
-                  onClick={() => {
-                    triggerHaptic('medium')
-                    handleNewChat()
-                  }}
-                  className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-700 active:scale-95 transition-all touch-manipulation"
-                  title="Neuer Chat"
-                >
-                  <Plus className="h-5 w-5 text-gray-600 dark:text-slate-400" />
-                </button>
-              </div>
-              
-              {/* Search Bar */}
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Chats durchsuchen..."
-                  value={chatSearchQuery}
-                  onChange={(e) => setChatSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 text-sm bg-gray-100 dark:bg-slate-700 border border-transparent rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white dark:focus:bg-slate-600 transition-colors"
-                />
-                {chatSearchQuery && (
-                  <button
-                    onClick={() => setChatSearchQuery('')}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-gray-200 dark:hover:bg-slate-600 rounded"
-                  >
-                    <X className="h-3 w-3 text-gray-500" />
-                  </button>
-                )}
-              </div>
-            </div>
+      <ChatSidebar
+        showChatSidebar={showChatSidebar}
+        chats={filteredAndSortedChats}
+        currentChatId={currentChatId}
+        isLoadingChats={isLoadingChats}
+        chatSearchQuery={chatSearchQuery}
+        setChatSearchQuery={setChatSearchQuery}
+        pinnedChats={pinnedChats}
+        swipingChatId={swipingChatId}
+        chatSwipeOffset={chatSwipeOffset}
+        handleNewChat={handleNewChat}
+        handleSwitchChat={handleSwitchChat}
+        handleDeleteChat={handleDeleteChat}
+        toggleChatPin={toggleChatPin}
+        handleChatTouchStart={handleChatTouchStart}
+        handleChatTouchMove={handleChatTouchMove}
+        handleChatTouchEnd={handleChatTouchEnd}
+        getChatIcon={getChatIcon}
+        setShowChatSidebar={setShowChatSidebar}
+        setActiveBottomTab={setActiveBottomTab}
+      />
 
-            {/* Chat List */}
-            <div className="flex-1 overflow-y-auto">
-              {isLoadingChats ? (
-                <div className="p-2 space-y-2">
-                  {[1, 2, 3, 4, 5].map((i) => (
-                    <div key={i} className="flex items-start gap-3 p-3 rounded-lg bg-gray-50 dark:bg-slate-700/30 relative overflow-hidden">
-                      <div className="absolute inset-0 skeleton-shimmer" />
-                      <div className="w-10 h-10 rounded-xl bg-gray-200 dark:bg-slate-600" />
-                      <div className="flex-1 space-y-2">
-                        <div className="h-4 bg-gray-200 dark:bg-slate-600 rounded w-3/4" />
-                        <div className="h-3 bg-gray-200 dark:bg-slate-600 rounded w-full" />
-                        <div className="h-2 bg-gray-200 dark:bg-slate-600 rounded w-1/2" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : filteredAndSortedChats.length === 0 ? (
-                <div className="p-4 text-center text-gray-500">
-                  {chatSearchQuery ? (
-                    <>
-                      <Search className="h-12 w-12 mx-auto mb-2 text-gray-400" />
-                      <p className="text-sm">Keine Chats gefunden</p>
-                      <p className="text-xs mt-1">Versuche es mit anderen Suchbegriffen</p>
-                    </>
-                  ) : (
-                    <>
-                      <MessageSquare className="h-12 w-12 mx-auto mb-2 text-gray-400" />
-                      <p>Noch keine Chats</p>
-                      <button
-                        onClick={handleNewChat}
-                        className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                      >
-                        Ersten Chat erstellen
-                      </button>
-                    </>
-                  )}
-                </div>
-              ) : (
-                <div className="p-2">
-                  {filteredAndSortedChats.map((chat) => {
-                    const isPinned = pinnedChats.has(chat.id)
-                    const isSwiping = swipingChatId === chat.id
-                    const icon = getChatIcon(chat)
-                    
-                    return (
-                      <div
-                        key={chat.id}
-                        className="relative mb-2 overflow-hidden rounded-lg"
-                        onTouchStart={(e) => handleChatTouchStart(e, chat.id)}
-                        onTouchMove={(e) => handleChatTouchMove(e, chat.id)}
-                        onTouchEnd={() => handleChatTouchEnd(chat.id)}
-                      >
-                        {/* Swipe Delete Background */}
-                        <div className={`absolute inset-0 bg-red-500 flex items-center justify-end pr-4 transition-opacity ${
-                          isSwiping && chatSwipeOffset < -30 ? 'opacity-100' : 'opacity-0'
-                        }`}>
-                          <Trash2 className="h-5 w-5 text-white" />
-                        </div>
-
-                        {/* Chat Item */}
-                        <div
-                          onClick={() => handleSwitchChat(chat.id)}
-                          className={`relative bg-white dark:bg-slate-800 p-3 cursor-pointer transition-all group border ${
-                            chat.id === currentChatId
-                              ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700'
-                              : 'hover:bg-gray-50 dark:hover:bg-slate-700/50 border-transparent'
-                          }`}
-                          style={{
-                            transform: isSwiping ? `translateX(${chatSwipeOffset}px)` : undefined,
-                            transition: isSwiping ? 'none' : 'transform 0.2s ease-out'
-                          }}
-                        >
-                          <div className="flex items-start gap-3">
-                            {/* Chat Icon */}
-                            <div className={`flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center text-xl ${
-                              chat.id === currentChatId
-                                ? 'bg-blue-100 dark:bg-blue-800/40'
-                                : 'bg-gray-100 dark:bg-slate-700'
-                            }`}>
-                              {icon}
-                            </div>
-
-                            {/* Chat Info */}
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-start justify-between gap-2 mb-1">
-                                <p className={`font-medium truncate flex items-center gap-1.5 ${
-                                  chat.id === currentChatId 
-                                    ? 'text-blue-900 dark:text-blue-100' 
-                                    : 'text-gray-900 dark:text-slate-100'
-                                }`}>
-                                  {isPinned && (
-                                    <Pin className="h-3 w-3 text-purple-500 fill-current flex-shrink-0" />
-                                  )}
-                                  <span className="truncate">{chat.title}</span>
-                                </p>
-                                <span className="text-[10px] text-gray-500 dark:text-slate-400 flex-shrink-0">
-                                  {new Date(chat.updatedAt).toLocaleDateString('de-DE', {
-                                    day: '2-digit',
-                                    month: '2-digit',
-                                  })}
-                                </span>
-                              </div>
-
-                              {/* Last Message Preview */}
-                              {chat.lastMessage && (
-                                <p className="text-xs text-gray-500 dark:text-slate-400 truncate mb-1">
-                                  {chat.lastMessage}
-                                </p>
-                              )}
-
-                              <p className="text-[10px] text-gray-400 dark:text-slate-500">
-                                {chat.messageCount} {chat.messageCount === 1 ? 'Nachricht' : 'Nachrichten'}
-                              </p>
-                            </div>
-
-                            {/* Actions */}
-                            <div className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  toggleChatPin(chat.id)
-                                }}
-                                className={`p-1.5 rounded hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors ${
-                                  isPinned ? 'text-purple-600 dark:text-purple-400' : 'text-gray-400'
-                                }`}
-                                title={isPinned ? 'Nicht mehr anpinnen' : 'Anpinnen'}
-                              >
-                                <Pin className={`h-3.5 w-3.5 ${isPinned ? 'fill-current' : ''}`} />
-                              </button>
-                              <button
-                                onClick={(e) => handleDeleteChat(chat.id, e)}
-                                className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
-                                title="Chat löschen"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-      
-      {/* Header - Glassmorphism style */}
-      <div className={`${voiceOnlyMode ? 'bg-blue-600' : 'glass-header'} px-3 py-3 sm:px-4 sm:py-3 sticky top-0 z-10 safe-area-inset-top transition-colors`}>
-        <div className="max-w-3xl mx-auto">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5 min-w-0 flex-1">
-              <div className={`relative w-11 h-11 sm:w-11 sm:h-11 rounded-xl ${voiceOnlyMode ? 'bg-white' : 'bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-600'} flex items-center justify-center shadow-lg flex-shrink-0`}>
-                <span className={`font-bold text-sm sm:text-base ${voiceOnlyMode ? 'text-blue-600' : 'text-white'}`}>LiS</span>
-                {/* Online status dot */}
-                <div className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 ${voiceOnlyMode ? 'border-blue-600' : 'border-white dark:border-slate-900'} ${
-                  isLoading ? 'status-dot-connecting' : 'status-dot-online'
-                }`} />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <h1 className={`text-base sm:text-lg font-semibold truncate ${voiceOnlyMode ? 'text-white' : 'text-gray-900 dark:text-slate-100'}`}>
-                    {voiceOnlyMode ? 'Sprachmodus' : 'LiS Chatbot'}
-                  </h1>
-                </div>
-                <p className={`text-[11px] sm:text-xs truncate ${voiceOnlyMode ? 'text-blue-100' : 'text-gray-500 dark:text-slate-400'}`}>
-                  {voiceOnlyMode 
-                    ? 'Sprich weiter, um das Gespräch fortzusetzen' 
-                    : isLoading 
-                      ? 'Antwortet...' 
-                      : 'Online • Bereit zu helfen'}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-1 sm:gap-2">
-              {!voiceOnlyMode && (
-                <>
-                  <button
-                    onClick={() => setShowSearchModal(true)}
-                    className="p-2 sm:p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors touch-manipulation flex-shrink-0 hidden sm:flex"
-                    title="Suchen (Ctrl+F)"
-                    aria-label="Suchen"
-                  >
-                    <Search className="h-4 w-4 sm:h-5 sm:w-5" />
-                  </button>
-                  <button
-                    onClick={() => setShowExportModal(true)}
-                    className="p-2 sm:p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors touch-manipulation flex-shrink-0 hidden sm:flex"
-                    title="Exportieren (Ctrl+E)"
-                    aria-label="Chat exportieren"
-                  >
-                    <Download className="h-4 w-4 sm:h-5 sm:w-5" />
-                  </button>
-                  <button
-                    onClick={() => setShowShortcutsModal(true)}
-                    className="p-2 sm:p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors touch-manipulation flex-shrink-0 hidden sm:flex"
-                    title="Tastenkürzel (Ctrl+/)"
-                    aria-label="Tastenkürzel anzeigen"
-                  >
-                    <Keyboard className="h-4 w-4 sm:h-5 sm:w-5" />
-                  </button>
-                  <button
-                    onClick={toggleTheme}
-                    className="p-2 sm:p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors touch-manipulation flex-shrink-0 hidden sm:flex"
-                    title={theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
-                    aria-label="Theme umschalten"
-                  >
-                    {theme === 'dark' ? (
-                      <Sun className="h-4 w-4 sm:h-5 sm:w-5" />
-                    ) : (
-                      <Moon className="h-4 w-4 sm:h-5 sm:w-5" />
-                    )}
-                  </button>
-                  <div className="w-px h-5 bg-gray-200 dark:bg-slate-700 mx-1 hidden sm:block" />
-                  <button
-                    onClick={() => setShowChatSidebar(!showChatSidebar)}
-                    className="p-2 sm:p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors touch-manipulation flex-shrink-0 hidden sm:flex"
-                    title="Chats anzeigen"
-                    aria-label="Chats anzeigen"
-                  >
-                    <MessageSquare className="h-4 w-4 sm:h-5 sm:w-5" />
-                  </button>
-                </>
-              )}
-              {!voiceOnlyMode && <ConnectionStatus className="hidden sm:flex" />}
-              {voiceOnlyMode && (
-                <button
-                  onClick={exitVoiceOnlyMode}
-                  className="p-2.5 sm:p-2 rounded-lg text-white active:bg-blue-700 transition-colors touch-manipulation flex-shrink-0"
-                  title="Sprachmodus verlassen"
-                  aria-label="Sprachmodus verlassen"
-                >
-                  <X className="h-5 w-5 sm:h-5 sm:w-5" />
-                </button>
-              )}
-              {!voiceOnlyMode && messages.length > 0 && (
-                <button
-                  onClick={clearChat}
-                  className="p-2 sm:p-2 rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors touch-manipulation flex-shrink-0 hidden sm:flex"
-                  title="Chatverlauf löschen"
-                  aria-label="Chatverlauf löschen"
-                >
-                  <Trash2 className="h-4 w-4 sm:h-5 sm:w-5" />
-                </button>
-              )}
-              {/* Auth button - integrated in header (desktop only, mobile in settings) */}
-              {!voiceOnlyMode && (
-                <>
-                  <div className="w-px h-5 bg-gray-200 dark:bg-slate-700 mx-1 hidden sm:block" />
-                  {user ? (
-                    <button
-                      onClick={onLogout}
-                      className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors touch-manipulation text-xs sm:text-sm font-medium"
-                      title="Abmelden"
-                    >
-                      <LogOut className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                      <span>Abmelden</span>
-                    </button>
-                  ) : (
-                    <button
-                      onClick={onLoginClick}
-                      className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors touch-manipulation text-xs sm:text-sm font-medium"
-                      title="Anmelden"
-                    >
-                      <User className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                      <span>Anmelden</span>
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+      {/* Header */}
+      <ChatHeader
+        voiceOnlyMode={voiceOnlyMode}
+        isLoading={isLoading}
+        theme={theme}
+        toggleTheme={toggleTheme}
+        showChatSidebar={showChatSidebar}
+        setShowChatSidebar={setShowChatSidebar}
+        setShowSearchModal={setShowSearchModal}
+        setShowExportModal={setShowExportModal}
+        setShowShortcutsModal={setShowShortcutsModal}
+        exitVoiceOnlyMode={exitVoiceOnlyMode}
+        clearChat={clearChat}
+        messages={messages}
+        user={user}
+        onLoginClick={onLoginClick}
+        onLogout={onLogout}
+      />
 
       {/* Messages - Mobile optimized scrolling with pull-to-refresh */}
-      <div 
+      <div
         ref={messagesContainerRef}
         onScroll={handleMessagesScroll}
         onTouchStart={handlePullStart}
@@ -2361,7 +2104,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
         style={{ paddingTop: pullDistance > 0 ? `${16 + pullDistance}px` : undefined }}
       >
         {/* Pull-to-refresh indicator */}
-        <div 
+        <div
           className={`pull-refresh-indicator ${pullDistance > 20 ? 'visible' : ''} ${isPullRefreshing ? 'refreshing' : ''}`}
           style={{ top: pullDistance > 20 ? `${Math.min(pullDistance - 30, 20)}px` : '-50px' }}
         >
@@ -2383,9 +2126,9 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
                     <div className="absolute inset-0 skeleton-shimmer" />
                   </div>
                 )}
-                <div 
+                <div
                   className={`relative overflow-hidden rounded-2xl bg-gray-200 dark:bg-slate-700 ${i % 2 === 0 ? 'ml-auto rounded-br-sm' : 'rounded-bl-sm'}`}
-                  style={{ 
+                  style={{
                     width: `${45 + (i * 8)}%`,
                     height: `${60 + i * 12}px`
                   }}
@@ -2413,288 +2156,155 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
         ) : (
           <div className="max-w-3xl mx-auto space-y-3 sm:space-y-4">
             {messages.map((message, index) => (
-            // Skip rendering empty assistant messages (they show while streaming starts)
-            message.role === 'assistant' && !message.content ? null : (
-            <div key={index}>
-              {/* Time Separator */}
-              {shouldShowDateSeparator(index) && message.timestamp && (
-                <div className="time-separator my-4">
-                  <span className="text-xs font-medium text-gray-500 dark:text-slate-400 bg-gray-50 dark:bg-slate-900 px-3 py-1 rounded-full">
-                    {formatDateSeparator(new Date(message.timestamp))}
-                  </span>
-                </div>
-              )}
-              
-              {/* Swipeable message container */}
-              <div 
-                className="message-swipe-container"
-                onTouchStart={(e) => handleMessageTouchStart(e, index)}
-                onTouchMove={(e) => handleMessageTouchMove(e, index)}
-                onTouchEnd={() => handleMessageTouchEnd(index)}
-              >
-                {/* Swipe action indicators */}
-                <div className={`message-swipe-action message-swipe-action-left ${swipingMessageIndex === index && swipeOffset > 30 ? 'visible' : ''}`}>
-                  <Copy className="h-5 w-5 text-white" />
-                </div>
-                <div className={`message-swipe-action message-swipe-action-right ${swipingMessageIndex === index && swipeOffset < -30 && message.role === 'user' ? 'visible' : ''}`}>
-                  <Trash2 className="h-5 w-5 text-white" />
-                </div>
-                
-                <div
-                  className={`message-swipe-content flex items-end gap-2 ${
-                    message.role === 'user' ? 'justify-end' : 'justify-start'
-                  } animate-spring-in group`}
-                  style={{ 
-                    transform: swipingMessageIndex === index ? `translateX(${swipeOffset}px)` : undefined 
-                  }}
-                >
-                  {/* Bot Avatar - only show for assistant messages */}
-                  {message.role === 'assistant' && (
-                    <div className="message-avatar message-avatar-bot mb-1">
-                      LiS
+              // Skip rendering empty assistant messages (they show while streaming starts)
+              message.role === 'assistant' && !message.content ? null : (
+                <div key={index}>
+                  {/* Time Separator */}
+                  {shouldShowDateSeparator(index) && message.timestamp && (
+                    <div className="time-separator my-4">
+                      <span className="text-xs font-medium text-gray-500 dark:text-slate-400 bg-gray-50 dark:bg-slate-900 px-3 py-1 rounded-full">
+                        {formatDateSeparator(new Date(message.timestamp))}
+                      </span>
                     </div>
                   )}
-                  
+
+                  {/* Swipeable message container */}
                   <div
-                    className={`rounded-2xl relative ${
-                      message.role === 'user'
-                        ? 'max-w-[85%] sm:max-w-[70%] bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-br-md shadow-lg px-4 py-3 message-bubble-user'
-                        : 'max-w-[95%] sm:max-w-[85%] bg-white dark:bg-slate-800/95 text-gray-900 dark:text-slate-100 rounded-bl-md border border-gray-100 dark:border-slate-700/80 shadow-md px-3 py-3 sm:px-5 sm:py-4 message-bubble-bot'
-                    }`}
+                    className="message-swipe-container"
+                    onTouchStart={(e) => handleMessageTouchStart(e, index)}
+                    onTouchMove={(e) => handleMessageTouchMove(e, index)}
+                    onTouchEnd={() => handleMessageTouchEnd(index)}
                   >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className={`flex-1 overflow-hidden ${message.role === 'user' ? 'text-[15px] leading-relaxed' : 'text-[15px] leading-[1.7]'}`} style={{ wordBreak: 'normal', overflowWrap: 'break-word' }}>
-                    {message.role === 'user' ? (
-                      <p className="whitespace-pre-wrap" style={{ wordBreak: 'normal', overflowWrap: 'break-word' }}>{message.content}</p>
-                    ) : (
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
-                        components={{
-                          // Headings - with visual hierarchy
-                          h1: ({ node, ...props }) => (
-                            <h1 className="text-xl font-bold mt-5 mb-3 text-gray-900 dark:text-slate-100 pb-2 border-b border-gray-200 dark:border-slate-700" {...props} />
-                          ),
-                          h2: ({ node, ...props }) => (
-                            <h2 className="text-lg font-bold mt-4 mb-2 text-gray-900 dark:text-slate-100 flex items-center gap-2" {...props} />
-                          ),
-                          h3: ({ node, ...props }) => (
-                            <h3 className="text-base font-semibold mt-3 mb-2 text-gray-800 dark:text-slate-200" {...props} />
-                          ),
-                          h4: ({ node, ...props }) => (
-                            <h4 className="text-sm font-semibold mt-2 mb-1 text-gray-700 dark:text-slate-300" {...props} />
-                          ),
-                          
-                          // Paragraphs - improved spacing
-                          p: ({ node, ...props }) => (
-                            <p className="mb-3 last:mb-0 text-gray-800 dark:text-slate-200 leading-[1.7]" {...props} />
-                          ),
-                          
-                          // Unordered Lists - custom bullet styling
-                          ul: ({ node, ...props }) => (
-                            <ul className="my-3 space-y-2 pl-0 list-none" {...props} />
-                          ),
-                          
-                          // Ordered Lists - enhanced number styling
-                          ol: ({ node, ...props }) => (
-                            <ol className="my-3 space-y-2 pl-0 list-none counter-reset-list" style={{ counterReset: 'list-counter' }} {...props} />
-                          ),
-                          
-                          // List Items - card-like styling with icons
-                          li: ({ node, ordered, ...props }: any) => {
-                            // Check if this is inside an ordered list by looking at parent
-                            const isOrdered = node?.position?.start?.column === 1 && /^\d+\./.test(String(props.children?.[0] || '').trim().split(' ')[0] || '');
-                            return (
-                              <li 
-                                className="relative pl-6 text-gray-800 dark:text-slate-200 leading-[1.65] py-0.5 list-item-custom"
-                                style={{ wordBreak: 'normal', overflowWrap: 'break-word' }}
-                                {...props} 
-                              />
-                            );
-                          },
-                          
-                          // Code - enhanced with better contrast
-                          code: ({ node, inline, className, children, ...props }: any) => {
-                            return inline ? (
-                              <code 
-                                className="bg-blue-50 dark:bg-slate-700 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded text-[0.9em] font-mono border border-blue-100 dark:border-slate-600" 
-                                {...props}
-                              >
-                                {children}
-                              </code>
-                            ) : (
-                              <code 
-                                className="block bg-gray-900 dark:bg-slate-950 text-gray-100 dark:text-slate-200 p-4 rounded-xl text-sm font-mono overflow-x-auto my-4 shadow-lg border border-gray-700 dark:border-slate-700" 
-                                {...props}
-                              >
-                                {children}
-                              </code>
-                            )
-                          },
-                          pre: ({ node, ...props }) => <pre className="my-4" {...props} />,
-                          
-                          // Links - more visible
-                          a: ({ node, ...props }) => (
-                            <a 
-                              className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 underline decoration-blue-300 dark:decoration-blue-600 underline-offset-2 transition-colors font-medium" 
-                              target="_blank" 
-                              rel="noopener noreferrer" 
-                              {...props} 
-                            />
-                          ),
-                          
-                          // Tables - Mobile-optimized with scroll hint
-                          table: ({ node, ...props }) => (
-                            <div className="table-wrapper my-4 -mx-4 sm:mx-0">
-                              <div className="table-scroll-hint text-xs text-gray-400 dark:text-slate-500 text-center pb-1 sm:hidden flex items-center justify-center gap-1">
-                                <span>←</span>
-                                <span>Wischen zum Scrollen</span>
-                                <span>→</span>
-                              </div>
-                              <div className="overflow-x-auto rounded-lg sm:rounded-xl border border-gray-200 dark:border-slate-600 shadow-md bg-white dark:bg-slate-800/90 mx-2 sm:mx-0">
-                                <table className="w-full border-collapse text-sm" style={{ minWidth: '400px' }} {...props} />
-                              </div>
-                            </div>
-                          ),
-                          thead: ({ node, ...props }) => (
-                            <thead className="bg-blue-600 dark:bg-blue-700 text-white sticky top-0" {...props} />
-                          ),
-                          tbody: ({ node, ...props }) => (
-                            <tbody className="divide-y divide-gray-100 dark:divide-slate-700 bg-white dark:bg-slate-800" {...props} />
-                          ),
-                          tr: ({ node, ...props }) => (
-                            <tr className="hover:bg-blue-50 dark:hover:bg-slate-700/70 transition-colors" {...props} />
-                          ),
-                          th: ({ node, ...props }) => (
-                            <th className="px-3 py-2.5 sm:px-4 sm:py-3 text-left text-[11px] sm:text-xs font-semibold text-white uppercase tracking-wider whitespace-nowrap" {...props} />
-                          ),
-                          td: ({ node, ...props }) => (
-                            <td 
-                              className="px-3 py-2.5 sm:px-4 sm:py-3 text-[13px] sm:text-sm text-gray-800 dark:text-slate-200 whitespace-nowrap" 
-                              {...props} 
-                            />
-                          ),
-                          
-                          // Blockquotes - improved styling
-                          blockquote: ({ node, ...props }) => (
-                            <blockquote 
-                              className="border-l-4 border-blue-500 dark:border-blue-400 pl-4 py-3 my-4 text-gray-700 dark:text-slate-300 bg-gradient-to-r from-blue-50 to-transparent dark:from-slate-800 dark:to-transparent rounded-r-lg" 
-                              {...props} 
-                            />
-                          ),
-                          
-                          // Strong & Em - enhanced visibility
-                          strong: ({ node, ...props }) => (
-                            <strong className="font-semibold text-gray-900 dark:text-white" {...props} />
-                          ),
-                          em: ({ node, ...props }) => (
-                            <em className="italic text-gray-700 dark:text-slate-300" {...props} />
-                          ),
-                          
-                          // Horizontal Rule - styled divider
-                          hr: ({ node, ...props }) => (
-                            <hr className="my-6 border-none h-px bg-gradient-to-r from-transparent via-gray-300 dark:via-slate-600 to-transparent" {...props} />
-                          ),
-                        }}
-                      >
-                        {sanitizeBotResponse(message.content)}
-                      </ReactMarkdown>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => copyToClipboard(message.content, index)}
-                    className={`opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity p-2 sm:p-1 rounded-lg touch-manipulation active:scale-95 flex-shrink-0 ${
-                      message.role === 'user'
-                        ? 'active:bg-blue-700 text-white'
-                        : 'active:bg-gray-100 dark:active:bg-slate-700 text-gray-600 dark:text-slate-400'
-                    }`}
-                    title="Nachricht kopieren"
-                    aria-label="Nachricht kopieren"
-                  >
-                    {copiedIndex === index ? (
-                      <Check className="h-4 w-4 sm:h-4 sm:w-4" />
-                    ) : (
-                      <Copy className="h-4 w-4 sm:h-4 sm:w-4" />
-                    )}
-                  </button>
-                </div>
-                    {message.timestamp && (
-                  <div
-                    className={`flex items-center gap-1.5 mt-2 sm:mt-1.5 ${
-                      message.role === 'user' ? 'justify-end' : 'justify-start'
-                    }`}
-                  >
-                    <span
-                      className={`text-[11px] sm:text-xs ${
-                        message.role === 'user'
-                          ? 'text-blue-100'
-                          : 'text-gray-400 dark:text-slate-500'
-                      }`}
+                    {/* Swipe action indicators */}
+                    <div className={`message-swipe-action message-swipe-action-left ${swipingMessageIndex === index && swipeOffset > 30 ? 'visible' : ''}`}>
+                      <Copy className="h-5 w-5 text-white" />
+                    </div>
+                    <div className={`message-swipe-action message-swipe-action-right ${swipingMessageIndex === index && swipeOffset < -30 && message.role === 'user' ? 'visible' : ''}`}>
+                      <Trash2 className="h-5 w-5 text-white" />
+                    </div>
+
+                    <div
+                      className={`message-swipe-content flex items-end gap-2 ${message.role === 'user' ? 'justify-end' : 'justify-start'
+                        } animate-spring-in group`}
+                      style={{
+                        transform: swipingMessageIndex === index ? `translateX(${swipeOffset}px)` : undefined
+                      }}
                     >
-                      {formatTimestamp(message.timestamp)}
-                    </span>
-                    {/* Delivery status for user messages */}
-                    {message.role === 'user' && (
-                      <span className="delivery-check delivered" title="Zugestellt">
-                        ✓✓
-                      </span>
-                    )}
-                    {/* Pin indicator */}
-                    {pinnedMessages.has(index) && (
-                      <span title="Angepinnt">
-                        <Pin className="h-3 w-3 text-purple-500 dark:text-purple-400 fill-current ml-1" />
-                      </span>
-                    )}
-                  </div>
-                )}
+                      {/* Bot Avatar - only show for assistant messages */}
+                      {message.role === 'assistant' && (
+                        <div className="message-avatar message-avatar-bot mb-1">
+                          LiS
+                        </div>
+                      )}
 
-                {/* Message Reactions */}
-                {message.reactions && Object.keys(message.reactions).length > 0 && (
-                  <div className={`flex items-center gap-1 mt-2 flex-wrap ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                    {Object.entries(message.reactions).map(([emoji, count]) => (
-                      <button
-                        key={emoji}
-                        onClick={() => handleAddReaction(index, emoji)}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 dark:bg-slate-700 rounded-full text-xs hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors active:scale-95"
+                      <div
+                        className={`rounded-2xl relative ${message.role === 'user'
+                          ? 'max-w-[85%] sm:max-w-[70%] bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-br-md shadow-lg px-4 py-3 message-bubble-user'
+                          : 'max-w-[95%] sm:max-w-[85%] bg-white dark:bg-slate-800/95 text-gray-900 dark:text-slate-100 rounded-bl-md border border-gray-100 dark:border-slate-700/80 shadow-md px-3 py-3 sm:px-5 sm:py-4 message-bubble-bot'
+                          }`}
                       >
-                        <span>{emoji}</span>
-                        <span className="font-medium text-gray-600 dark:text-gray-300">{count}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className={`flex-1 overflow-hidden ${message.role === 'user' ? 'text-[15px] leading-relaxed' : 'text-[15px] leading-[1.7]'}`} style={{ wordBreak: 'normal', overflowWrap: 'break-word' }}>
+                            {message.role === 'user' ? (
+                              <p className="whitespace-pre-wrap" style={{ wordBreak: 'normal', overflowWrap: 'break-word' }}>{message.content}</p>
+                            ) : (
+                              <MarkdownRenderer
+                                content={message.content}
+                                sanitize={sanitizeBotResponse}
+                              />
+                            )}
+                          </div>
+                          <button
+                            onClick={() => copyToClipboard(message.content, index)}
+                            className={`opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity p-2 sm:p-1 rounded-lg touch-manipulation active:scale-95 flex-shrink-0 ${message.role === 'user'
+                              ? 'active:bg-blue-700 text-white'
+                              : 'active:bg-gray-100 dark:active:bg-slate-700 text-gray-600 dark:text-slate-400'
+                              }`}
+                            title="Nachricht kopieren"
+                            aria-label="Nachricht kopieren"
+                          >
+                            {copiedIndex === index ? (
+                              <Check className="h-4 w-4 sm:h-4 sm:w-4" />
+                            ) : (
+                              <Copy className="h-4 w-4 sm:h-4 sm:w-4" />
+                            )}
+                          </button>
+                        </div>
+                        {message.timestamp && (
+                          <div
+                            className={`flex items-center gap-1.5 mt-2 sm:mt-1.5 ${message.role === 'user' ? 'justify-end' : 'justify-start'
+                              }`}
+                          >
+                            <span
+                              className={`text-[11px] sm:text-xs ${message.role === 'user'
+                                ? 'text-blue-100'
+                                : 'text-gray-400 dark:text-slate-500'
+                                }`}
+                            >
+                              {formatTimestamp(message.timestamp)}
+                            </span>
+                            {/* Delivery status for user messages */}
+                            {message.role === 'user' && (
+                              <span className="delivery-check delivered" title="Zugestellt">
+                                ✓✓
+                              </span>
+                            )}
+                            {/* Pin indicator */}
+                            {pinnedMessages.has(index) && (
+                              <span title="Angepinnt">
+                                <Pin className="h-3 w-3 text-purple-500 dark:text-purple-400 fill-current ml-1" />
+                              </span>
+                            )}
+                          </div>
+                        )}
 
-                {/* Add Reaction Button */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    const rect = e.currentTarget.getBoundingClientRect()
-                    setReactionPicker({
-                      messageIndex: index,
-                      x: rect.left,
-                      y: rect.top - 10
-                    })
-                    triggerHaptic('light')
-                  }}
-                  className={`absolute -bottom-2 ${
-                    message.role === 'user' ? 'right-2' : 'left-2'
-                  } opacity-0 group-hover:opacity-100 w-6 h-6 rounded-full bg-white dark:bg-slate-700 border-2 border-gray-200 dark:border-slate-600 flex items-center justify-center hover:scale-110 transition-all shadow-md`}
-                  title="Reaktion hinzufügen"
-                >
-                  <span className="text-xs">😊</span>
-                </button>
-                </div>
-                
-                {/* User Avatar - only show for user messages */}
-                {message.role === 'user' && (
-                  <div className="message-avatar message-avatar-user mb-1">
-                    Du
+                        {/* Message Reactions */}
+                        {message.reactions && Object.keys(message.reactions).length > 0 && (
+                          <div className={`flex items-center gap-1 mt-2 flex-wrap ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                            {Object.entries(message.reactions).map(([emoji, count]) => (
+                              <button
+                                key={emoji}
+                                onClick={() => handleAddReaction(index, emoji)}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 bg-gray-100 dark:bg-slate-700 rounded-full text-xs hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors active:scale-95"
+                              >
+                                <span>{emoji}</span>
+                                <span className="font-medium text-gray-600 dark:text-gray-300">{count}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Add Reaction Button */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            const rect = e.currentTarget.getBoundingClientRect()
+                            setReactionPicker({
+                              messageIndex: index,
+                              x: rect.left,
+                              y: rect.top - 10
+                            })
+                            triggerHaptic('light')
+                          }}
+                          className={`absolute -bottom-2 ${message.role === 'user' ? 'right-2' : 'left-2'
+                            } opacity-0 group-hover:opacity-100 w-6 h-6 rounded-full bg-white dark:bg-slate-700 border-2 border-gray-200 dark:border-slate-600 flex items-center justify-center hover:scale-110 transition-all shadow-md`}
+                          title="Reaktion hinzufügen"
+                        >
+                          <span className="text-xs">😊</span>
+                        </button>
+                      </div>
+
+                      {/* User Avatar - only show for user messages */}
+                      {message.role === 'user' && (
+                        <div className="message-avatar message-avatar-user mb-1">
+                          Du
+                        </div>
+                      )}
+                    </div>
                   </div>
-                )}
                 </div>
-              </div>
-            </div>
-            )
-          ))}
+              )
+            ))}
 
             {isLoading && showLoadingBubble && !isStreamingResponse && (
               <div className="flex justify-start items-end gap-2 animate-in fade-in slide-in-from-bottom-2 duration-200">
@@ -2729,330 +2339,44 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
         </button>
       )}
 
-      {/* Input Area - Mobile optimized with larger touch targets */}
+      {/* Input Area */}
       {voiceOnlyMode ? (
-        <div className="bg-blue-600 border-t border-blue-700 px-3 py-6 sm:px-4 sm:py-6 safe-area-inset-bottom">
-          <div className="max-w-3xl mx-auto">
-            <div className="flex flex-col items-center gap-4">
-              {isRecording ? (
-                <>
-                  {/* Audio Level Visualization - Improved */}
-                  <div className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-full bg-gradient-to-br from-red-500 to-red-600 flex items-center justify-center shadow-xl overflow-hidden animate-pulse-recording">
-                    {/* Ripple effect */}
-                    <div 
-                      className="absolute inset-0 rounded-full bg-red-400 transition-transform duration-150"
-                      style={{ 
-                        transform: `scale(${0.6 + audioLevel * 0.5})`,
-                        opacity: 0.3 + audioLevel * 0.3
-                      }}
-                    />
-                    <div 
-                      className="absolute inset-0 rounded-full bg-red-300 transition-transform duration-200"
-                      style={{ 
-                        transform: `scale(${0.4 + audioLevel * 0.3})`,
-                        opacity: 0.2 + audioLevel * 0.2
-                      }}
-                    />
-                    <MicOff className="h-12 w-12 sm:h-14 sm:w-14 text-white relative z-10 drop-shadow-lg" />
-                  </div>
-                  
-                  {/* Voice Wave Animation Bars */}
-                  <div className="flex items-end justify-center gap-1 h-8">
-                    {[0, 1, 2, 3, 4].map((i) => (
-                      <div
-                        key={i}
-                        className={`w-1.5 rounded-full transition-all ${
-                          audioLevel > 0.1 ? 'voice-wave-bar bg-white' : 'bg-white/40'
-                        }`}
-                        style={{
-                          height: audioLevel > 0.1 ? `${12 + audioLevel * 16}px` : '8px',
-                          animationDelay: `${i * 0.1}s`,
-                        }}
-                      />
-                    ))}
-                  </div>
-                  
-                  <div className="text-center">
-                    <p className="text-white text-xl sm:text-2xl font-semibold mb-1">
-                      {audioLevel > 0.1 ? '🎤 Ich höre dich!' : 'Ich höre zu ...'}
-                    </p>
-                    <p className="text-blue-100 text-sm sm:text-base">
-                      {audioLevel > 0.1 ? 'Sprich weiter...' : 'Warte auf deine Stimme ...'}
-                    </p>
-                    {silenceStartTime && (
-                      <p className="text-blue-200 text-xs mt-2 bg-blue-700/30 px-3 py-1 rounded-full inline-block">
-                        ⏱️ Stopp in {Math.max(0, Math.ceil((APP_CONFIG.SILENCE_DURATION_MS - (Date.now() - silenceStartTime)) / 1000))}s
-                      </p>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => {
-                      triggerHaptic('medium')
-                      stopRecording()
-                    }}
-                    className="px-8 py-3.5 bg-white text-red-600 rounded-2xl font-semibold touch-manipulation active:scale-95 shadow-lg transition-transform text-base"
-                  >
-                    Aufnahme stoppen
-                  </button>
-                </>
-              ) : isProcessingVoice || isLoading ? (
-                <>
-                  <div className="w-28 h-28 sm:w-32 sm:h-32 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center shadow-xl">
-                    <Loader2 className="h-12 w-12 sm:h-14 sm:w-14 text-white animate-spin drop-shadow-lg" />
-                  </div>
-                  <div className="text-center">
-                    <p className="text-white text-xl sm:text-2xl font-semibold mb-1">
-                      {isProcessingVoice ? '🎯 Verarbeite...' : '💭 Denke nach...'}
-                    </p>
-                    <p className="text-blue-100 text-sm sm:text-base">
-                      {isProcessingVoice ? 'Transkribiere deine Stimme' : 'Antwort wird erstellt'}
-                    </p>
-                  </div>
-                </>
-              ) : isPlayingAudio ? (
-                <>
-                  <div className="w-28 h-28 sm:w-32 sm:h-32 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center shadow-xl animate-pulse-recording">
-                    <Volume2 className="h-12 w-12 sm:h-14 sm:w-14 text-white drop-shadow-lg" />
-                  </div>
-                  
-                  {/* Speaking wave animation */}
-                  <div className="flex items-center justify-center gap-1 h-8">
-                    {[0, 1, 2, 3, 4].map((i) => (
-                      <div
-                        key={i}
-                        className="w-1.5 bg-white rounded-full voice-wave-bar"
-                        style={{ animationDelay: `${i * 0.1}s` }}
-                      />
-                    ))}
-                  </div>
-                  
-                  <div className="text-center">
-                    <p className="text-white text-xl sm:text-2xl font-semibold mb-1">
-                      🔊 Assistent spricht
-                    </p>
-                    <p className="text-blue-100 text-sm sm:text-base mb-4">
-                      Höre dir die Antwort an
-                    </p>
-                    <button
-                      onClick={() => {
-                        triggerHaptic('medium')
-                        stopSpeaking()
-                      }}
-                      className="px-8 py-3.5 bg-white text-green-600 rounded-2xl font-semibold touch-manipulation active:scale-95 shadow-lg transition-transform text-base"
-                    >
-                      Unterbrechen & sprechen
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="w-28 h-28 sm:w-32 sm:h-32 rounded-full bg-white flex items-center justify-center shadow-xl">
-                    <Mic className="h-12 w-12 sm:h-14 sm:w-14 text-blue-600 drop-shadow" />
-                  </div>
-                  <div className="text-center">
-                    <p className="text-white text-xl sm:text-2xl font-semibold mb-1">
-                      👋 Bereit zuzuhören
-                    </p>
-                    <p className="text-blue-100 text-sm sm:text-base">
-                      Tippe den Button, um zu sprechen
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => {
-                      triggerHaptic('heavy')
-                      startRecording()
-                    }}
-                    className="px-8 py-3.5 bg-white text-blue-600 rounded-2xl font-semibold touch-manipulation active:scale-95 shadow-lg transition-transform text-base"
-                  >
-                    🎤 Jetzt sprechen
-                  </button>
-
-                  {/* Voice Command Hints */}
-                  <div className="mt-4 px-4 py-3 bg-white/10 backdrop-blur-sm rounded-xl border border-white/20">
-                    <p className="text-white/90 text-xs font-semibold mb-2 text-center">💡 Sprachbefehle</p>
-                    <div className="space-y-1 text-white/70 text-[11px]">
-                      <p>• Sage &quot;Stop&quot; zum Beenden</p>
-                      <p>• Sage &quot;Wiederholen&quot; für letzte Antwort</p>
-                      <p>• Spreche klar und deutlich</p>
-                    </div>
-                  </div>
-                </>
-              )}
-              <button
-                onClick={exitVoiceOnlyMode}
-                className="text-white/80 text-sm mt-2 underline-offset-4 hover:underline focus:underline"
-                type="button"
-              >
-                Zum Textmodus wechseln
-              </button>
-            </div>
-          </div>
-        </div>
+        <VoiceOverlay
+          isRecording={isRecording}
+          isProcessingVoice={isProcessingVoice}
+          isLoading={isLoading}
+          isPlayingAudio={isPlayingAudio}
+          audioLevel={audioLevel}
+          silenceStartTime={silenceStartTime}
+          startRecording={startRecording}
+          stopRecording={stopRecording}
+          stopSpeaking={stopSpeaking}
+          exitVoiceOnlyMode={exitVoiceOnlyMode}
+        />
       ) : (
-        <div className="glass-header border-t border-gray-100 dark:border-slate-800 px-3 py-3 sm:px-4 sm:py-3 safe-area-inset-bottom">
-          <div className="max-w-3xl mx-auto">
-            {/* Recording indicator with waveform */}
-            {isRecording && !voiceOnlyMode && (
-              <div className="mb-3 flex items-center gap-3 bg-red-50 dark:bg-red-900/20 rounded-xl px-4 py-3 border border-red-200 dark:border-red-800">
-                <div className="flex items-center justify-center gap-1 h-8">
-                  {[0, 1, 2, 3, 4].map((i) => (
-                    <div
-                      key={i}
-                      className="w-1 bg-red-500 dark:bg-red-400 rounded-full voice-wave-bar"
-                      style={{ animationDelay: `${i * 0.1}s` }}
-                    />
-                  ))}
-                </div>
-                <span className="text-red-600 dark:text-red-400 font-medium text-sm flex-1">
-                  Aufnahme läuft...
-                </span>
-                <span className="text-red-500 dark:text-red-400 text-xs animate-pulse">
-                  ● REC
-                </span>
-              </div>
-            )}
-
-            {/* Smart Reply Suggestions */}
-            {smartReplySuggestions.length > 0 && !isRecording && messages.length > 0 && (
-              <div className="mb-3 flex items-center gap-2 overflow-x-auto pb-1 scrollbar-hide">
-                <Sparkles className="h-4 w-4 text-purple-500 dark:text-purple-400 flex-shrink-0" />
-                {smartReplySuggestions.map((suggestion, index) => (
-                  <button
-                    key={index}
-                    onClick={() => handleSmartReplyClick(suggestion)}
-                    className="flex-shrink-0 px-3 py-1.5 bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 text-purple-700 dark:text-purple-300 rounded-full text-sm font-medium border border-purple-200 dark:border-purple-700 hover:from-purple-100 hover:to-blue-100 dark:hover:from-purple-900/30 dark:hover:to-blue-900/30 active:scale-95 transition-all touch-manipulation shadow-sm"
-                  >
-                    {suggestion}
-                  </button>
-                ))}
-                <button
-                  onClick={() => setShowSmartReplies(false)}
-                  className="flex-shrink-0 p-1 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
-                  title="Vorschläge ausblenden"
-                >
-                  <X className="h-3 w-3 text-gray-400" />
-                </button>
-              </div>
-            )}
-            
-            <div className="flex items-end gap-2.5 sm:gap-2">
-              <div className="flex-1 relative input-gradient-focus">
-                <textarea
-                  ref={textareaRef}
-                  value={input}
-                  onChange={(e) => {
-                    setInput(e.target.value)
-                    autoExpandTextarea()
-                  }}
-                  onKeyPress={handleKeyPress}
-                  placeholder="Nachricht eingeben..."
-                  className="w-full p-3 sm:p-3 pr-14 sm:pr-12 pb-10 sm:pb-8 border-2 border-gray-200 dark:border-slate-600 rounded-xl sm:rounded-lg resize-none focus:outline-none focus:border-transparent bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 placeholder-gray-400 dark:placeholder-slate-500 text-[16px] sm:text-[15px] transition-all shadow-sm focus:shadow-md overflow-y-auto"
-                  rows={1}
-                  maxLength={APP_CONFIG.MAX_INPUT_LENGTH}
-                  style={{ 
-                    minHeight: `${UI_CONFIG.TEXTAREA_MIN_HEIGHT}px`, 
-                    maxHeight: `120px` 
-                  }}
-                />
-                {/* Bottom row: hints and character count */}
-                <div className="absolute bottom-2 left-3 right-3 sm:bottom-1.5 sm:left-2 sm:right-2 flex items-center justify-between gap-2 pointer-events-none">
-                  <span className="hidden sm:block text-[10px] text-gray-400 dark:text-slate-500 italic">
-                    Shift+Enter für neue Zeile
-                  </span>
-                  <span className={`text-[11px] sm:text-xs font-medium transition-colors ml-auto ${
-                    input.length > APP_CONFIG.MAX_INPUT_LENGTH * 0.9
-                      ? 'text-red-500'
-                      : input.length > APP_CONFIG.MAX_INPUT_LENGTH * 0.75
-                        ? 'text-orange-500'
-                        : 'text-gray-400 dark:text-slate-500'
-                  }`}>
-                    {input.length} / {APP_CONFIG.MAX_INPUT_LENGTH}
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 sm:gap-1.5 flex-shrink-0">
-                {/* Emoji Picker */}
-                <EmojiPicker onEmojiSelect={handleEmojiSelect} />
-                <button
-                  onClick={() => {
-                    triggerHaptic(isRecording ? 'medium' : 'heavy')
-                    if (isRecording) {
-                      stopRecording()
-                    } else {
-                      enterVoiceOnlyMode()
-                    }
-                  }}
-                  disabled={isLoading}
-                  className={`p-3 sm:p-2.5 rounded-xl sm:rounded-lg transition-all duration-150 touch-manipulation active:scale-95 ${
-                    isRecording
-                      ? 'bg-red-500 text-white animate-pulse'
-                      : 'bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-slate-300 active:bg-gray-200 dark:active:bg-slate-600'
-                  } disabled:opacity-50 disabled:cursor-not-allowed min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center`}
-                  title={isRecording ? 'Aufnahme stoppen' : 'Sprachmodus starten'}
-                  aria-label={isRecording ? 'Aufnahme stoppen' : 'Sprachmodus starten'}
-                >
-                  {isRecording ? (
-                    <MicOff className="h-5 w-5 sm:h-5 sm:w-5" />
-                  ) : (
-                    <Mic className="h-5 w-5 sm:h-5 sm:w-5" />
-                  )}
-                </button>
-
-                {messages.length > 0 && (
-                  <button
-                    onClick={() => {
-                      triggerHaptic('light')
-                      if (isPlayingAudio) {
-                        stopSpeaking()
-                      } else {
-                        playLastResponse()
-                      }
-                    }}
-                    disabled={isLoading}
-                    className={`p-3 sm:p-2.5 rounded-xl sm:rounded-lg transition-all duration-150 touch-manipulation active:scale-95 ${
-                      isPlayingAudio
-                        ? 'bg-green-500 text-white'
-                        : 'bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-slate-300 active:bg-gray-200 dark:active:bg-slate-600'
-                    } disabled:opacity-50 disabled:cursor-not-allowed min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center`}
-                    title={isPlayingAudio ? 'Audio stoppen' : 'Letzte Antwort anhören'}
-                    aria-label={isPlayingAudio ? 'Audio stoppen' : 'Letzte Antwort anhören'}
-                  >
-                    <Volume2 className="h-5 w-5 sm:h-5 sm:w-5" />
-                  </button>
-                )}
-
-                {isLoading && (
-                  <button
-                    onClick={() => cancelStreaming()}
-                    className="p-3 sm:p-2.5 rounded-xl sm:rounded-lg bg-red-50 text-red-600 active:bg-red-100 transition-all duration-150 touch-manipulation active:scale-95 min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center"
-                    title="Anfrage abbrechen"
-                    aria-label="Anfrage abbrechen"
-                  >
-                    <X className="h-5 w-5 sm:h-5 sm:w-5" />
-                  </button>
-                )}
-
-                <button
-                  onClick={() => {
-                    triggerHaptic('medium')
-                    sendMessage()
-                  }}
-                  disabled={!input.trim() || isLoading}
-                  className="p-3 sm:p-2.5 bg-blue-600 active:bg-blue-700 text-white rounded-xl sm:rounded-lg transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed touch-manipulation active:scale-95 shadow-sm active:shadow min-w-[44px] min-h-[44px] sm:min-w-0 sm:min-h-0 flex items-center justify-center"
-                  title="Nachricht senden"
-                  aria-label="Nachricht senden"
-                >
-                  {isLoading ? (
-                    <Loader2 className="h-5 w-5 sm:h-5 sm:w-5 animate-spin" />
-                  ) : (
-                    <Send className="h-5 w-5 sm:h-5 sm:w-5" />
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
+        <ChatInput
+          input={input}
+          setInput={setInput}
+          isRecording={isRecording}
+          isLoading={isLoading}
+          isPlayingAudio={isPlayingAudio}
+          voiceOnlyMode={voiceOnlyMode}
+          messages={messages}
+          smartReplySuggestions={smartReplySuggestions}
+          textareaRef={textareaRef}
+          autoExpandTextarea={autoExpandTextarea}
+          handleKeyPress={handleKeyPress}
+          sendMessage={sendMessage}
+          startRecording={startRecording}
+          stopRecording={stopRecording}
+          enterVoiceOnlyMode={enterVoiceOnlyMode}
+          stopSpeaking={stopSpeaking}
+          playLastResponse={playLastResponse}
+          cancelStreaming={cancelStreaming}
+          handleSmartReplyClick={handleSmartReplyClick}
+          handleEmojiSelect={handleEmojiSelect}
+          setShowSmartReplies={setShowSmartReplies}
+        />
       )}
 
       {/* Modals */}
@@ -3133,15 +2457,15 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
       {contextMenu && (
         <>
           {/* Backdrop */}
-          <div 
+          <div
             className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 modal-overlay"
             onClick={() => setContextMenu(null)}
           />
-          
+
           {/* Action Sheet (iOS-style bottom sheet on mobile, floating menu on desktop) */}
-          <div 
+          <div
             className="fixed bottom-0 left-0 right-0 sm:absolute sm:bottom-auto z-50 animate-slide-up-fast"
-            style={{ 
+            style={{
               left: typeof window !== 'undefined' && window.innerWidth >= 640 ? Math.min(contextMenu.x, window.innerWidth - 220) : undefined,
               top: typeof window !== 'undefined' && window.innerWidth >= 640 ? Math.min(contextMenu.y, window.innerHeight - 300) : undefined,
               right: typeof window !== 'undefined' && window.innerWidth >= 640 ? 'auto' : undefined,
@@ -3157,7 +2481,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
 
               {/* Actions */}
               <div className="p-2">
-                <button 
+                <button
                   className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-gray-100 dark:hover:bg-slate-700 rounded-xl transition-colors touch-manipulation"
                   onClick={() => handleContextMenuAction('copy')}
                 >
@@ -3166,8 +2490,8 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
                   </div>
                   <span className="flex-1 font-medium text-gray-900 dark:text-white">Kopieren</span>
                 </button>
-                
-                <button 
+
+                <button
                   className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-gray-100 dark:hover:bg-slate-700 rounded-xl transition-colors touch-manipulation"
                   onClick={() => handleContextMenuAction('share')}
                 >
@@ -3177,7 +2501,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
                   <span className="flex-1 font-medium text-gray-900 dark:text-white">Teilen</span>
                 </button>
 
-                <button 
+                <button
                   className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-gray-100 dark:hover:bg-slate-700 rounded-xl transition-colors touch-manipulation"
                   onClick={() => handleContextMenuAction('pin')}
                 >
@@ -3190,7 +2514,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
                 </button>
 
                 {messages[contextMenu.messageIndex]?.role === 'assistant' && (
-                  <button 
+                  <button
                     className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-gray-100 dark:hover:bg-slate-700 rounded-xl transition-colors touch-manipulation"
                     onClick={() => handleContextMenuAction('regenerate')}
                   >
@@ -3200,11 +2524,11 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
                     <span className="flex-1 font-medium text-gray-900 dark:text-white">Neu generieren</span>
                   </button>
                 )}
-                
+
                 {messages[contextMenu.messageIndex]?.role === 'user' && (
                   <>
                     <div className="h-px bg-gray-200 dark:bg-slate-700 my-2" />
-                    <button 
+                    <button
                       className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors touch-manipulation"
                       onClick={() => handleContextMenuAction('delete')}
                     >
@@ -3219,7 +2543,7 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
 
               {/* Cancel button (mobile only) */}
               <div className="sm:hidden px-2 pb-2 pt-1">
-                <button 
+                <button
                   onClick={() => setContextMenu(null)}
                   className="w-full py-3.5 bg-gray-100 dark:bg-slate-700 rounded-xl font-semibold text-gray-900 dark:text-white hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors"
                 >
@@ -3235,13 +2559,13 @@ export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInte
       {reactionPicker && (
         <>
           {/* Backdrop */}
-          <div 
+          <div
             className="fixed inset-0 z-40"
             onClick={() => setReactionPicker(null)}
           />
-          
+
           {/* Picker */}
-          <div 
+          <div
             className="fixed z-50 bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-slate-700 p-2 animate-scale-up"
             style={{
               left: Math.min(reactionPicker.x, window.innerWidth - 250),

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { rateLimitMiddleware } from '@/lib/rate-limit'
+import { authenticateRequest } from '@/lib/auth-middleware'
 
 const MAX_AUDIO_SIZE = 10 * 1024 * 1024 // 10MB
 const DEEPGRAM_API_URL = 'https://api.deepgram.com/v1/listen'
@@ -59,8 +60,12 @@ function getDeepgramErrorMessage(status: number, errorText?: string): string {
 }
 
 export async function POST(req: NextRequest) {
-  // Apply rate limiting
-  const rateLimitResult = rateLimitMiddleware(req, '/api/stt')
+  // Authenticate request
+  const { user, error: authError } = await authenticateRequest(req)
+  if (authError) return authError
+
+  // Apply rate limiting (use user ID for more accurate limiting)
+  const rateLimitResult = await rateLimitMiddleware(req, '/api/stt', user?.id)
   if (!rateLimitResult.allowed) {
     return rateLimitResult.response!
   }
@@ -101,7 +106,7 @@ export async function POST(req: NextRequest) {
     apiUrl.searchParams.set('language', 'de')
     apiUrl.searchParams.set('smart_format', 'true')
     apiUrl.searchParams.set('punctuate', 'true')
-    
+
     // Deepgram prefers certain formats - if we have mp4, try to specify encoding
     // For mp4/m4a, Deepgram might need explicit encoding hint
     if (contentType.includes('mp4') || contentType.includes('m4a')) {
@@ -131,7 +136,7 @@ export async function POST(req: NextRequest) {
         fileSize: audioBuffer.byteLength,
         fileName: audioFile.name,
       })
-      
+
       // Log more details for debugging
       try {
         const errorJson = JSON.parse(errorText)
@@ -139,11 +144,11 @@ export async function POST(req: NextRequest) {
       } catch (e) {
         // Not JSON, that's okay
       }
-      
+
       const errorMessage = getDeepgramErrorMessage(response.status, errorText)
-      
+
       return NextResponse.json(
-        { 
+        {
           error: errorMessage,
           status: response.status,
           details: process.env.NODE_ENV === 'development' ? errorText : undefined,
@@ -165,12 +170,12 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    return NextResponse.json({ 
+    return NextResponse.json({
       transcript: transcript.trim(),
     })
   } catch (error) {
     console.error('STT API error:', error)
-    
+
     if (error instanceof Error) {
       if (error.name === 'AbortError' || error.name === 'TimeoutError') {
         return NextResponse.json(
@@ -179,7 +184,7 @@ export async function POST(req: NextRequest) {
         )
       }
     }
-    
+
     return NextResponse.json(
       {
         error: 'Ein Fehler ist aufgetreten. Bitte versuche es erneut.',

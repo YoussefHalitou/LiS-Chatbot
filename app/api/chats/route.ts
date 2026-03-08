@@ -6,8 +6,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { getAllChats, createNewChat, deleteChat } from '@/lib/supabase-chat'
+import { authenticateRequest } from '@/lib/auth-middleware'
 
 export async function GET(req: NextRequest) {
+  // Authenticate request
+  const { error: authError } = await authenticateRequest(req)
+  if (authError) return authError
+
   try {
     const { chats, error } = await getAllChats()
 
@@ -29,6 +34,10 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  // Authenticate request
+  const { error: authError } = await authenticateRequest(req)
+  if (authError) return authError
+
   try {
     const { chat, error } = await createNewChat()
 
@@ -50,6 +59,10 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  // Authenticate request
+  const { error: authError } = await authenticateRequest(req)
+  if (authError) return authError
+
   try {
     const { searchParams } = new URL(req.url)
     const chatId = searchParams.get('chatId')
@@ -79,4 +92,5 @@ export async function DELETE(req: NextRequest) {
     )
   }
 }
+
 

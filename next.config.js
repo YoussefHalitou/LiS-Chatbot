@@ -44,19 +44,19 @@ const withPWA = require('next-pwa')({
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  
+
   // Production optimizations
   poweredByHeader: false, // Remove X-Powered-By header for security
-  
+
   // Compression
   compress: true,
-  
+
   // Image optimization
   images: {
     formats: ['image/avif', 'image/webp'],
     minimumCacheTTL: 60,
   },
-  
+
   // Security headers
   async headers() {
     return [
@@ -103,7 +103,7 @@ const nextConfig = {
           },
           {
             key: 'Access-Control-Allow-Origin',
-            value: process.env.NEXT_PUBLIC_APP_URL || '*'
+            value: process.env.ALLOWED_ORIGINS || process.env.NEXT_PUBLIC_APP_URL || 'https://lis-chatbot.vercel.app'
           },
           {
             key: 'Access-Control-Allow-Methods',
