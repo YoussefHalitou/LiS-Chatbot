@@ -4,6 +4,12 @@ import { createAuditLog } from './audit-log'
 import { INSERT_ALLOWED_TABLES } from './constants'
 import { retrySupabaseOperation } from './retry'
 import { getUserFriendlyErrorMessage } from './error-messages'
+import type { FilterMap, StructuredFilter } from '@/types'
+
+/** Type guard: does this filter value have .type and .value? */
+function isStructuredFilter(v: unknown): v is StructuredFilter {
+  return typeof v === 'object' && v !== null && !Array.isArray(v) && 'type' in v
+}
 
 /**
  * Get statistics/aggregations from a table
@@ -15,7 +21,7 @@ export async function getStatistics(
     aggregation?: 'count' | 'sum' | 'avg' | 'min' | 'max'
     column?: string
     groupBy?: string
-    filters?: Record<string, any>
+    filters?: FilterMap
     limit?: number
   } = {}
 ) {
@@ -32,7 +38,7 @@ export async function getStatistics(
     // Use queryTable to get data, then calculate statistics in-memory
     // This approach works with existing infrastructure and doesn't require SQL injection
     const result = await queryTable(tableName, filters, limit)
-    
+
     if (result.error) {
       return result
     }
@@ -46,14 +52,14 @@ export async function getStatistics(
     }
 
     const data = result.data
-    let statistics: any = {}
+    let statistics: Record<string, unknown> | Record<string, unknown>[] = {}
 
     if (aggregation === 'count') {
       if (groupBy) {
         // Group by and count
         const grouped: Record<string, number> = {}
         for (const row of data) {
-          const groupValue = (row as any)[groupBy] || 'Unbekannt'
+          const groupValue = (row as unknown as Record<string, unknown>)[groupBy] as string || 'Unbekannt'
           grouped[groupValue] = (grouped[groupValue] || 0) + 1
         }
         statistics = Object.entries(grouped).map(([key, value]) => ({
@@ -64,8 +70,8 @@ export async function getStatistics(
         statistics = { count: data.length }
       }
     } else if (column) {
-      const values = data.map((row: any) => parseFloat((row as any)[column])).filter((v: number) => !isNaN(v))
-      
+      const values = data.map((row) => parseFloat(String((row as unknown as Record<string, unknown>)[column!]))).filter((v: number) => !isNaN(v))
+
       if (values.length === 0) {
         return {
           data: null,
@@ -77,8 +83,8 @@ export async function getStatistics(
         // Group by and aggregate
         const grouped: Record<string, number[]> = {}
         for (const row of data) {
-          const groupValue = (row as any)[groupBy] || 'Unbekannt'
-          const numValue = parseFloat((row as any)[column])
+          const groupValue = (row as unknown as Record<string, unknown>)[groupBy] as string || 'Unbekannt'
+          const numValue = parseFloat(String((row as unknown as Record<string, unknown>)[column!]))
           if (!isNaN(numValue)) {
             if (!grouped[groupValue]) {
               grouped[groupValue] = []
@@ -88,7 +94,7 @@ export async function getStatistics(
         }
 
         statistics = Object.entries(grouped).map(([key, values]) => {
-          const result: Record<string, any> = { [groupBy]: key }
+          const result: Record<string, unknown> = { [groupBy]: key }
           switch (aggregation) {
             case 'sum':
               result.total = values.reduce((a, b) => a + b, 0)
@@ -184,9 +190,9 @@ export async function executeReadOnlyQuery(sql: string) {
 export async function getTableNames() {
   try {
     if (!supabaseAdmin) {
-      return { 
-        tables: [], 
-        error: 'Service role key not configured. Please set SUPABASE_SERVICE_ROLE_KEY in your environment variables.' 
+      return {
+        tables: [],
+        error: 'Service role key not configured. Please set SUPABASE_SERVICE_ROLE_KEY in your environment variables.'
       }
     }
 
@@ -206,14 +212,14 @@ export async function getTableNames() {
       if (response.ok) {
         // The root endpoint returns OpenAPI schema
         const schema = await response.json()
-        
+
         // Extract table names from the OpenAPI paths
         if (schema.paths) {
           const tables = Object.keys(schema.paths)
             .filter(path => path.startsWith('/') && !path.includes('rpc'))
             .map(path => path.replace(/^\//, ''))
             .filter(table => table && !table.includes('{'))
-          
+
           if (tables.length > 0) {
             return { tables, error: null }
           }
@@ -228,7 +234,7 @@ export async function getTableNames() {
     // This requires a custom RPC function in Supabase
     try {
       const { data, error } = await supabaseAdmin.rpc('get_table_names')
-      
+
       if (!error && data) {
         return { tables: data, error: null }
       }
@@ -254,7 +260,7 @@ export async function getTableNames() {
       if (response.ok) {
         const data = await response.json()
         if (Array.isArray(data) && data.length > 0) {
-          const tables = data.map((row: any) => row.table_name).filter(Boolean)
+          const tables = data.map((row: Record<string, unknown>) => row.table_name as string).filter(Boolean)
           if (tables.length > 0) {
             return { tables, error: null }
           }
@@ -265,9 +271,9 @@ export async function getTableNames() {
     }
 
     // If all methods fail, return empty with helpful message
-    return { 
-      tables: [], 
-      error: 'Could not automatically discover tables. You can still query tables by name using the queryTable function. Common table names might include: users, products, orders, etc. Try asking about specific data and I will attempt to query the relevant tables.' 
+    return {
+      tables: [],
+      error: 'Could not automatically discover tables. You can still query tables by name using the queryTable function. Common table names might include: users, products, orders, etc. Try asking about specific data and I will attempt to query the relevant tables.'
     }
   } catch (err) {
     return {
@@ -334,7 +340,7 @@ export async function getTableStructure(tableName: string) {
  */
 export async function queryTable(
   tableName: string,
-  filters: Record<string, any> = {},
+  filters: FilterMap = {},
   limit: number = 100,
   joins?: string[]
 ) {
@@ -385,7 +391,7 @@ export async function queryTable(
       }
 
       // If value is an object with filter type, use it
-      if (typeof value === 'object' && !Array.isArray(value) && value.type) {
+      if (isStructuredFilter(value)) {
         const filterType = value.type
         const filterValue = value.value
 
@@ -435,8 +441,8 @@ export async function queryTable(
 
     // Retry query with exponential backoff for transient failures
     const result = await retrySupabaseOperation(async () => {
-    const { data, error } = await query
-    if (error) {
+      const { data, error } = await query
+      if (error) {
         throw error
       }
       return { data: data || [], error: null }
@@ -461,19 +467,19 @@ export async function queryTable(
 
 export async function insertRow(
   tableName: string,
-  values: Record<string, any>,
+  values: Record<string, unknown>,
   options?: {
     userId?: string
     ipAddress?: string
   }
 ) {
   // #region agent log
-  fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase-query.ts:insertRow',message:'insertRow called',data:{tableName,valueKeys:Object.keys(values||{})},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H6'})}).catch(()=>{});
+  fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'supabase-query.ts:insertRow', message: 'insertRow called', data: { tableName, valueKeys: Object.keys(values || {}) }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H6' }) }).catch(() => { });
   // #endregion
   try {
     if (!supabaseAdmin) {
       // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase-query.ts:insertRow-no-admin',message:'No supabaseAdmin configured',data:{tableName},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H7'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'supabase-query.ts:insertRow-no-admin', message: 'No supabaseAdmin configured', data: { tableName }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H7' }) }).catch(() => { });
       // #endregion
       return {
         data: null,
@@ -534,7 +540,7 @@ export async function insertRow(
         .select()
         .single()
 
-    if (error) {
+      if (error) {
         throw error
       }
       return { data, error: null }
@@ -543,7 +549,7 @@ export async function insertRow(
     if (insertResult.error) {
       const errorMessage = getUserFriendlyErrorMessage(insertResult.error, 'INSERT', tableName)
       // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase-query.ts:insertRow-db-error',message:'Database insert error',data:{tableName,rawError:String(insertResult.error),friendlyError:errorMessage,sanitizedValues},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H15'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'supabase-query.ts:insertRow-db-error', message: 'Database insert error', data: { tableName, rawError: String(insertResult.error), friendlyError: errorMessage, sanitizedValues }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H15' }) }).catch(() => { });
       // #endregion
       createAuditLog('INSERT', tableName, 'FAILURE', {
         userId: options?.userId,
@@ -561,14 +567,14 @@ export async function insertRow(
       values: sanitizedValues,
     })
     // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase-query.ts:insertRow-success',message:'Insert successful',data:{tableName,insertedData:insertResult.data},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H6'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'supabase-query.ts:insertRow-success', message: 'Insert successful', data: { tableName, insertedData: insertResult.data }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H6' }) }).catch(() => { });
     // #endregion
 
     return { data: insertResult.data, error: null }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : 'Unknown error'
     // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase-query.ts:insertRow-error',message:'Insert failed',data:{tableName,error:errorMessage},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H6'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'supabase-query.ts:insertRow-error', message: 'Insert failed', data: { tableName, error: errorMessage }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H6' }) }).catch(() => { });
     // #endregion
     createAuditLog('INSERT', tableName, 'FAILURE', {
       userId: options?.userId,
@@ -585,8 +591,8 @@ export async function insertRow(
 
 export async function updateRow(
   tableName: string,
-  filters: Record<string, any>,
-  values: Record<string, any>,
+  filters: Record<string, unknown>,
+  values: Record<string, unknown>,
   options?: {
     userId?: string
     ipAddress?: string
@@ -594,12 +600,12 @@ export async function updateRow(
   }
 ) {
   // #region agent log
-  fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase-query.ts:updateRow',message:'updateRow called',data:{tableName,filterKeys:Object.keys(filters||{}),valueKeys:Object.keys(values||{})},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H8'})}).catch(()=>{});
+  fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'supabase-query.ts:updateRow', message: 'updateRow called', data: { tableName, filterKeys: Object.keys(filters || {}), valueKeys: Object.keys(values || {}) }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H8' }) }).catch(() => { });
   // #endregion
   try {
     if (!supabaseAdmin) {
       // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase-query.ts:updateRow-no-admin',message:'No supabaseAdmin configured',data:{tableName},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H7'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'supabase-query.ts:updateRow-no-admin', message: 'No supabaseAdmin configured', data: { tableName }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H7' }) }).catch(() => { });
       // #endregion
       return {
         data: null,
@@ -685,13 +691,13 @@ export async function updateRow(
 
     // First, check how many rows would be affected
     let countQuery = supabaseAdmin.from(tableName).select('*', { count: 'exact', head: true })
-    
+
     // Apply filters to count query
     for (const [key, value] of Object.entries(sanitizedFilters)) {
       if (value === undefined || value === null) {
         continue
       }
-      if (typeof value === 'object' && !Array.isArray(value) && value.type) {
+      if (isStructuredFilter(value)) {
         const filterType = value.type
         const filterValue = value.value
         switch (filterType) {
@@ -713,7 +719,7 @@ export async function updateRow(
         countQuery = countQuery.eq(key, value)
       }
     }
-    
+
     const { count } = await countQuery
 
     if (count === 0) {
@@ -754,7 +760,7 @@ export async function updateRow(
       }
 
       // Support filter objects with type
-      if (typeof value === 'object' && !Array.isArray(value) && value.type) {
+      if (isStructuredFilter(value)) {
         const filterType = value.type
         const filterValue = value.value
 
@@ -813,14 +819,14 @@ export async function updateRow(
       values: sanitizedValues,
     })
     // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase-query.ts:updateRow-success',message:'Update successful',data:{tableName,updatedData:updateResult.data},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H8'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'supabase-query.ts:updateRow-success', message: 'Update successful', data: { tableName, updatedData: updateResult.data }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H8' }) }).catch(() => { });
     // #endregion
 
     return { data: updateResult.data, error: null }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : 'Unknown error'
     // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase-query.ts:updateRow-error',message:'Update failed',data:{tableName,error:errorMessage},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H8'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'supabase-query.ts:updateRow-error', message: 'Update failed', data: { tableName, error: errorMessage }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H8' }) }).catch(() => { });
     // #endregion
     createAuditLog('UPDATE', tableName, 'FAILURE', {
       userId: options?.userId,
@@ -846,12 +852,12 @@ export async function deleteRow(
   }
 ) {
   // #region agent log
-  fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase-query.ts:deleteRow',message:'deleteRow called',data:{tableName,filterKeys:Object.keys(filters||{})},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H9'})}).catch(()=>{});
+  fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'supabase-query.ts:deleteRow', message: 'deleteRow called', data: { tableName, filterKeys: Object.keys(filters || {}) }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H9' }) }).catch(() => { });
   // #endregion
   try {
     if (!supabaseAdmin) {
       // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase-query.ts:deleteRow-no-admin',message:'No supabaseAdmin configured',data:{tableName},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H7'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'supabase-query.ts:deleteRow-no-admin', message: 'No supabaseAdmin configured', data: { tableName }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H7' }) }).catch(() => { });
       // #endregion
       return {
         data: null,
@@ -910,13 +916,13 @@ export async function deleteRow(
 
     // First, check how many rows would be affected
     let countQuery = supabaseAdmin.from(tableName).select('*', { count: 'exact', head: true })
-    
+
     // Apply filters to count query
     for (const [key, value] of Object.entries(sanitizedFilters)) {
       if (value === undefined || value === null) {
         continue
       }
-      if (typeof value === 'object' && !Array.isArray(value) && value.type) {
+      if (isStructuredFilter(value)) {
         const filterType = value.type
         const filterValue = value.value
         switch (filterType) {
@@ -938,7 +944,7 @@ export async function deleteRow(
         countQuery = countQuery.eq(key, value)
       }
     }
-    
+
     const { count } = await countQuery
 
     if (count === 0) {
@@ -977,7 +983,7 @@ export async function deleteRow(
       }
 
       // Support filter objects with type
-      if (typeof value === 'object' && !Array.isArray(value) && value.type) {
+      if (isStructuredFilter(value)) {
         const filterType = value.type
         const filterValue = value.value
 
@@ -1013,7 +1019,7 @@ export async function deleteRow(
       if (error) {
         throw error
       }
-    return { data, error: null }
+      return { data, error: null }
     })
 
     if (deleteResult.error) {
@@ -1037,17 +1043,17 @@ export async function deleteRow(
       metadata: { deleted_count: deletedCount },
     })
     // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase-query.ts:deleteRow-success',message:'Delete successful',data:{tableName,deletedCount},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H9'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'supabase-query.ts:deleteRow-success', message: 'Delete successful', data: { tableName, deletedCount }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H9' }) }).catch(() => { });
     // #endregion
 
-    return { 
-      data: { deleted_count: deletedCount, deleted_rows: deleteResult.data || [] }, 
-      error: null 
+    return {
+      data: { deleted_count: deletedCount, deleted_rows: deleteResult.data || [] },
+      error: null
     }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : 'Unknown error'
     // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'supabase-query.ts:deleteRow-error',message:'Delete failed',data:{tableName,error:errorMessage},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H9'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7243/ingest/aa46043d-1848-493a-a3a4-c47b42dc91a7', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ location: 'supabase-query.ts:deleteRow-error', message: 'Delete failed', data: { tableName, error: errorMessage }, timestamp: Date.now(), sessionId: 'debug-session', hypothesisId: 'H9' }) }).catch(() => { });
     // #endregion
     createAuditLog('DELETE', tableName, 'FAILURE', {
       userId: options?.userId,
@@ -1087,7 +1093,7 @@ export async function queryTableWithJoin(
 
   // Try multiple join patterns
   const joinPatterns: string[] = []
-  
+
   if (joinColumn) {
     // Pattern 1: Explicit foreign key: joinTable!joinColumn(*)
     joinPatterns.push(`${joinTable}!${joinColumn}(*)`)
@@ -1097,10 +1103,10 @@ export async function queryTableWithJoin(
       joinPatterns.push(`${joinTable}!${columnWithoutPrefix}(*)`)
     }
   }
-  
+
   // Pattern 3: Auto-detect (Supabase will try to find the relationship)
   joinPatterns.push(`${joinTable}(*)`)
-  
+
   // Pattern 4: Try common foreign key naming patterns
   const commonFkNames = [
     `${tableName.replace('t_', '')}_id`,
@@ -1110,7 +1116,7 @@ export async function queryTableWithJoin(
     'product_id',
     'item_id'
   ]
-  
+
   for (const fkName of commonFkNames) {
     if (fkName !== joinColumn) {
       joinPatterns.push(`${joinTable}!${fkName}(*)`)
@@ -1131,7 +1137,7 @@ export async function queryTableWithJoin(
           continue
         }
 
-        if (typeof value === 'object' && !Array.isArray(value) && value.type) {
+        if (isStructuredFilter(value)) {
           const filterType = value.type
           const filterValue = value.value
 

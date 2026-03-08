@@ -12,16 +12,7 @@ import {
   getTableStructure,
 } from '@/lib/supabase-query'
 import { INSERT_ALLOWED_TABLES } from '@/lib/constants'
-
-export interface Message {
-  role: 'system' | 'user' | 'assistant' | 'function' | 'tool'
-  content: string
-  name?: string
-  tool_calls?: any[]
-  tool_call_id?: string
-}
-
-// ChatRequest is now imported from '@/types'
+import type { OpenAIMessage, FilterMap, JsonValue, RowRecord } from '@/types'
 
 export type DateRange = {
   start: string
@@ -54,7 +45,7 @@ export const formatIsoDate = (date: Date) => date.toISOString().slice(0, 10)
 /**
  * Formats JSON data with pretty printing for better readability
  */
-export const formatJsonOutput = (data: any): string => {
+export const formatJsonOutput = (data: JsonValue | Record<string, unknown>): string => {
   try {
     return JSON.stringify(data, null, 2)
   } catch (error) {
@@ -131,7 +122,7 @@ export const formatErrorMessage = (error: string, context?: string): string => {
  */
 export const getNoResultsSuggestions = async (
   queryType: string,
-  filters?: Record<string, any>,
+  filters?: FilterMap,
   tableName?: string
 ): Promise<string> => {
   const suggestions: string[] = []
@@ -182,10 +173,11 @@ export const getNoResultsSuggestions = async (
       try {
         const similarQuery = await queryTable('t_employees', {}, 50)
         if (similarQuery.data && Array.isArray(similarQuery.data) && similarQuery.data.length > 0) {
-          const searchName = typeof filters.name === 'string' ? filters.name.toLowerCase() :
-            (filters.name?.value || '').toLowerCase()
-          const similarNames = similarQuery.data
-            .map((emp: any) => emp.name)
+          const nameFilter = filters.name
+          const searchName = typeof nameFilter === 'string' ? nameFilter.toLowerCase() :
+            (nameFilter && typeof nameFilter === 'object' && 'value' in nameFilter ? String(nameFilter.value) : '').toLowerCase()
+          const similarNames = (similarQuery.data as unknown as Record<string, unknown>[])
+            .map((emp) => emp.name as string)
             .filter((name: string) => name && name.toLowerCase().includes(searchName.substring(0, 2)))
             .slice(0, 3)
 
@@ -256,7 +248,7 @@ export const isConfirmationMessage = (text: string) => {
   ])
 }
 
-export const normalizeInsertPayload = (payload: Record<string, any>) => {
+export const normalizeInsertPayload = (payload: Record<string, unknown>) => {
   if (payload.tableName && payload.values && typeof payload.values === 'object') {
     return {
       tableName: payload.tableName,
@@ -498,10 +490,10 @@ export const inferDateRange = ({
 
 export const applyDateRangeFilters = (
   tableName: string,
-  filters: Record<string, any>,
+  filters: FilterMap,
   dateRange: DateRange | null,
   userText?: string
-) => {
+): FilterMap => {
   const dateField = DATE_RANGE_TABLE_FIELDS[tableName]
   if (!dateField) {
     return filters
@@ -607,8 +599,8 @@ export const applyDateRangeFilters = (
  */
 export const applyEmployeeFilters = (
   tableName: string,
-  filters: Record<string, any>
-): Record<string, any> => {
+  filters: FilterMap
+): FilterMap => {
   // Only apply to employee-related tables
   if (tableName !== 't_employees' && tableName !== 'v_employee_kpi') {
     return filters
@@ -658,7 +650,7 @@ export interface ConversationContext {
   }
 }
 
-export const extractConversationContext = (messages: any[]): ConversationContext => {
+export const extractConversationContext = (messages: OpenAIMessage[]): ConversationContext => {
   const context: ConversationContext = {}
 
   // Look at last 15 messages (user + assistant + tool pairs)
@@ -779,7 +771,7 @@ export const extractConversationContext = (messages: any[]): ConversationContext
 
 export const applyProjectFilters = (
   tableName: string,
-  filters: Record<string, any>,
+  filters: FilterMap,
   projectIdentifiers: { projectId: string | null; projectCode: string | null; projectName: string | null } | null
 ) => {
   if (!projectIdentifiers) {

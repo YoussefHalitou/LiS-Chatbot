@@ -5,6 +5,7 @@
 
 import { supabase, supabaseAdmin } from './supabase'
 import { Message, Chat } from '@/types'
+import type { DbChat, DbChatMessage } from '@/types/supabase'
 
 /**
  * Get current authenticated user
@@ -23,7 +24,7 @@ export async function getCurrentUser() {
  */
 export async function getAllChats(): Promise<{ chats: Chat[]; error: string | null }> {
   const { user, error: authError } = await getCurrentUser()
-  
+
   if (authError || !user) {
     const errorMessage = authError ? (typeof authError === 'string' ? authError : authError.message) : 'User not authenticated'
     return { chats: [], error: errorMessage }
@@ -44,7 +45,7 @@ export async function getAllChats(): Promise<{ chats: Chat[]; error: string | nu
       return { chats: [], error: error.message }
     }
 
-    const chats: Chat[] = (data || []).map((row: any) => ({
+    const chats: Chat[] = (data || []).map((row: DbChat) => ({
       id: row.id,
       title: row.title,
       createdAt: new Date(row.created_at),
@@ -66,7 +67,7 @@ export async function getAllChats(): Promise<{ chats: Chat[]; error: string | nu
  */
 export async function getChatMessages(chatId: string): Promise<{ messages: Message[]; error: string | null }> {
   const { user, error: authError } = await getCurrentUser()
-  
+
   if (authError || !user) {
     const errorMessage = authError ? (typeof authError === 'string' ? authError : authError.message) : 'User not authenticated'
     return { messages: [], error: errorMessage }
@@ -99,10 +100,10 @@ export async function getChatMessages(chatId: string): Promise<{ messages: Messa
       return { messages: [], error: error.message }
     }
 
-    const messages: Message[] = (data || []).map((row: any) => ({
+    const messages: Message[] = (data || []).map((row: DbChatMessage) => ({
       role: row.role as 'user' | 'assistant' | 'tool',
-      content: row.content,
-      timestamp: new Date(row.timestamp),
+      content: row.content || '',
+      timestamp: new Date(row.timestamp || row.created_at || ''),
       tool_calls: row.tool_calls ? JSON.parse(JSON.stringify(row.tool_calls)) : undefined,
       tool_call_id: row.tool_call_id || undefined,
     }))
@@ -124,7 +125,7 @@ export async function saveChatMessages(
   messages: Message[]
 ): Promise<{ error: string | null }> {
   const { user, error: authError } = await getCurrentUser()
-  
+
   if (authError || !user) {
     const errorMessage = authError ? (typeof authError === 'string' ? authError : authError.message) : 'User not authenticated'
     return { error: errorMessage }
@@ -207,7 +208,7 @@ export async function saveChatMessages(
  */
 export async function createNewChat(): Promise<{ chat: Chat | null; error: string | null }> {
   const { user, error: authError } = await getCurrentUser()
-  
+
   if (authError || !user) {
     const errorMessage = authError ? (typeof authError === 'string' ? authError : authError.message) : 'User not authenticated'
     return { chat: null, error: errorMessage }
@@ -254,7 +255,7 @@ export async function createNewChat(): Promise<{ chat: Chat | null; error: strin
  */
 export async function deleteChat(chatId: string): Promise<{ error: string | null }> {
   const { user, error: authError } = await getCurrentUser()
-  
+
   if (authError || !user) {
     const errorMessage = authError ? (typeof authError === 'string' ? authError : authError.message) : 'User not authenticated'
     return { error: errorMessage }
@@ -292,7 +293,7 @@ export async function shareChat(
   sharedWithUserId: string
 ): Promise<{ error: string | null }> {
   const { user, error: authError } = await getCurrentUser()
-  
+
   if (authError || !user) {
     const errorMessage = authError ? (typeof authError === 'string' ? authError : authError.message) : 'User not authenticated'
     return { error: errorMessage }

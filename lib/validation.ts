@@ -28,23 +28,24 @@ export function validateTableName(tableName: string, allowedTables: Set<string>)
 /**
  * Sanitize and validate filter values
  */
-export function sanitizeFilterValue(value: any): any {
+export function sanitizeFilterValue(value: unknown): unknown {
   if (value === null || value === undefined) {
     return null
   }
 
   // If it's a filter object with type and value
-  if (typeof value === 'object' && !Array.isArray(value) && value.type) {
-    const sanitized = { ...value }
-    
+  if (typeof value === 'object' && !Array.isArray(value) && 'type' in value) {
+    const filterObj = value as Record<string, unknown>
+    const sanitized = { ...filterObj }
+
     // Validate filter type
     const allowedTypes = ['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'between', 'like', 'ilike', 'in']
-    if (!allowedTypes.includes(value.type)) {
-      throw new Error(`Invalid filter type: ${value.type}`)
+    if (!allowedTypes.includes(filterObj.type as string)) {
+      throw new Error(`Invalid filter type: ${filterObj.type}`)
     }
 
     // Sanitize the actual value
-    sanitized.value = sanitizeValue(value.value)
+    sanitized.value = sanitizeValue(filterObj.value)
     return sanitized
   }
 
@@ -55,7 +56,7 @@ export function sanitizeFilterValue(value: any): any {
 /**
  * Sanitize a single value
  */
-function sanitizeValue(value: any): any {
+function sanitizeValue(value: unknown): unknown {
   if (value === null || value === undefined) {
     return null
   }
@@ -98,7 +99,7 @@ function sanitizeValue(value: any): any {
 
   // Object values - recursively sanitize
   if (typeof value === 'object') {
-    const sanitized: Record<string, any> = {}
+    const sanitized: Record<string, unknown> = {}
     for (const [key, val] of Object.entries(value)) {
       // Validate key name
       if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
@@ -115,9 +116,9 @@ function sanitizeValue(value: any): any {
 /**
  * Validate and sanitize filter object
  */
-export function sanitizeFilters(filters: Record<string, any>): {
+export function sanitizeFilters(filters: Record<string, unknown>): {
   valid: boolean
-  sanitized?: Record<string, any>
+  sanitized?: Record<string, unknown>
   error?: string
 } {
   if (!filters || typeof filters !== 'object') {
@@ -125,8 +126,8 @@ export function sanitizeFilters(filters: Record<string, any>): {
   }
 
   try {
-    const sanitized: Record<string, any> = {}
-    
+    const sanitized: Record<string, unknown> = {}
+
     for (const [key, value] of Object.entries(filters)) {
       // Validate key name
       if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
@@ -153,9 +154,9 @@ export function sanitizeFilters(filters: Record<string, any>): {
 /**
  * Validate and sanitize values for insert/update operations
  */
-export function sanitizeValues(values: Record<string, any>): {
+export function sanitizeValues(values: Record<string, unknown>): {
   valid: boolean
-  sanitized?: Record<string, any>
+  sanitized?: Record<string, unknown>
   error?: string
 } {
   if (!values || typeof values !== 'object') {
@@ -163,8 +164,8 @@ export function sanitizeValues(values: Record<string, any>): {
   }
 
   try {
-    const sanitized: Record<string, any> = {}
-    
+    const sanitized: Record<string, unknown> = {}
+
     for (const [key, value] of Object.entries(values)) {
       // Validate key name (column name)
       if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
@@ -191,7 +192,7 @@ export function sanitizeValues(values: Record<string, any>): {
 /**
  * Validate that filters identify exactly one row (for updates/deletes)
  */
-export function validateSingleRowFilters(filters: Record<string, any>): {
+export function validateSingleRowFilters(filters: Record<string, unknown>): {
   valid: boolean
   error?: string
 } {
@@ -206,7 +207,7 @@ export function validateSingleRowFilters(filters: Record<string, any>): {
     'project_code', 'name', 'employee_code', 'vehicle_nickname', 'nickname'
   ]
 
-  const hasUniqueIdentifier = Object.keys(filters).some(key => 
+  const hasUniqueIdentifier = Object.keys(filters).some(key =>
     uniqueIdentifiers.includes(key.toLowerCase())
   )
 

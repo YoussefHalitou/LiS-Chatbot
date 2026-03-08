@@ -4,7 +4,9 @@
  */
 
 import OpenAI from 'openai'
+import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
 import type { DateRange } from './inference'
+import type { OpenAIMessage } from '@/types'
 import { getToolDefinitions } from './tool-definitions'
 import { handleToolCalls } from './tool-handlers'
 
@@ -32,7 +34,7 @@ export function encodeSse(data: object) {
 }
 
 export async function handleStreamingCompletion(
-  openaiMessages: any[],
+  openaiMessages: OpenAIMessage[],
   requestedDateRange: DateRange | null,
   requestedProjectIdentifiers: {
     projectId: string | null
@@ -46,7 +48,7 @@ export async function handleStreamingCompletion(
       try {
         const initialStream = await _getOpenAIClient().chat.completions.create({
           model: 'gpt-4o',
-          messages: openaiMessages,
+          messages: openaiMessages as ChatCompletionMessageParam[],
           tools: getToolDefinitions(),
           tool_choice: 'auto',
           temperature: 0.3,
@@ -99,7 +101,7 @@ export async function handleStreamingCompletion(
             .sort(([a], [b]) => a - b)
             .map(([, value]) => ({
               id: value.id,
-              type: 'function',
+              type: 'function' as const,
               function: value.function,
             }))
 
@@ -108,11 +110,11 @@ export async function handleStreamingCompletion(
 
           // Get last user message for context
           const lastUserMsg = openaiMessages
-            .filter((m: any) => m.role === 'user')
+            .filter((m) => m.role === 'user')
             .pop()?.content || ''
 
           // Track how many tool messages exist before handleToolCalls
-          const toolMessageCountBefore = openaiMessages.filter((m: any) => m.role === 'tool').length
+          const toolMessageCountBefore = openaiMessages.filter((m) => m.role === 'tool').length
 
           await handleToolCalls(
             { tool_calls, content: null },
@@ -125,7 +127,7 @@ export async function handleStreamingCompletion(
 
           // Send tool response messages to client so they can be preserved
           // Get only the tool messages that were just added
-          const allToolMessages = openaiMessages.filter((m: any) => m.role === 'tool')
+          const allToolMessages = openaiMessages.filter((m) => m.role === 'tool')
           const newToolMessages = allToolMessages.slice(toolMessageCountBefore)
 
           for (const toolResponse of newToolMessages) {
@@ -138,7 +140,7 @@ export async function handleStreamingCompletion(
 
           const finalStream = await _getOpenAIClient().chat.completions.create({
             model: 'gpt-4o',
-            messages: openaiMessages,
+            messages: openaiMessages as ChatCompletionMessageParam[],
             temperature: 0.3,
             stream: true,
           })

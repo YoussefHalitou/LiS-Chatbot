@@ -6,7 +6,7 @@
  * Get user-friendly error message from database error
  */
 export function getUserFriendlyErrorMessage(
-  error: any,
+  error: unknown,
   operation: 'INSERT' | 'UPDATE' | 'DELETE' | 'QUERY',
   tableName?: string
 ): string {
@@ -14,8 +14,8 @@ export function getUserFriendlyErrorMessage(
     return 'Ein unbekannter Fehler ist aufgetreten.'
   }
 
-  const errorMessage = typeof error === 'string' ? error : (error.message || String(error))
-  const errorCode = typeof error === 'object' && error !== null ? (error as any).code : undefined
+  const errorMessage = typeof error === 'string' ? error : (error instanceof Error ? error.message : String(error))
+  const errorCode = (typeof error === 'object' && error !== null) ? (error as Record<string, unknown>).code as string | undefined : undefined
   const lowerMessage = errorMessage.toLowerCase()
 
   // Database connection errors

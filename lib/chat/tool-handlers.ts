@@ -18,8 +18,8 @@ import {
 import { INSERT_ALLOWED_TABLES } from '@/lib/constants'
 import { checkPermission, getPermissionDeniedMessage } from '@/lib/rbac'
 import type { DateRange } from './inference'
+import type { OpenAIMessage, ToolCallItem } from '@/types'
 import {
-  includesAny,
   formatJsonOutput,
   formatErrorMessage,
   getNoResultsSuggestions,
@@ -38,7 +38,7 @@ import {
  * This helps when the bot finds IDs but doesn't pass them correctly to insertRow
  */
 export function extractIdsFromPreviousQueries(
-  openaiMessages: any[],
+  openaiMessages: OpenAIMessage[],
   projectName?: string,
   employeeName?: string,
   planDate?: string
@@ -113,8 +113,8 @@ export function extractIdsFromPreviousQueries(
 }
 
 export async function handleToolCalls(
-  responseMessage: any,
-  openaiMessages: any[],
+  responseMessage: { content: string | null; tool_calls: ToolCallItem[] },
+  openaiMessages: OpenAIMessage[],
   requestedDateRange: DateRange | null,
   requestedProjectIdentifiers: {
     projectId: string | null
@@ -166,12 +166,12 @@ export async function handleToolCalls(
     const functionName = toolCall.function.name
     const functionArgs = JSON.parse(toolCall.function.arguments || '{}')
 
-    let functionResult: any
+    let functionResult: Record<string, unknown>
 
     if (functionName === 'queryTable') {
       // Get the last user message for context
       const userMsg = lastUserMessage || openaiMessages
-        .filter((m: any) => m.role === 'user')
+        .filter((m) => m.role === 'user')
         .pop()?.content || ''
 
       let filtersWithRange = applyDateRangeFilters(
@@ -206,7 +206,7 @@ export async function handleToolCalls(
     } else if (functionName === 'queryTableWithJoin') {
       // Get the last user message for context
       const userMsg = lastUserMessage || openaiMessages
-        .filter((m: any) => m.role === 'user')
+        .filter((m) => m.role === 'user')
         .pop()?.content || ''
 
       let filtersWithRange = applyDateRangeFilters(
@@ -246,7 +246,7 @@ export async function handleToolCalls(
     } else if (functionName === 'getStatistics') {
       // Get the last user message for context
       const userMsg = lastUserMessage || openaiMessages
-        .filter((m: any) => m.role === 'user')
+        .filter((m) => m.role === 'user')
         .pop()?.content || ''
 
       // Apply date range filters if applicable
@@ -289,8 +289,8 @@ export async function handleToolCalls(
       } else if (!functionArgs.values || typeof functionArgs.values !== 'object') {
         // FALLBACK: Try to extract values from conversation if AI didn't include them
         const userMessages = openaiMessages
-          .filter((m: any) => m.role === 'user')
-          .map((m: any) => m.content)
+          .filter((m) => m.role === 'user')
+          .map((m) => m.content)
           .join(' ')
 
         if (functionArgs.tableName === 't_projects') {
@@ -424,7 +424,7 @@ export async function handleToolCalls(
         // If IDs are missing, try to extract them from previous query results
         if (!planId || !employeeId) {
           const userMsg = lastUserMessage || openaiMessages
-            .filter((m: any) => m.role === 'user')
+            .filter((m) => m.role === 'user')
             .pop()?.content || ''
 
           // Try to infer project name and employee name from user message

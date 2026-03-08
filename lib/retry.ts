@@ -36,11 +36,12 @@ const DEFAULT_OPTIONS: Required<RetryOptions> = {
 /**
  * Check if an error is retryable
  */
-function isRetryableError(error: any, retryableErrors: string[]): boolean {
+function isRetryableError(error: unknown, retryableErrors: string[]): boolean {
   if (!error) return false
 
-  const errorMessage = (error.message || error.toString() || '').toLowerCase()
-  const errorCode = (error.code || '').toLowerCase()
+  const errorObj = error as Record<string, unknown>
+  const errorMessage = ((errorObj?.message as string) || String(error) || '').toLowerCase()
+  const errorCode = ((errorObj?.code as string) || '').toLowerCase()
 
   return retryableErrors.some(
     (retryable) =>
@@ -77,7 +78,7 @@ export async function retryWithBackoff<T>(
   options: RetryOptions = {}
 ): Promise<T> {
   const opts = { ...DEFAULT_OPTIONS, ...options }
-  let lastError: any
+  let lastError: unknown
 
   for (let attempt = 1; attempt <= opts.maxAttempts; attempt++) {
     try {
@@ -120,9 +121,9 @@ export async function retryWithBackoff<T>(
  * Retry a Supabase operation with exponential backoff
  */
 export async function retrySupabaseOperation<T>(
-  operation: () => Promise<{ data: T | null; error: any }>,
+  operation: () => Promise<{ data: T | null; error: unknown }>,
   options: RetryOptions = {}
-): Promise<{ data: T | null; error: any }> {
+): Promise<{ data: T | null; error: unknown }> {
   try {
     return await retryWithBackoff(operation, {
       ...options,
@@ -135,7 +136,7 @@ export async function retrySupabaseOperation<T>(
         'network',
       ],
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
     // Handle different error formats:
     // - Error instance: use error.message
     // - Supabase error object: has message, code, details, hint properties
@@ -146,7 +147,8 @@ export async function retrySupabaseOperation<T>(
       errorMessage = error.message
     } else if (error && typeof error === 'object') {
       // Supabase error objects have message, code, details, hint
-      errorMessage = error.message || error.error || error.details || JSON.stringify(error)
+      const errObj = error as Record<string, unknown>
+      errorMessage = (errObj.message as string) || (errObj.error as string) || (errObj.details as string) || JSON.stringify(error)
     } else if (typeof error === 'string') {
       errorMessage = error
     }

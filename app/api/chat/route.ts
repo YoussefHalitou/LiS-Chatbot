@@ -468,7 +468,7 @@ export async function POST(req: NextRequest) {
         if (lastAssistantMessage) {
           const insertPayload = extractInsertPayload(lastAssistantMessage)
           const inferredTable =
-            insertPayload?.tableName ||
+            (insertPayload?.tableName as string | undefined) ||
             inferInsertTable(lastAssistantMessage) ||
             inferInsertTable(lastUserMessage)
 
@@ -506,7 +506,7 @@ export async function POST(req: NextRequest) {
 
             log.info({ table: inferredTable }, 'Attempting insert from extracted payload')
             const clientId = getClientIdentifier(req)
-            const insertResult = await insertRow(inferredTable, insertValues, {
+            const insertResult = await insertRow(inferredTable, (insertValues as Record<string, unknown>), {
               ipAddress: clientId,
             })
 
@@ -795,11 +795,11 @@ async function handleNonStreamingCompletion(
   if (responseMessage.tool_calls && responseMessage.tool_calls.length > 0) {
     // Get last user message for context
     const lastUserMsg = openaiMessages
-      .filter((m: any) => m.role === 'user')
+      .filter((m) => m.role === 'user')
       .pop()?.content || ''
 
     await handleToolCalls(
-      responseMessage,
+      { content: responseMessage.content, tool_calls: responseMessage.tool_calls ?? [] },
       openaiMessages,
       requestedDateRange,
       requestedProjectIdentifiers,
