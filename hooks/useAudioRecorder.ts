@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useCallback } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { AUDIO_CONFIG, APP_CONFIG, ERROR_MESSAGES } from '@/lib/constants'
 import { delay, isValidAudioBlob, getFileExtensionFromMimeType, getMicrophoneErrorMessage, triggerHaptic } from '@/lib/utils'
 import { showToast } from '@/lib/toast'
@@ -26,11 +26,6 @@ interface UseAudioRecorderReturn {
     stopRecording: () => void
     startAudioMonitoring: (stream: MediaStream) => void
     stopAudioMonitoring: () => void
-    /** Refs that ChatInterface needs access to */
-    mediaRecorderRef: React.MutableRefObject<MediaRecorder | null>
-    audioChunksRef: React.MutableRefObject<Blob[]>
-    audioContextRef: React.MutableRefObject<AudioContext | null>
-    analyserRef: React.MutableRefObject<AnalyserNode | null>
     streamRef: React.MutableRefObject<MediaStream | null>
 }
 
@@ -40,12 +35,15 @@ export function useAudioRecorder({
     onVoiceOnlyTranscript,
     onTranscript,
 }: UseAudioRecorderOptions): UseAudioRecorderReturn {
-    // State stored in refs to avoid re-renders during recording
+    // Reactive state — triggers re-renders for UI updates
+    const [isRecording, setIsRecording] = useState(false)
+    const [isProcessingSTT, setIsProcessingSTT] = useState(false)
+    const [isProcessingVoice, setIsProcessingVoice] = useState(false)
+    const [audioLevel, setAudioLevel] = useState(0)
+    const [silenceStartTime, setSilenceStartTime] = useState<number | null>(null)
+
+    // Refs for values needed inside callbacks (avoid stale closures)
     const isRecordingRef = useRef(false)
-    const isProcessingSTTRef = useRef(false)
-    const isProcessingVoiceRef = useRef(false)
-    const audioLevelRef = useRef(0)
-    const silenceStartTimeRef = useRef<number | null>(null)
 
     // Audio recording refs
     const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -54,15 +52,7 @@ export function useAudioRecorder({
     const analyserRef = useRef<AnalyserNode | null>(null)
     const animationFrameRef = useRef<number | null>(null)
     const streamRef = useRef<MediaStream | null>(null)
-
-    // We need to use a state-like pattern but avoid excessive re-renders.
-    // Use a forceUpdate mechanism since the parent component manages visible state.
-    const listenerRef = useRef<() => void>(() => { })
-
-    // Expose a way for the parent to subscribe to state changes
-    const notifyStateChange = useCallback(() => {
-        listenerRef.current()
-    }, [])
+    const silenceStartTimeRef = useRef<number | null>(null)
 
     const stopAudioMonitoring = useCallback(() => {
         if (animationFrameRef.current) {
@@ -75,7 +65,8 @@ export function useAudioRecorder({
         }
         analyserRef.current = null
         silenceStartTimeRef.current = null
-        audioLevelRef.current = 0
+        setAudioLevel(0)
+        setSilenceStartTime(null)
     }, [])
 
     const stopRecording = useCallback(() => {
@@ -87,7 +78,7 @@ export function useAudioRecorder({
 
     const startAudioMonitoring = useCallback((stream: MediaStream) => {
         try {
-            const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+            const audioContext = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
             const analyser = audioContext.createAnalyser()
             const microphone = audioContext.createMediaStreamSource(stream)
 
@@ -124,7 +115,7 @@ export function useAudioRecorder({
                 const amplitude = Math.abs(rms) * 100
 
                 const normalizedLevel = Math.min(amplitude / 50, 1)
-                audioLevelRef.current = normalizedLevel
+                setAudioLevel(normalizedLevel)
 
                 if (samplesCollected < calibrationSamples) {
                     backgroundNoiseLevel = (backgroundNoiseLevel * samplesCollected + amplitude) / (samplesCollected + 1)
@@ -143,16 +134,19 @@ export function useAudioRecorder({
                         hasDetectedSpeech = true
                         if (silenceStartTimeRef.current !== null) {
                             silenceStartTimeRef.current = null
+                            setSilenceStartTime(null)
                         }
                     } else if (hasDetectedSpeech) {
                         if (silenceStartTimeRef.current === null) {
                             silenceStartTimeRef.current = Date.now()
+                            setSilenceStartTime(silenceStartTimeRef.current)
                         } else {
                             const silenceDurationMs = Date.now() - silenceStartTimeRef.current
                             if (silenceDurationMs >= silenceDuration) {
                                 console.log('Auto-stopping recording due to silence')
                                 stopRecording()
                                 silenceStartTimeRef.current = null
+                                setSilenceStartTime(null)
                                 return
                             }
                         }
@@ -182,18 +176,20 @@ export function useAudioRecorder({
             const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
 
             let hasMediaDevices = navigator.mediaDevices !== undefined && navigator.mediaDevices !== null
-            const hasWebkitGetUserMedia = typeof (navigator as any).webkitGetUserMedia === 'function'
-            const hasNavigatorGetUserMedia = typeof (navigator as any).getUserMedia === 'function'
-            const hasMozGetUserMedia = typeof (navigator as any).mozGetUserMedia === 'function'
+            const hasWebkitGetUserMedia = typeof (navigator as unknown as Record<string, unknown>).webkitGetUserMedia === 'function'
+            const hasNavigatorGetUserMedia = typeof (navigator as unknown as Record<string, unknown>).getUserMedia === 'function'
+            const hasMozGetUserMedia = typeof (navigator as unknown as Record<string, unknown>).mozGetUserMedia === 'function'
 
             // Polyfill for Safari
             if (!hasMediaDevices && hasWebkitGetUserMedia) {
                 try {
-                    (navigator as any).mediaDevices = (navigator as any).mediaDevices || {}
-                    if (!(navigator as any).mediaDevices.getUserMedia && hasWebkitGetUserMedia) {
-                        (navigator as any).mediaDevices.getUserMedia = (constraints: MediaStreamConstraints) =>
+                    const nav = navigator as unknown as Record<string, unknown>
+                    nav.mediaDevices = nav.mediaDevices || {}
+                    const md = nav.mediaDevices as Record<string, unknown>
+                    if (!md.getUserMedia && hasWebkitGetUserMedia) {
+                        md.getUserMedia = (constraints: MediaStreamConstraints) =>
                             new Promise<MediaStream>((resolve, reject) => {
-                                (navigator as any).webkitGetUserMedia(constraints, resolve, reject)
+                                (nav.webkitGetUserMedia as (c: MediaStreamConstraints, s: (s: MediaStream) => void, e: (e: Error) => void) => void)(constraints, resolve, reject)
                             })
                     }
                 } catch (e) {
@@ -233,17 +229,18 @@ export function useAudioRecorder({
 
             // Acquire microphone stream
             let stream: MediaStream
+            const nav = navigator as unknown as Record<string, unknown>
             if (hasGetUserMedia) {
                 stream = await navigator.mediaDevices.getUserMedia({ audio: AUDIO_CONFIG.RECORDING_OPTIONS })
             } else if (hasWebkitGetUserMedia) {
                 stream = await new Promise<MediaStream>((resolve, reject) =>
-                    (navigator as any).webkitGetUserMedia({ audio: true }, resolve, reject))
+                    (nav.webkitGetUserMedia as (c: MediaStreamConstraints, s: (s: MediaStream) => void, e: (e: Error) => void) => void)({ audio: true }, resolve, reject))
             } else if (hasNavigatorGetUserMedia) {
                 stream = await new Promise<MediaStream>((resolve, reject) =>
-                    (navigator as any).getUserMedia({ audio: true }, resolve, reject))
+                    (nav.getUserMedia as (c: MediaStreamConstraints, s: (s: MediaStream) => void, e: (e: Error) => void) => void)({ audio: true }, resolve, reject))
             } else if (hasMozGetUserMedia) {
                 stream = await new Promise<MediaStream>((resolve, reject) =>
-                    (navigator as any).mozGetUserMedia({ audio: true }, resolve, reject))
+                    (nav.mozGetUserMedia as (c: MediaStreamConstraints, s: (s: MediaStream) => void, e: (e: Error) => void) => void)({ audio: true }, resolve, reject))
             } else {
                 throw new Error('getUserMedia is not available')
             }
@@ -275,10 +272,9 @@ export function useAudioRecorder({
                 }
             }
 
-            mediaRecorder.onerror = (event: any) => {
-                console.error('MediaRecorder error:', event.error)
+            mediaRecorder.onerror = () => {
                 isRecordingRef.current = false
-                notifyStateChange()
+                setIsRecording(false)
                 stream.getTracks().forEach((track) => track.stop())
                 showToast('Bei der Aufnahme ist ein Fehler aufgetreten. Bitte versuch es erneut.', 'error', 4000)
             }
@@ -290,7 +286,7 @@ export function useAudioRecorder({
 
                 if (audioChunksRef.current.length === 0) {
                     isRecordingRef.current = false
-                    notifyStateChange()
+                    setIsRecording(false)
                     if (!voiceOnlyModeRef.current) {
                         showToast('Es wurde kein Audio aufgezeichnet. Bitte versuch es erneut.', 'warning', 4000)
                     }
@@ -307,7 +303,7 @@ export function useAudioRecorder({
 
                 if (!isValidAudioBlob(audioBlob)) {
                     isRecordingRef.current = false
-                    notifyStateChange()
+                    setIsRecording(false)
                     if (!voiceOnlyModeRef.current) {
                         showToast('Die Aufnahme war zu kurz. Bitte versuch es erneut.', 'warning', 4000)
                     }
@@ -322,9 +318,8 @@ export function useAudioRecorder({
                 const fileExtension = getFileExtensionFromMimeType(actualMimeType)
 
                 try {
-                    isProcessingVoiceRef.current = true
-                    isProcessingSTTRef.current = true
-                    notifyStateChange()
+                    setIsProcessingVoice(true)
+                    setIsProcessingSTT(true)
 
                     const formData = new FormData()
                     formData.append('audio', audioBlob, `recording.${fileExtension}`)
@@ -394,9 +389,9 @@ export function useAudioRecorder({
                     }
                 } finally {
                     isRecordingRef.current = false
-                    isProcessingVoiceRef.current = false
-                    isProcessingSTTRef.current = false
-                    notifyStateChange()
+                    setIsRecording(false)
+                    setIsProcessingVoice(false)
+                    setIsProcessingSTT(false)
                 }
             }
 
@@ -404,33 +399,28 @@ export function useAudioRecorder({
             mediaRecorder.start(APP_CONFIG.AUDIO_CHUNK_SIZE_MS)
             triggerHaptic('heavy')
             isRecordingRef.current = true
-            notifyStateChange()
-        } catch (error: any) {
+            setIsRecording(true)
+        } catch (error) {
             console.error('Error accessing microphone:', error)
             isRecordingRef.current = false
-            notifyStateChange()
+            setIsRecording(false)
             const errorMessage = error instanceof Error
                 ? getMicrophoneErrorMessage(error)
                 : ERROR_MESSAGES.MICROPHONE_ACCESS_DENIED
             showToast(errorMessage, 'error', 6000)
         }
-    }, [getAuthHeaders, voiceOnlyModeRef, onVoiceOnlyTranscript, onTranscript, startAudioMonitoring, stopAudioMonitoring, notifyStateChange])
+    }, [getAuthHeaders, voiceOnlyModeRef, onVoiceOnlyTranscript, onTranscript, startAudioMonitoring, stopAudioMonitoring])
 
     return {
-        // Expose state via refs — the parent component will manage React state
-        get isRecording() { return isRecordingRef.current },
-        get isProcessingSTT() { return isProcessingSTTRef.current },
-        get isProcessingVoice() { return isProcessingVoiceRef.current },
-        get audioLevel() { return audioLevelRef.current },
-        get silenceStartTime() { return silenceStartTimeRef.current },
+        isRecording,
+        isProcessingSTT,
+        isProcessingVoice,
+        audioLevel,
+        silenceStartTime,
         startRecording,
         stopRecording,
         startAudioMonitoring,
         stopAudioMonitoring,
-        mediaRecorderRef,
-        audioChunksRef,
-        audioContextRef,
-        analyserRef,
         streamRef,
     }
 }

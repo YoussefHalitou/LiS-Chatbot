@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { APP_CONFIG } from '@/lib/constants'
 import { delay, formatTextForSpeech } from '@/lib/utils'
 import { showToast } from '@/lib/toast'
@@ -38,17 +38,18 @@ export function useAudioPlayback({
     voiceOnlyMode,
     startRecording,
 }: UseAudioPlaybackOptions): UseAudioPlaybackReturn {
+    const [isPlayingAudio, setIsPlayingAudio] = useState(false)
+    const [isGeneratingTTS, setIsGeneratingTTS] = useState(false)
     const audioRef = useRef<HTMLAudioElement | null>(null)
-    const isPlayingAudioRef = useRef(false)
-    const isGeneratingTTSRef = useRef(false)
 
-    // For parent component state sync
-    const setIsPlayingAudio = useCallback((value: boolean) => {
-        isPlayingAudioRef.current = value
-    }, [])
-
-    const setIsGeneratingTTS = useCallback((value: boolean) => {
-        isGeneratingTTSRef.current = value
+    // Cleanup audio on unmount
+    useEffect(() => {
+        return () => {
+            if (audioRef.current) {
+                audioRef.current.pause()
+                audioRef.current = null
+            }
+        }
     }, [])
 
     const unlockAudioForIOS = useCallback(() => {
@@ -215,8 +216,9 @@ export function useAudioPlayback({
 
                 try {
                     await audio.play()
-                } catch (playError: any) {
-                    if (playError.name === 'NotAllowedError') {
+                } catch (playError: unknown) {
+                    const err = playError as { name?: string }
+                    if (err.name === 'NotAllowedError') {
                         setIsPlayingAudio(false)
                         audioRef.current = null
                         if (urlToCleanup) URL.revokeObjectURL(urlToCleanup)
@@ -286,7 +288,7 @@ export function useAudioPlayback({
             }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isRecording, isLoading, voiceOnlyMode, getAuthHeaders, voiceOnlyModeRef, startRecording, setIsPlayingAudio, setIsGeneratingTTS])
+    }, [isRecording, isLoading, voiceOnlyMode, getAuthHeaders, voiceOnlyModeRef, startRecording])
 
     const stopSpeaking = useCallback(() => {
         if (audioRef.current) {
@@ -308,7 +310,7 @@ export function useAudioPlayback({
             }, 300)
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isRecording, isLoading, voiceOnlyModeRef, startRecording, setIsPlayingAudio])
+    }, [isRecording, isLoading, voiceOnlyModeRef, startRecording])
 
     const playLastResponse = useCallback((messages: Array<{ role: string; content: string }>) => {
         unlockAudioForIOS()
@@ -319,8 +321,8 @@ export function useAudioPlayback({
     }, [speakText, unlockAudioForIOS])
 
     return {
-        get isPlayingAudio() { return isPlayingAudioRef.current },
-        get isGeneratingTTS() { return isGeneratingTTSRef.current },
+        isPlayingAudio,
+        isGeneratingTTS,
         speakText,
         stopSpeaking,
         playLastResponse,
