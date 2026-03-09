@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import ChatInterface from '@/components/ChatInterface'
+import DashboardView from '@/components/dashboard/DashboardView'
 import Auth from '@/components/Auth'
 import { getCurrentUser } from '@/lib/supabase-chat'
 import type { User } from '@supabase/supabase-js'
@@ -10,6 +11,7 @@ export default function Home() {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [showAuth, setShowAuth] = useState(false)
+  const [activeView, setActiveView] = useState<'dashboard' | 'chat'>('dashboard')
 
   useEffect(() => {
     async function checkAuth() {
@@ -52,29 +54,35 @@ export default function Home() {
     )
   }
 
-  // Show auth if user wants to login, otherwise show chat interface
-  // Chat interface works with both authenticated (Supabase) and unauthenticated (localStorage) users
-  return (
-    <div className="min-h-screen">
-      {showAuth ? (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-          <div className="w-full max-w-md">
-            <Auth onAuthSuccess={async () => {
-              // Update user state after successful auth
-              const { user } = await getCurrentUser()
-              setUser(user)
-              setShowAuth(false)
-            }} />
-            <div className="mt-4 text-center">
-              <button
-                onClick={() => setShowAuth(false)}
-                className="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
-              >
-                Zurück zum Chat
-              </button>
-            </div>
+  // Show auth if user wants to login
+  if (showAuth) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <div className="w-full max-w-md">
+          <Auth onAuthSuccess={async () => {
+            const { user } = await getCurrentUser()
+            setUser(user)
+            setShowAuth(false)
+          }} />
+          <div className="mt-4 text-center">
+            <button
+              onClick={() => setShowAuth(false)}
+              className="text-sm text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
+            >
+              Zurück
+            </button>
           </div>
         </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen">
+      {activeView === 'dashboard' ? (
+        <DashboardView
+          onNavigateToChat={() => setActiveView('chat')}
+        />
       ) : (
         <ChatInterface
           user={user}
@@ -86,9 +94,9 @@ export default function Home() {
               setUser(null)
             }
           }}
+          onNavigateToDashboard={() => setActiveView('dashboard')}
         />
       )}
     </div>
   )
 }
-

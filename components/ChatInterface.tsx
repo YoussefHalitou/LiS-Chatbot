@@ -29,9 +29,10 @@ interface ChatInterfaceProps {
   user?: User | null
   onLoginClick?: () => void
   onLogout?: () => void
+  onNavigateToDashboard?: () => void
 }
 
-export default function ChatInterface({ user, onLoginClick, onLogout }: ChatInterfaceProps) {
+export default function ChatInterface({ user, onLoginClick, onLogout, onNavigateToDashboard }: ChatInterfaceProps) {
   // ─── Modals & UI chrome ─────────────────────────────────────────
   const [showChatSidebar, setShowChatSidebar] = useState(false)
   const [showSearchModal, setShowSearchModal] = useState(false)
