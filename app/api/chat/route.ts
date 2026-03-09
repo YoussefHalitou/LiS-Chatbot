@@ -11,7 +11,8 @@ import { rateLimitMiddleware, getClientIdentifier } from '@/lib/rate-limit'
 import { authenticateRequest } from '@/lib/auth-middleware'
 import { checkPermission, getPermissionDeniedMessage } from '@/lib/rbac'
 import { createRequestLogger } from '@/lib/logger'
-import type { ChatRequest } from '@/types'
+import type { ChatRequest, OpenAIMessage, ToolCallItem, Message } from '@/types'
+import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
 
 // Extracted modules
 import { SYSTEM_PROMPT, buildSystemPrompt } from '@/lib/chat/system-prompt'
@@ -94,7 +95,7 @@ export async function POST(req: NextRequest) {
     // Check for recent insertRow, updateRow, or deleteRow tool calls in message history
 
     // Helper to check if a tool call was already executed (success message exists after it)
-    const wasToolCallExecuted = (toolCallMessage: any, successPatterns: string[]): boolean => {
+    const wasToolCallExecuted = (toolCallMessage: Message | undefined, successPatterns: string[]): boolean => {
       if (!toolCallMessage) return false
       const toolCallIndex = messages.indexOf(toolCallMessage)
       if (toolCallIndex === -1) return false
@@ -117,7 +118,7 @@ export async function POST(req: NextRequest) {
       .find((message) => {
         if (message.role !== 'assistant' || !message.tool_calls) return false
         return message.tool_calls.some(
-          (tc: any) => tc.function?.name === 'insertRow'
+          (tc: ToolCallItem) => tc.function?.name === 'insertRow'
         )
       })
 
@@ -126,7 +127,7 @@ export async function POST(req: NextRequest) {
       .find((message) => {
         if (message.role !== 'assistant' || !message.tool_calls) return false
         return message.tool_calls.some(
-          (tc: any) => tc.function?.name === 'updateRow'
+          (tc: ToolCallItem) => tc.function?.name === 'updateRow'
         )
       })
 
@@ -135,7 +136,7 @@ export async function POST(req: NextRequest) {
       .find((message) => {
         if (message.role !== 'assistant' || !message.tool_calls) return false
         return message.tool_calls.some(
-          (tc: any) => tc.function?.name === 'deleteRow'
+          (tc: ToolCallItem) => tc.function?.name === 'deleteRow'
         )
       })
 
@@ -161,7 +162,7 @@ export async function POST(req: NextRequest) {
         // If there was an insert, try to show the created entry
         if (insertAlreadyExecuted && recentInsertToolCall?.tool_calls) {
           const insertToolCall = recentInsertToolCall.tool_calls.find(
-            (tc: any) => tc.function?.name === 'insertRow'
+            (tc: ToolCallItem) => tc.function?.name === 'insertRow'
           )
           if (insertToolCall) {
             try {
@@ -169,8 +170,8 @@ export async function POST(req: NextRequest) {
               const tableName = functionArgs.tableName
               // Extract the name from conversation to query
               const userMessages = messages
-                .filter((m: any) => m.role === 'user')
-                .map((m: any) => m.content)
+                .filter((m: Message) => m.role === 'user')
+                .map((m: Message) => m.content)
                 .join(' ')
               const nameMatch = userMessages.match(/(?:namens?|projekt|genannt|name)\s*['"´`]([^'"´`]+)['"´`]/i) ||
                 userMessages.match(/(?:neues?\s+projekt|erstelle.*projekt)\s+(\w+)/i)
@@ -216,7 +217,7 @@ export async function POST(req: NextRequest) {
         // First, check for delete confirmation
         if (recentDeleteToolCall?.tool_calls && !deleteAlreadyExecuted) {
           const deleteToolCall = recentDeleteToolCall.tool_calls.find(
-            (tc: any) => tc.function?.name === 'deleteRow'
+            (tc: ToolCallItem) => tc.function?.name === 'deleteRow'
           )
           if (deleteToolCall) {
             try {
@@ -279,7 +280,7 @@ export async function POST(req: NextRequest) {
         // Then, check for update confirmation
         if (recentUpdateToolCall?.tool_calls && !updateAlreadyExecuted) {
           const updateToolCall = recentUpdateToolCall.tool_calls.find(
-            (tc: any) => tc.function?.name === 'updateRow'
+            (tc: ToolCallItem) => tc.function?.name === 'updateRow'
           )
           if (updateToolCall) {
             try {
@@ -344,7 +345,7 @@ export async function POST(req: NextRequest) {
 
         if (recentInsertToolCall?.tool_calls && !insertAlreadyExecuted) {
           const insertToolCall = recentInsertToolCall.tool_calls.find(
-            (tc: any) => tc.function?.name === 'insertRow'
+            (tc: ToolCallItem) => tc.function?.name === 'insertRow'
           )
 
           if (insertToolCall) {
@@ -359,8 +360,8 @@ export async function POST(req: NextRequest) {
 
                 // Get all user messages to extract values
                 const userMessages = messages
-                  .filter((m: any) => m.role === 'user')
-                  .map((m: any) => m.content)
+                  .filter((m: Message) => m.role === 'user')
+                  .map((m: Message) => m.content)
                   .join(' ');
 
                 if (functionArgs.tableName === 't_projects') {
@@ -639,7 +640,7 @@ export async function POST(req: NextRequest) {
     const systemPromptWithTime = `${SYSTEM_PROMPT}${contextInfo}\n\nAKTUELLE SYSTEMZEIT:\n- ISO (UTC): ${now.toISOString()}\n- Europa/Berlin: ${berlinTime}\n- Berlin (ISO-ähnlich, Datum): ${berlinIsoDate}\n- Berlin (ISO-ähnlich, Datum+Zeit 24h): ${berlinIsoDateTime}\n- Berlin (ISO-Offset): ${berlinIsoDateTimeWithOffset}\n- Aktuelle Kalenderwoche (Mo-So, Berlin): ${berlinWeekRange}\n- HEUTE (für Filter): ${berlinIsoDate}\n\nNutze diese Angaben direkt, wenn nach dem aktuellen Datum oder der aktuellen Uhrzeit gefragt wird. Berechne relative Zeitangaben (z.B. gestern, morgen, übermorgen, letzte Woche, nächste Woche) ausschließlich auf Basis der Berlin-Zeit und filtere Woche/"Kalenderwoche"-Anfragen strikt auf ${berlinWeekRange}.\n\n**WICHTIG FÜR ZUKUNFTSFILTER**: Wenn der Nutzer nach "zukünftigen", "nächsten", "noch nicht erledigten" Projekten/Einsätzen fragt, verwende IMMER einen Filter mit plan_date >= '${berlinIsoDate}' oder project_date >= '${berlinIsoDate}'. Nur Datensätze mit Datum >= ${berlinIsoDate} sind zukünftig!`
 
     // Prepare messages for OpenAI
-    const openaiMessages: any[] = [
+    const openaiMessages: OpenAIMessage[] = [
       {
         role: 'system',
         content: systemPromptWithTime,
@@ -648,7 +649,7 @@ export async function POST(req: NextRequest) {
 
     // Add user messages and assistant responses
     // Track tool calls and their responses to ensure proper message structure
-    const toolResponses = new Map<string, any>()
+    const toolResponses = new Map<string, OpenAIMessage>()
 
     // First pass: collect tool responses
     for (const message of messages) {
@@ -664,15 +665,15 @@ export async function POST(req: NextRequest) {
     // Second pass: build OpenAI messages with proper tool call structure
     for (let i = 0; i < messages.length; i++) {
       const message = messages[i]
-      const openaiMessage: any = {
+      const openaiMessage: OpenAIMessage = {
         role: message.role,
         content: message.content,
       }
 
       // For assistant messages with tool_calls, only include them if we have all tool responses
       if (message.role === 'assistant' && message.tool_calls) {
-        const allToolCallsHaveResponses = message.tool_calls.every((tc: any) =>
-          toolResponses.has(tc.id)
+        const allToolCallsHaveResponses = message.tool_calls.every((tc: ToolCallItem) =>
+          tc.id ? toolResponses.has(tc.id) : false
         )
 
         if (allToolCallsHaveResponses) {
@@ -771,7 +772,7 @@ export async function POST(req: NextRequest) {
 }
 
 async function handleNonStreamingCompletion(
-  openaiMessages: any[],
+  openaiMessages: OpenAIMessage[],
   requestedDateRange: DateRange | null,
   requestedProjectIdentifiers: {
     projectId: string | null
@@ -783,7 +784,7 @@ async function handleNonStreamingCompletion(
   // Create a completion with tools (function calling) for database queries
   const completion = await getOpenAIClient().chat.completions.create({
     model: 'gpt-4o',
-    messages: openaiMessages,
+    messages: openaiMessages as ChatCompletionMessageParam[],
     tools: getToolDefinitions(),
     tool_choice: 'auto',
     temperature: 0.3, // Lower temperature to reduce hallucinations and be more factual
@@ -810,7 +811,7 @@ async function handleNonStreamingCompletion(
     // Get the final response from OpenAI after tool execution
     const finalCompletion = await getOpenAIClient().chat.completions.create({
       model: 'gpt-4o',
-      messages: openaiMessages,
+      messages: openaiMessages as ChatCompletionMessageParam[],
       temperature: 0.3, // Lower temperature to reduce hallucinations and be more factual
     })
 

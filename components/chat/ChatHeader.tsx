@@ -14,8 +14,10 @@
  */
 
 import React from 'react'
-import { Search, Download, Keyboard, Moon, Sun, MessageSquare, X, Trash2, User, LogOut } from 'lucide-react'
+import { Search, Download, Keyboard, Moon, Sun, MessageSquare, X, Trash2, User as UserIcon, LogOut } from 'lucide-react'
 import ConnectionStatus from '@/components/ConnectionStatus'
+import type { User } from '@supabase/supabase-js'
+import type { Message } from '@/types'
 
 interface ChatHeaderProps {
     voiceOnlyMode: boolean
@@ -29,8 +31,8 @@ interface ChatHeaderProps {
     setShowShortcutsModal: (show: boolean) => void
     exitVoiceOnlyMode: () => void
     clearChat: () => void
-    messages: any[]
-    user?: any
+    messages: Message[]
+    user?: User | null
     onLoginClick?: () => void
     onLogout?: () => void
 }
@@ -168,7 +170,7 @@ export default function ChatHeader({
                                         className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors touch-manipulation text-xs sm:text-sm font-medium"
                                         title="Anmelden"
                                     >
-                                        <User className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                                        <UserIcon className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                                         <span>Anmelden</span>
                                     </button>
                                 )}

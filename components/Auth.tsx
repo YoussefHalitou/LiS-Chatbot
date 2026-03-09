@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
+import type { User } from '@supabase/supabase-js'
 
 interface AuthProps {
   onAuthSuccess?: () => void
@@ -13,12 +14,12 @@ export default function Auth({ onAuthSuccess }: AuthProps) {
   const [isSignUp, setIsSignUp] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [user, setUser] = useState<any>(null)
+  const [user, setUser] = useState<User | null>(null)
 
   useEffect(() => {
     // Check if user is already logged in
     checkUser()
-    
+
     // Listen for auth changes
     if (supabase) {
       const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -35,7 +36,7 @@ export default function Auth({ onAuthSuccess }: AuthProps) {
 
   async function checkUser() {
     if (!supabase) return
-    
+
     const { data: { user } } = await supabase.auth.getUser()
     setUser(user)
     if (user && onAuthSuccess) {
@@ -103,7 +104,7 @@ export default function Auth({ onAuthSuccess }: AuthProps) {
 
   async function handleSignOut() {
     if (!supabase) return
-    
+
     setLoading(true)
     try {
       await supabase.auth.signOut()

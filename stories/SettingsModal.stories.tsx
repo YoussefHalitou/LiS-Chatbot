@@ -60,6 +60,8 @@ export const WithLoggedInUser: Story = {
       aud: 'authenticated',
       role: 'user',
       created_at: '2024-01-01',
+      app_metadata: {},
+      user_metadata: {},
     },
   },
   parameters: {

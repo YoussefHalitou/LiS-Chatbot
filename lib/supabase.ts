@@ -98,7 +98,7 @@ export async function executeQuery(query: string) {
 /**
  * Execute a query using Supabase RPC (recommended approach)
  */
-export async function executeRPC(functionName: string, params: Record<string, any> = {}) {
+export async function executeRPC(functionName: string, params: Record<string, unknown> = {}) {
   try {
     if (!supabaseAdmin) {
       throw new Error('Service role key not configured')

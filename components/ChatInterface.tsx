@@ -23,9 +23,10 @@ import { useChatMessages } from '@/hooks/useChatMessages'
 import { useAudioRecorder } from '@/hooks/useAudioRecorder'
 import { useAudioPlayback } from '@/hooks/useAudioPlayback'
 import { useVoiceMode } from '@/hooks/useVoiceMode'
+import type { User } from '@supabase/supabase-js'
 
 interface ChatInterfaceProps {
-  user?: Record<string, unknown>
+  user?: User | null
   onLoginClick?: () => void
   onLogout?: () => void
 }

@@ -844,7 +844,7 @@ export async function updateRow(
 
 export async function deleteRow(
   tableName: string,
-  filters: Record<string, any>,
+  filters: Record<string, unknown>,
   options?: {
     userId?: string
     ipAddress?: string
@@ -1081,7 +1081,7 @@ export async function queryTableWithJoin(
   tableName: string,
   joinTable: string,
   joinColumn?: string,
-  filters: Record<string, any> = {},
+  filters: Record<string, unknown> = {},
   limit: number = 100
 ) {
   if (!supabaseAdmin) {

@@ -48,29 +48,31 @@ export const markdownComponents: Components = {
     ),
 
     // List Items - card-like styling with icons
-    li: ({ node, ordered, ...props }: any) => {
+    li: (props: React.ComponentPropsWithoutRef<'li'> & { node?: unknown; ordered?: boolean }) => {
+        const { node, ordered, ...rest } = props
         return (
             <li
                 className="relative pl-6 text-gray-800 dark:text-slate-200 leading-[1.65] py-0.5 list-item-custom"
                 style={{ wordBreak: 'normal', overflowWrap: 'break-word' }}
-                {...props}
+                {...rest}
             />
         )
     },
 
     // Code - enhanced with better contrast
-    code: ({ node, inline, className, children, ...props }: any) => {
+    code: (props: React.ComponentPropsWithoutRef<'code'> & { node?: unknown; inline?: boolean; className?: string }) => {
+        const { node, inline, className, children, ...rest } = props
         return inline ? (
             <code
                 className="bg-blue-50 dark:bg-slate-700 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded text-[0.9em] font-mono border border-blue-100 dark:border-slate-600"
-                {...props}
+                {...rest}
             >
                 {children}
             </code>
         ) : (
             <code
                 className="block bg-gray-900 dark:bg-slate-950 text-gray-100 dark:text-slate-200 p-4 rounded-xl text-sm font-mono overflow-x-auto my-4 shadow-lg border border-gray-700 dark:border-slate-700"
-                {...props}
+                {...rest}
             >
                 {children}
             </code>

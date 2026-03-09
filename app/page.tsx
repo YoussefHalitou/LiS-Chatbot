@@ -4,9 +4,10 @@ import { useState, useEffect } from 'react'
 import ChatInterface from '@/components/ChatInterface'
 import Auth from '@/components/Auth'
 import { getCurrentUser } from '@/lib/supabase-chat'
+import type { User } from '@supabase/supabase-js'
 
 export default function Home() {
-  const [user, setUser] = useState<any>(null)
+  const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const [showAuth, setShowAuth] = useState(false)
 
@@ -34,7 +35,7 @@ export default function Home() {
       }
     }
     const cleanup = setupAuthListener()
-    
+
     return () => {
       cleanup.then(cleanupFn => cleanupFn?.())
     }
@@ -75,7 +76,7 @@ export default function Home() {
           </div>
         </div>
       ) : (
-        <ChatInterface 
+        <ChatInterface
           user={user}
           onLoginClick={() => setShowAuth(true)}
           onLogout={async () => {

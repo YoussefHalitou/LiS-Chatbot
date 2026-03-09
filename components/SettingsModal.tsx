@@ -1,8 +1,9 @@
 'use client'
 
-import { X, Moon, Sun, Download, Keyboard, Trash2, LogOut, User, LucideIcon } from 'lucide-react'
+import { X, Moon, Sun, Download, Keyboard, Trash2, LogOut, User as UserIcon, LucideIcon } from 'lucide-react'
 import { useTheme } from '@/lib/theme-context'
 import { triggerHaptic } from '@/lib/utils'
+import type { User } from '@supabase/supabase-js'
 
 interface SettingsItem {
   icon: LucideIcon
@@ -18,7 +19,7 @@ interface SettingsModalProps {
   onExportClick: () => void
   onShortcutsClick: () => void
   onClearChat: () => void
-  user?: any
+  user?: User | null
   onLoginClick?: () => void
   onLogout?: () => void
 }
@@ -96,7 +97,7 @@ export default function SettingsModal({
           color: 'text-red-600 dark:text-red-400',
           subtitle: user.email
         } : {
-          icon: User,
+          icon: UserIcon,
           label: 'Anmelden',
           onClick: () => handleAction(onLoginClick!),
           color: 'text-blue-600 dark:text-blue-400'
@@ -108,15 +109,15 @@ export default function SettingsModal({
   return (
     <>
       {/* Backdrop */}
-      <div 
+      <div
         className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 modal-overlay"
         onClick={onClose}
         aria-hidden="true"
       />
-      
+
       {/* Modal */}
       <div className="fixed inset-x-0 bottom-0 sm:inset-0 z-50 flex items-end sm:items-center justify-center">
-        <div 
+        <div
           className="bg-white dark:bg-slate-800 w-full sm:max-w-lg sm:rounded-2xl rounded-t-3xl shadow-2xl modal-mobile overflow-hidden max-h-[85vh] sm:max-h-[90vh] flex flex-col"
           onClick={(e) => e.stopPropagation()}
         >

@@ -10,11 +10,11 @@ export interface AuditLogEntry {
   tableName: string
   userId?: string
   ipAddress?: string
-  filters?: Record<string, any>
-  values?: Record<string, any>
+  filters?: Record<string, unknown>
+  values?: Record<string, unknown>
   result: 'SUCCESS' | 'FAILURE'
   error?: string
-  metadata?: Record<string, any>
+  metadata?: Record<string, unknown>
 }
 
 /**
@@ -50,10 +50,10 @@ export function createAuditLog(
   options: {
     userId?: string
     ipAddress?: string
-    filters?: Record<string, any>
-    values?: Record<string, any>
+    filters?: Record<string, unknown>
+    values?: Record<string, unknown>
     error?: string
-    metadata?: Record<string, any>
+    metadata?: Record<string, unknown>
   } = {}
 ): AuditLogEntry {
   const entry: AuditLogEntry = {

@@ -17,6 +17,7 @@ import { Mic, MicOff, Volume2, Send, Loader2, X, Sparkles } from 'lucide-react'
 import EmojiPicker from '@/components/EmojiPicker'
 import { APP_CONFIG, UI_CONFIG } from '@/lib/constants'
 import { triggerHaptic } from '@/lib/utils'
+import type { Message } from '@/types'
 
 interface ChatInputProps {
     input: string
@@ -25,7 +26,7 @@ interface ChatInputProps {
     isLoading: boolean
     isPlayingAudio: boolean
     voiceOnlyMode: boolean
-    messages: any[]
+    messages: Message[]
     smartReplySuggestions: string[]
     textareaRef: React.RefObject<HTMLTextAreaElement>
     autoExpandTextarea: () => void
